@@ -1,0 +1,17 @@
+# 最小示例 config_step1（对照 Example/README.md 逐步替换路径）
+# Minimal demo config_step1 (replace the paths following Example/README.md)
+result_dir	D:/demo
+search_engine	pfind
+psm_file	D:/demo/pFind_result/pFind-Filtered.spectra
+fasta	D:/demo/proteome.fa
+label_type	unlabeled
+enzyme	trypsin
+mgf	D:/demo/raw
+auto_search	1
+pfind_exe	D:/Bioinformatics/pFind3.1
+use_pdeep2	0
+instrument	Lumos
+pdf_on	0
+denovo_lookback	keep
+candidate_scope	filtered
+proteogenomics_mode	0

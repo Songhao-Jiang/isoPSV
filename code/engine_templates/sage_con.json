@@ -1,0 +1,36 @@
+{
+  "database": {
+    "fasta": "{FASTA}",
+    "enzyme": {
+      "missed_cleavages": 3,
+      "min_len": 6,
+      "max_len": 60,
+      "cleave_at": "KR",
+      "restrict": "P",
+      "c_terminal": true,
+      "semi_enzymatic": false
+    },
+    "peptide_min_mass": 500.0,
+    "peptide_max_mass": 7000.0,
+    "ion_kinds": ["b", "y"],
+    "static_mods": { "C": 57.021464 },
+    "variable_mods": {
+      "M": [15.9949],
+      "^[": [42.010565],
+      "N": [0.984016],
+      "Q": [0.984016]
+    },
+    "max_variable_mods": 2,
+    "decoy_tag": "REV_",
+    "generate_decoys": true
+  },
+  "precursor_tol": { "ppm": [-20, 20] },
+  "fragment_tol": { "ppm": [-20, 20] },
+  "precursor_charge": [2, 4],
+  "deisotope": false,
+  "predict_rt": false,
+  "min_peaks": 10,
+  "report_psms": 1,
+  "output_directory": "{OUT}",
+  "mzml_paths": ["{MZML}"]
+}

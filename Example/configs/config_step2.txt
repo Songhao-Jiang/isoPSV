@@ -1,0 +1,7 @@
+# 最小示例 config_step2：仅 pFind 家族（自动）；外部引擎示例行见 docs/parameters.md
+# Minimal demo config_step2: pFind family only (auto); external-engine sample rows in docs/parameters.md
+base_config	config_step1.txt
+search_file	(auto:pfind_open)
+search_file_type	pfind_open
+search_file	(auto:pfind_restrict)
+search_file_type	pfind_restrict

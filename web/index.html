@@ -1,0 +1,1663 @@
+<!DOCTYPE html>
+<html lang="en" class="lang-en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>isoPSV 多引擎竞争验证 · 网页版</title>
+<style>
+:root{
+  --ink:#1e2d3d;--sub:#5b7284;--line:#d5dfe8;--bg:#f4f7fa;--card:#fff;
+  --ac:#0b6b8a;--ac2:#0e8a5f;--ac3:#8a5fae;--ac4:#c76a4a;
+  --warn:#9a6700;--err:#c0392b;
+  --soft:#eaf3f8;--soft2:#e8f5ef;--soft3:#fdf3e0;--soft4:#f3eefa;--soft5:#fdf0ec;
+  --sb:#152836;--sb2:#1c3a4c;
+  --r:6px;--r2:10px;
+  --sh:0 1px 3px rgba(20,50,80,.07);--sh2:0 3px 10px rgba(20,50,80,.10);
+  --fs:"Segoe UI","Microsoft YaHei","PingFang SC",sans-serif;
+  --fm:Consolas,"Courier New",monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--fs);color:var(--ink);background:var(--bg);font-size:14.5px;line-height:1.65}
+
+/* === 布局 === */
+.layout{display:flex;min-height:100vh}
+.sidebar{width:230px;background:var(--sb);color:#c0d4e0;flex:0 0 auto;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto}
+.main{flex:1;padding:24px 32px 80px;max-width:1060px;min-width:0}
+
+/* === 侧栏 === */
+.brand{padding:22px 18px 14px;border-bottom:1px solid #28465a}
+.brand h1{font-size:1.08em;color:#fff;letter-spacing:.3px;display:flex;align-items:center;gap:6px}
+.brand .sub{font-size:.76em;opacity:.55;margin-top:1px}
+.nav{list-style:none;padding:6px 0;flex:1}
+.nav li{padding:9px 16px 9px 22px;cursor:pointer;font-size:.9em;border-left:3px solid transparent;display:flex;align-items:center;gap:8px;transition:all .15s}
+.nav li:hover{background:var(--sb2)}
+.nav li.active{background:var(--sb2);border-left-color:#4db3d6;color:#fff}
+.nav .num{flex:0 0 20px;height:20px;border-radius:50%;background:#2a4a5e;color:#8fc8e0;font-size:.72em;display:flex;align-items:center;justify-content:center;font-weight:700}
+.nav li.active .num{background:#4db3d6;color:#152836}
+.nav .en{display:block;font-size:.72em;opacity:.45}
+.sb-foot{padding:12px 18px;border-top:1px solid #28465a;font-size:.7em;opacity:.35;line-height:1.5}
+
+/* === 卡片 === */
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r2);padding:20px 24px;margin:0 0 16px;box-shadow:var(--sh);transition:box-shadow .18s}
+.card:hover{box-shadow:var(--sh2)}
+.card h2{font-size:1.05em;color:var(--ac);margin-bottom:4px;display:flex;align-items:center;gap:8px}
+.h2en{font-size:.78em;color:#8ca3b5;font-weight:normal}
+.sub{color:var(--sub);font-size:.86em;margin:0 0 16px}
+.chip{display:inline-flex;align-items:center;background:var(--soft);color:var(--ac);border-radius:14px;padding:1px 12px;font-size:.8em;font-weight:600}
+
+/* === 表单区块 === */
+.blk{border-radius:var(--r2);padding:14px 18px 12px;margin:0 0 14px;border:1px solid var(--line);position:relative}
+.blk h3{font-size:.95em;display:flex;align-items:center;gap:6px;margin-bottom:4px}
+.blk h3 .bn{display:inline-flex;width:22px;height:22px;border-radius:50%;align-items:center;justify-content:center;font-size:.78em;font-weight:700;color:#fff}
+.b3en{font-size:.76em;color:var(--sub);font-weight:normal;display:block}
+.blk.data  {background:linear-gradient(135deg,#eaf3f8,#f2f8fc);border-color:#c3d9ea}.blk.data .bn{background:#4a90c9}
+.blk.label {background:linear-gradient(135deg,#e8f5ef,#f0faf5);border-color:#b5dfcc}.blk.label .bn{background:#3d9b6f}
+.blk.search{background:linear-gradient(135deg,#fdf3e0,#fef9f0);border-color:#e2d2b0}.blk.search .bn{background:#c9973f}
+.blk.pred  {background:linear-gradient(135deg,#f3eefa,#f8f4fd);border-color:#d5c8ec}.blk.pred .bn{background:#8a5fae}
+.blk.engine{background:linear-gradient(135deg,#fdf0ec,#fef6f3);border-color:#e5c5ba}.blk.engine .bn{background:#c76a4a}
+
+/* === 表单元素 === */
+label{display:block;margin:10px 0 3px;font-size:.85em;color:var(--sub);font-weight:500}
+label .en{display:block;color:#8ca3b5;font-size:.85em;font-weight:normal}
+.field{display:flex;gap:6px;align-items:stretch}
+input,select,textarea{flex:1;padding:7px 10px;border:1px solid var(--line);border-radius:var(--r);font-size:.9em;background:#fafcfe;font-family:var(--fs);color:var(--ink);transition:border .12s}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--ac);box-shadow:0 0 0 2px rgba(11,107,138,.08)}
+input::placeholder{color:#b8c8d4}
+textarea{font-family:var(--fm);font-size:.84em}
+.pick{flex:0 0 auto;padding:6px 10px;border:1px solid var(--line);border-radius:var(--r);background:#fff;color:var(--ac);cursor:pointer;font-size:.8em;white-space:nowrap;transition:all .12s;text-align:center;line-height:1.35}
+.pick:hover{background:var(--soft);border-color:var(--ac)}
+.pick .pe{display:block;font-size:.85em;color:#8ca3b5}
+.row{display:flex;gap:16px}.row>div{flex:1;min-width:0}
+.vrow{margin:8px 0}.vrow .field{width:100%}
+
+/* === 按钮 === */
+.btn{padding:9px 20px;border:none;border-radius:var(--r);background:var(--ac);color:#fff;font-size:.9em;font-weight:600;cursor:pointer;margin:12px 8px 0 0;transition:all .15s;box-shadow:0 1px 4px rgba(11,107,138,.18)}
+.btn:hover{filter:brightness(.92)}
+.btn:active{transform:translateY(1px)}
+.btn.green{background:var(--ac2)}
+.btn.red{background:var(--err)}
+.btn.ghost{background:transparent;color:var(--ac);border:1.5px solid var(--ac);box-shadow:none}
+.btn.ghost:hover{background:var(--soft)}
+.btn .be{display:block;font-size:.76em;font-weight:normal;opacity:.75}
+
+/* === 日志 === */
+#log{background:#1a2634;color:#c8dae8;font-family:var(--fm);font-size:.82em;padding:14px;border-radius:var(--r);height:340px;overflow-y:auto;white-space:pre-wrap;margin-top:12px;border:1px solid #263a4c}
+
+/* === 状态 === */
+.badge{display:inline-flex;align-items:center;gap:5px;padding:3px 12px;border-radius:14px;font-size:.85em;font-weight:600}
+.badge.run{background:#fde8e6;color:var(--err)}.badge.idle{background:#e2f2ec;color:var(--ac2)}
+.badge .dot{width:7px;height:7px;border-radius:50%}
+.badge.run .dot{background:var(--err);animation:pulse 1.3s infinite}
+.badge.idle .dot{background:var(--ac2)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+
+/* === 表格 === */
+.tbl{width:100%;border-collapse:collapse;margin-top:10px;font-size:.87em}
+.tbl th{background:var(--soft);color:var(--ac);font-weight:600;padding:7px 10px;text-align:left;border:1px solid var(--line)}
+.tbl td{border:1px solid var(--line);padding:6px 10px}
+.tbl tr:nth-child(even) td{background:#f8fafc}
+
+/* === 槽位 === */
+.slotbar{display:flex;gap:4px;flex-wrap:wrap;margin:8px 0}
+.slot{width:30px;height:30px;border-radius:var(--r);display:flex;align-items:center;justify-content:center;font-size:.8em;font-weight:700;color:#fff;cursor:default;transition:transform .12s;position:relative}
+.slot:hover{transform:scale(1.15);z-index:2}
+.slot.off{background:#cbd6e0;opacity:.45}
+.slot.a{background:linear-gradient(135deg,#4a90c9,#3574a8)}.slot.b{background:linear-gradient(135deg,#50a77e,#3d8a64)}
+.slot.c{background:linear-gradient(135deg,#d4a03f,#bd8d33)}.slot.d{background:linear-gradient(135deg,#9b6bb3,#83579e)}
+.slot.e{background:linear-gradient(135deg,#d97b6c,#c06053)}.slot.f,.slot.g,.slot.h,.slot.i,.slot.j,.slot.k,.slot.l{background:linear-gradient(135deg,#6b8dad,#56788f)}
+.slot .tip{display:none;position:absolute;bottom:calc(100%+4px);left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:3px 8px;border-radius:4px;font-size:.7em;font-weight:normal;white-space:nowrap;z-index:5}
+.slot:hover .tip{display:block}
+
+/* === 策略行 === */
+.srow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:6px 0;padding:6px 10px;border:1px solid var(--line);border-radius:var(--r);background:#fafcfe;transition:box-shadow .12s}
+.srow:hover{box-shadow:var(--sh)}
+.srow select{flex:0 0 150px}
+.srow .sl{flex:0 0 26px;text-align:center;font-weight:700;color:var(--ac);font-size:1em}
+.srow .del{flex:0 0 auto;padding:3px 8px;border:1px solid rgba(192,57,43,.25);border-radius:4px;background:transparent;color:var(--err);cursor:pointer;font-size:.82em;transition:all .12s}
+.srow .del:hover{background:var(--err);color:#fff;border-color:var(--err)}
+
+/* === 通用 === */
+.note{background:var(--soft3);border-left:3px solid #d4a03f;padding:10px 14px;border-radius:var(--r);font-size:.86em;margin:10px 0}
+.msg{font-size:.86em;color:var(--warn);margin-top:8px;white-space:pre-line}
+pre.cmd{background:#eef2f7;padding:12px 14px;border-radius:var(--r);font-size:.85em;font-family:var(--fm);border:1px solid var(--line)}
+pre.cite{background:#f7f4ee;padding:14px;border-radius:var(--r);font-size:.92em;border:1px solid #e5dcc8}
+.hint{font-size:.82em;color:#8ca3b5}
+.sec{display:none;animation:fade .22s ease}.sec.show{display:block}
+@keyframes fade{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+.rep-frame{width:100%;height:calc(100vh - 180px);min-height:480px;border:1px solid var(--line);border-radius:var(--r);margin-top:12px;background:#fff;box-shadow:var(--sh)}
+
+/* === 交互细节（2026-09-23 精修） === */
+input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-visible{outline:2px solid var(--ac);outline-offset:1px}
+.flash{animation:flashbg 1.4s ease}
+@keyframes flashbg{0%{background:#fff6d8;border-color:#e2b93d}100%{background:#fafcfe;border-color:var(--line)}}
+.btn:disabled{opacity:.55;cursor:not-allowed;filter:none;transform:none}
+.srow .sl{background:linear-gradient(135deg,#6b8dad,#56788f);color:#fff;border-radius:var(--r);height:22px;display:flex;align-items:center;justify-content:center;font-size:.72em}
+.srow .sl.b{background:linear-gradient(135deg,#50a77e,#3d8a64)}.srow .sl.c{background:linear-gradient(135deg,#d4a03f,#bd8d33)}
+.srow .sl.d{background:linear-gradient(135deg,#9b6bb3,#83579e)}.srow .sl.e{background:linear-gradient(135deg,#d97b6c,#c06053)}
+.ext-raw-box{flex-basis:100%;width:100%;margin-top:6px;border-top:1px dashed var(--line);padding-top:6px}
+.srow .ext-mode{flex:0 0 122px}
+
+/* === 响应式 === */
+@media(max-width:768px){
+  .layout{flex-direction:column}
+  .sidebar{width:100%;height:auto;position:static}
+  .nav{display:flex;overflow-x:auto;padding:0}
+  .nav li{border-left:none;border-bottom:3px solid transparent;white-space:nowrap}
+  .nav li.active{border-bottom-color:#4db3d6}
+  .main{padding:14px 14px 60px}
+  .row{flex-direction:column;gap:0}
+}
+
+/* === v1.0 语言切换（默认 en；.zh 与 .en 系列按 html 语言类显隐） === */
+html.lang-en .zh{display:none}
+html.lang-zh .en,html.lang-zh .pe,html.lang-zh .be,html.lang-zh .h2en,html.lang-zh .b3en{display:none}
+/* v1.0：单语显示时 .en 系列不再是小号副标——字号/颜色/粗细全部继承父级 */
+html.lang-en .en{display:inline;font-size:inherit;color:inherit;opacity:1;font-weight:inherit}
+html.lang-en .pe{display:inline;font-size:inherit;color:inherit}
+html.lang-en .be{display:inline;font-size:inherit;opacity:1;font-weight:inherit}
+html.lang-en .h2en{font-size:inherit;color:inherit;font-weight:inherit}
+html.lang-en .b3en{display:inline;font-size:inherit;color:inherit;font-weight:inherit}
+</style>
+</head>
+<body>
+<div class="layout">
+
+<!-- ═══════════ 侧栏 ═══════════ -->
+<div class="sidebar">
+  <div class="brand">
+    <h1>&#9711; isoPSV <span style="font-weight:300">Multi-Engine</span></h1>
+    <div class="sub">Competitive Spectrum Validation</div>
+    <button id="langBtn" class="pick" style="width:100%;margin-top:10px;padding:5px 0;font-size:12.5px" onclick="setLang(LANG==='en'?'zh':'en')" title="Switch language / 切换语言">&#127760; 中文</button>
+  </div>
+  <ul class="nav">
+    <li class="active" onclick="show('sec0',this)"><span class="num">1</span><span><span class="zh">参数填写<br></span><span class="en">Parameters</span></span></li>
+    <li onclick="show('sec5',this)"><span class="num">2</span><span><span class="zh">多引擎策略<br></span><span class="en">Strategies</span></span></li>
+    <li onclick="show('sec7',this)"><span class="num">3</span><span><span class="zh">理论谱图预测<br></span><span class="en">Predictors</span></span></li>
+    <li onclick="show('sec8',this);renderParamSummary();generateAllParams()"><span class="num">&#9776;</span><span><span class="zh">参数汇总<br></span><span class="en">Summary</span></span></li>
+    <li onclick="show('sec1',this)"><span class="num">4</span><span><span class="zh">运行与日志<br></span><span class="en">Run</span></span></li>
+    <li onclick="show('sec2',this)"><span class="num">&#8635;</span><span><span class="zh">停点续接<br></span><span class="en">Resume</span></span></li>
+    <li onclick="show('sec3',this)"><span class="num">&#9635;</span><span><span class="zh">结果报告<br></span><span class="en">Results</span></span></li>
+    <li onclick="show('sec4',this)"><span class="num">i</span><span><span class="zh">其他信息<br></span><span class="en">Info</span></span></li>
+  </ul>
+  <div class="sb-foot">pFind &middot; pUniFind &middot; MaxQuant<br>MSFragger &middot; Sage &middot; Comet</div>
+</div>
+
+<div class="main">
+
+<!-- ═══════════ ① 参数 ═══════════ -->
+<div class="sec show" id="sec0">
+  <div class="card">
+    <h2><span class="chip">STEP 1</span> <span class="zh">参数填写与配置文件生成</span><span class="h2en">Parameters &amp; config generation</span></h2>
+    <p class="sub"><span class="zh">路径须为绝对路径；单击选择按钮打开文件对话框或直接输入。<br></span><span class="en">Paths must be absolute; click a pick button or type directly.</span></p>
+
+    <div class="blk env" style="border:1px solid #d9e4dd;border-radius:8px;padding:10px 12px;margin-bottom:12px;background:#f7fbf8">
+      <div class="field" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button class="pick" style="font-weight:600;padding:6px 14px" onclick="detectAndFill()">&#128269; <span class="zh">一键检测并填写路径</span><span class="pe">One-click detect &amp; fill</span></button>
+        <span class="hint" id="detectState" data-zh="自动扫描本机引擎安装位置并回填下方路径" data-en="Scans local installs and autofills the paths below">自动扫描本机引擎安装位置并回填下方路径 / scan local installs and autofill the paths below</span>
+      </div>
+      <div class="field" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px">
+        <label style="margin:0"><span class="zh">扫描范围</span><span class="en">Extra scan roots</span></label>
+        <input id="detectExtraRoot" onchange="detectCache=null" placeholder="D:\Bioinformatics2" data-ph-zh="追加扫描的文件夹，多个用 ; 分隔（留空＝仅常用根目录）" data-ph-en="extra folders to scan, ;-separated (empty = common roots only)" style="flex:1;min-width:220px;padding:5px 8px">
+        <button class="pick" onclick="pick('detectExtraRoot','dir')">&#128193; <span class="zh">文件夹</span><span class="pe">Folder</span></button>
+      </div>
+      <div id="detectReport" style="display:none;margin-top:8px;font-size:12.5px;white-space:pre-wrap;line-height:1.55"></div>
+    </div>
+
+    <div class="blk data">
+      <h3><span class="bn">1</span> <span class="zh">输入数据</span><span class="b3en">Input data</span></h3>
+      <label style="font-size:1.1em;font-weight:700;color:#c0392b">&#9733; result_dir — <span class="zh">结果保存文件夹（所有产出都在此）<br></span><span class="en">Result folder (ALL outputs go here)</span></label>
+      <p class="hint" style="margin:2px 0 6px;font-size:12px;color:#c0392b">&#9888; <span class="zh">建议放本地硬盘（C:\ 或 D:\）——U 盘写保护或文件系统限制会导致目录创建失败；跑完后拷贝 result_dir 文件夹到 U 盘带走即可</span><span class="en">Use a LOCAL drive (C:\ or D:\) — USB drives may fail (write protection / filesystem limits); copy the result_dir folder to USB after the run</span></p>
+      <div class="field" style="border:2px solid #e8c8c0;border-radius:6px;padding:4px;background:#fff8f6"><input id="result_dir" placeholder="D:\my_project" data-ph-zh="必填：放本地硬盘（C:\ 或 D:\），不放 U 盘（U 盘写保护/文件系统限制会导致失败）" data-ph-en="REQUIRED: use a local drive (C:\ or D:\); USB drives may fail due to write protection or filesystem limits" style="flex:1;min-width:220px;font-weight:600">
+        <button class="pick" onclick="pick('result_dir','dir')">&#128193; <span class="zh">文件夹</span><span class="pe">Folder</span></button></div>
+
+      <div class="row">
+        <div>
+          <label>search_engine — <span class="zh">搜库引擎<br></span><span class="en">Search engine</span></label>
+          <select id="search_engine">
+            <option value="pfind" selected>pFind</option>
+            <option value="maxquant">MaxQuant</option>
+            <option value="msfragger">MSFragger</option>
+            <option value="sage">Sage</option>
+            <option value="comet">Comet</option>
+          </select>
+        </div>
+        <div>
+          <label>psm_file — <span class="zh">原始搜库结果文件<br></span><span class="en">Original search result file</span></label>
+          <div class="field"><input id="psm_file" placeholder="G:\...\pFind-Filtered.spectra">
+            <button class="pick" onclick="pick('psm_file','file')">&#128196; <span class="zh">文件</span><span class="pe">File</span></button></div>
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label>fasta — <span class="zh">参考蛋白库<br></span><span class="en">Reference proteome FASTA</span></label>
+          <div class="field"><input id="fasta" placeholder="G:\...\protein.fasta">
+            <button class="pick" onclick="pick('fasta','file')">&#128196; <span class="zh">文件</span><span class="pe">File</span></button></div>
+        </div>
+      </div>
+      <label>mgf — MGF <span class="zh">峰列表（每行一个或填文件夹）<br></span><span class="en">MGF peak lists (one per line or a folder)</span></label>
+      <div class="field"><textarea id="mgfInput" rows="2" placeholder="G:\...\xxx.mgf&#10;G:\...\yyy.mgf"></textarea>
+        <button class="pick" onclick="pick('mgfInput','files')">&#128196; <span class="zh">多文件</span><span class="pe">Files</span></button>
+        <button class="pick" onclick="pick('mgfInput','dir')">&#128193; <span class="zh">文件夹</span><span class="pe">Folder</span></button></div>
+    </div>
+
+    <div class="blk label">
+      <h3><span class="bn">2</span> <span class="zh">标记类型</span><span class="b3en">Labeling type</span></h3>
+      <div class="row"><div>
+        <label>label_class1 — <span class="zh">第一类：全原子稳定同位素替换<br></span><span class="en">Class 1: full-atom isotope substitution</span></label>
+        <select id="label_class1">
+          <option value="" selected data-zh="无标记（默认）" data-en="Unlabeled (default)">无标记 Unlabeled（默认）</option>
+          <option value="N15" data-zh="15N 全标记" data-en="15N full labeling">15N 全标记 15N full labeling</option>
+          <option value="C13" data-zh="13C 全标记" data-en="13C full labeling">13C 全标记 13C full labeling</option>
+        </select>
+      </div><div>
+        <label>enzyme<br><span class="en">Cleavage enzyme</span></label>
+        <select id="enzyme">
+          <option value="trypsin" selected data-zh="Trypsin（默认，P 切不开）" data-en="Trypsin (default; no cleavage at P)">Trypsin（默认，P 切不开）</option>
+          <option value="lysarginase" data-zh="LysargiNase（P 切不开）" data-en="LysargiNase (no cleavage at P)">LysargiNase（P 切不开）</option>
+          <option value="lysc">LysC</option>
+          <option value="lysn">LysN</option>
+          <option value="argc">ArgC</option>
+          <option value="gluc">GluC</option>
+          <option value="aspn">AspN</option>
+          <option value="chymotrypsin" data-zh="Chymotrypsin（糜蛋白酶）" data-en="Chymotrypsin">Chymotrypsin（糜蛋白酶）</option>
+          <option value="none" data-zh="无酶切" data-en="Unspecific">无酶切 Unspecific</option>
+        </select>
+      </div></div>
+      <div class="row"><div>
+        <label>unlabeled_channel — <span class="zh">样本是否含无标记通道<br></span><span class="en">Sample includes an unlabeled channel</span></label>
+        <select id="unlabeled_channel">
+          <option value="1" selected data-zh="含（默认）" data-en="Yes (default)">含（默认） Yes (default)</option>
+          <option value="0" data-zh="不含（NeuCode 等全标记样本）" data-en="No (fully labeled, e.g. NeuCode)">不含（NeuCode 等全标记样本） No (fully labeled, e.g. NeuCode)</option>
+        </select>
+      </div></div>
+      <div class="vrow">
+        <label>label_type — <span class="zh">第二类：修饰形式标记，用户自定义（可多行添加，混合样本每行一个）<br>每行 4 格：名称｜修饰位置（任意位置/肽段N端/肽段C端/蛋白N端/蛋白C端；氨基酸＝全部或自定义组合）｜元素组成与数量（modification.ini 风格，如 H(1)O(3)P(1)）<br></span><span class="en">Class 2: user-defined modification-form labels (one per row for mixed samples). Each row: name | position (anywhere / peptide N-term / peptide C-term / protein N-term / protein C-term; all or custom amino acids) | element composition and counts (modification.ini style, e.g. H(1)O(3)P(1))</span></label>
+        <div id="labelRows"></div>
+        <button class="btn ghost" onclick="addLabelRow()">＋ <span class="zh">添加修饰标记</span><span class="be">Add label</span></button>
+      </div>
+    </div>
+
+    <div class="blk pred" style="border:1px solid #c8d6e5;border-radius:8px;padding:10px 12px;margin-top:12px;background:#f0f4f8">
+      <h3><span class="bn">3</span> <span class="zh">参数</span><span class="b3en">Parameters</span></h3>
+      <div class="row"><div>
+        <label>pdf_on — <span class="zh">是否生成错误匹配/存疑谱图 PDF<br></span><span class="en">Generate error/ambiguous spectrum PDFs</span></label>
+        <select id="pdf_on">
+          <option value="0" selected data-zh="不生成（默认）" data-en="Off (default)">不生成 Off（默认）</option>
+          <option value="1" data-zh="生成" data-en="On">生成 On</option>
+        </select>
+      </div><div>
+        <label>denovo_lookback — <span class="zh">从头测序回帖模式<br></span><span class="en">De novo lookback mode</span></label>
+        <select id="denovo_lookback">
+          <option value="keep" selected data-zh="keep（保留原始）" data-en="keep (retain original)">keep（保留原始）</option>
+          <option value="all" data-zh="all（全部候选）" data-en="all (all candidates)">all（全部候选）</option>
+        </select>
+      </div><div>
+        <label>instrument — <span class="zh">质谱仪<br></span><span class="en">Mass spectrometer type</span></label>
+        <select id="instrument">
+          <option value="Lumos" selected>Lumos</option>
+          <option value="QE">Q Exactive</option>
+          <option value="Velos">Velos</option>
+          <option value="Elite">Elite</option>
+        </select>
+      </div></div>
+      <div class="row"><div>
+        <label>candidate_scope — <span class="zh">候选摄入口径<br></span><span class="en">Candidate scope</span></label>
+        <select id="candidate_scope">
+          <option value="filtered" selected data-zh="依赖搜库软件 1% FDR（默认）" data-en="Rely on engine 1% FDR (default)">依赖搜库软件 1% FDR（默认） rely on engine 1% FDR (default)</option>
+          <option value="top5" data-zh="全候选竞争模式（每谱前 5 候选）" data-en="Full-candidate competition (top 5 per spectrum)">全候选竞争模式（每谱前 5 候选） full-candidate competition (top 5 per spectrum)</option>
+        </select>
+      </div><div>
+        <label>proteogenomics_mode — <span class="zh">工作流程<br></span><span class="en">Workflow scope</span></label>
+        <select id="proteogenomics_mode">
+          <option value="0" selected data-zh="全量模式（默认）" data-en="Full workflow (default)">全量模式（默认） full workflow (default)</option>
+          <option value="1" data-zh="纯蛋白质基因组学模式" data-en="Pure proteogenomics">纯蛋白质基因组学模式 pure proteogenomics</option>
+          <option value="2" data-zh="已注释肽段矫正模式" data-en="Annotated correction only">已注释肽段矫正模式 annotated correction only</option>
+        </select>
+      </div></div>
+    </div>
+
+    <p class="hint"><span class="zh">填写完成后请到"参数汇总"页生成参数文件。</span><span class="en">After filling, go to the Summary page to generate config files.</span></p>
+    <div id="cfgMsg" class="msg" style="display:none"></div>
+  </div>
+</div>
+
+<!-- ═══════════ ② 多引擎策略 ═══════════ -->
+<div class="sec" id="sec5">
+  <div class="card">
+    <h2><span class="chip">STEP 2</span> <span class="zh">多引擎策略配置</span><span class="h2en">Multi-engine strategy configuration</span></h2>
+    <p class="sub"><span class="zh">在 pFind / pUniFind 生态（b–e）之外添加搜库和从头测序引擎软件，参与竞争仲裁。<br></span><span class="en">Add search and de novo sequencing engines beyond the pFind / pUniFind ecosystem (b–e).</span></p>
+
+    <div class="blk engine">
+      <h3><span class="bn">&#9881;</span> <span class="zh">当前策略槽位</span><span class="b3en">Active strategy slots</span></h3>
+      <div id="slotBar" class="slotbar"></div>
+      <p class="hint"><span class="zh">a ＝ 步骤 1 输入的原始搜库结果（不一定是 pFind）；b–e ＝ pFind / pUniFind 生态；f–p ＝ 其他搜库和从头测序引擎（下方添加）<br></span><span class="en">a = the original search result from step 1 (any engine); b–e = pFind / pUniFind ecosystem; f–p = other search &amp; de novo engines (add below)</span></p>
+    </div>
+
+    <div class="blk data">
+      <h3><span class="bn">+</span> <span class="zh">搜库和从头测序引擎</span><span class="b3en">Search and de novo sequencing engines</span></h3>
+      <div class="blk search" style="border:1px solid #d9e4dd;border-radius:8px">
+      <h3><span class="bn">+</span> pFind / pUniFind <span class="zh">生态（策略 b–e）</span><span class="b3en">pFind / pUniFind ecosystem (strategies b–e)</span></h3>
+      <div class="row">
+        <div>
+          <label>auto_search<br><span class="en">pFind search mode</span></label>
+          <select id="auto_search" onchange="togglePfindExe()">
+            <option value="1" data-zh="自动" data-en="Auto">自动 Auto</option>
+            <option value="0" data-zh="手动" data-en="Manual">手动 Manual</option>
+          </select>
+        </div>
+        <div id="pfindExeRow">
+          <label><label>pfind_exe — pFind <span class="zh">版本目录（＝含 bin\Searcher.exe 的那一级，如 C:\pFindStudio\pFind3 或 D:\Bioinformatics\pFind3.1）<br></span><span class="en">version folder (the level containing bin\Searcher.exe, e.g. C:\pFindStudio\pFind3)</span></label>
+          <div class="field"><input id="pfind_exe" value="D:\Bioinformatics\pFind3.1">
+            <button class="pick" onclick="pick('pfind_exe','dir')">&#128193; <span class="zh">文件夹</span><span class="pe">Folder</span></button></div>
+        </div>
+        <div>
+          <label>use_punifind<br><span class="en">Enable pUniFind</span></label>
+          <select id="use_punifind" onchange="togglePunifind()">
+            <option value="1" data-zh="启用" data-en="Enable">启用 Enable</option>
+            <option value="0" data-zh="禁用" data-en="Disable">禁用 Disable</option>
+          </select>
+        </div>
+      </div>
+      <div id="punifindOptions">
+        <div class="row">
+          <div>
+            <label>punifind_exe — pUniFind <span class="zh">安装目录<br></span><span class="en">pUniFind install folder</span></label>
+            <div class="field"><input id="punifind_exe" placeholder="D:\Bioinformatics\piUniMS\punifind">
+              <button class="pick" onclick="pick('punifind_exe','dir')">&#128193; <span class="zh">文件夹</span><span class="pe">Folder</span></button></div>
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>punifind_rescore — <span class="zh">开放式矫正（策略 d）<br></span><span class="en">Open-search re-score (strategy d)</span></label>
+            <select id="punifind_rescore">
+              <option value="0" data-zh="不运行" data-en="Off">不运行 Off</option>
+              <option value="1" data-zh="自动" data-en="Auto">自动 Auto</option>
+              <option value="2" data-zh="手动" data-en="Manual">手动 Manual</option>
+            </select>
+          </div>
+          <div>
+            <label>punifind_denovo — <span class="zh">从头测序（策略 e）<br></span><span class="en">De novo sequencing (strategy e)</span></label>
+            <select id="punifind_denovo">
+              <option value="0" data-zh="不运行" data-en="Off">不运行 Off</option>
+              <option value="1" data-zh="自动" data-en="Auto">自动 Auto</option>
+              <option value="2" data-zh="手动" data-en="Manual">手动 Manual</option>
+            </select>
+          </div>
+        </div>
+        <div class="vrow">
+          <label>punifind_python — Python <span class="zh">环境安装文件夹<br></span><span class="en">Python environment folder (torch/numpy)</span></label>
+          <div class="field"><input id="punifind_python" placeholder="D:\Bioinformatics\torch_cpu_venv">
+            <button class="pick" onclick="pick('punifind_python','dir')">&#128193; <span class="zh">文件夹</span><span class="pe">Folder</span></button></div>
+        </div>
+      </div>
+    </div>
+
+    
+      <div id="extRows"></div>
+      <button class="btn ghost" onclick="addExtRow()">＋ <span class="zh">添加引擎</span><span class="be">Add engine</span></button>
+      <button class="btn ghost" onclick="fillDetectedExes()">&#128269; <span class="zh">一键检测并填充软件路径</span><span class="be">Detect &amp; fill paths</span></button>
+      <p class="hint"><span class="zh">每行可选 <b>Auto search</b>（自动搜库：填软件路径；MaxQuant 另需 raw 输入，其余引擎自动用第一步 MGF）或 <b>Manual search</b>（手动结果：填结果文件/文件夹）。配置完成后请到"参数汇总"页统一生成。</span><span class="en">Each row picks <b>Auto search</b> (fill the software path; MaxQuant additionally needs raw input, other engines reuse the step-1 MGF) or <b>Manual search</b> (fill the result file/folder). After configuring, go to the Summary page to generate.</span></p>
+      <div class="field" style="margin-top:6px"><label><span class="zh">高级 — MSFragger JVM 堆上限（留空＝自适应）</span><span class="en">Advanced — MSFragger JVM heap limit (empty = adaptive)</span></label><input id="msfraggerXmx" placeholder="e.g. 8G" data-ph-zh="如 8G（留空＝物理内存 60% 自适应，封顶 15G）" data-ph-en="e.g. 8G (empty = adaptive, 60% of RAM, capped at 15G)" style="width:300px"></div>
+      <div class="field"><label><span class="zh">高级 — 内存守卫上限 MB（留空＝物理内存 80% 自适应，上限 40000）</span><span class="en">Advanced — memory-guard limit in MB (empty = 80% of RAM, capped at 40000)</span></label><input id="memGuardMb" placeholder="e.g. 60000" data-ph-zh="如 60000（留空＝自适应；写入 config_step1 的 ISOMEM_LIMIT_MB）" data-ph-en="e.g. 60000 (empty = adaptive; written to ISOMEM_LIMIT_MB in config_step1)" style="width:300px"></div>
+      <div id="step2Msg" class="msg"></div>
+    </div>
+
+    <div class="note">
+      <b><span class="zh">可选引擎仅列已通过全量检验者</span><span class="en">Only fully tested engines are offered</span></b><span class="zh">：<br></span><span class="en">:<br></span>
+      <code>maxquant</code> &middot; <code>msfragger</code> &middot; <code>sage</code> &middot; <code>comet</code><br>
+      <span class="hint"><span class="zh">外部引擎状态（2026-09-26 工作站实弹）：Comet ✅；X!Tandem ✅（带 map）；MSFragger / Sage 自 v1.0 起走内置转换器（每谱带 centroid spectrum）；MetaMorpheus 需 .NET 10 运行时＋官方完整命令行包（含 Data/、Mods/），槽位暂冻结；PEAKS / Mascot / pNovo 未测。结果文件路径可填<b>文件或文件夹</b>（文件夹时按引擎类型自动发现、取最新）。适配器自动处理格式转换＋修饰名映射＋谱图号对齐<br></span><span class="en">Engines (workstation live-fire 2026-09-26): Comet ✅; X!Tandem ✅ (with map); MSFragger / Sage use the built-in converter since v1.0 (centroid spectrum per scan); MetaMorpheus needs .NET 10 runtime + the full command-line package (Data/, Mods/) - slot frozen; PEAKS / Mascot / pNovo untested. Result paths accept a <b>file or folder</b> (folders auto-resolve by engine type, newest wins). Adapters handle format conversion, modification-name mapping and scan-number alignment.</span></span>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ ②b 理论谱图预测 ═══════════ -->
+<div class="sec" id="sec7">
+  <div class="card">
+    <h2><span class="chip">STEP 3</span> <span class="zh">理论谱图预测器</span><span class="h2en">Theoretical spectrum predictors</span></h2>
+    <p class="sub"><span class="zh">阶段 A 的「预测余弦」一票可由多个理论谱图预测软件产生（pDeep2、MS2PIP 等，均为用户自装的独立软件）：在下方各行配置每个软件的路径与开关，再选择主预测器；不需要的软件可整行移除。主预测器选「不进行理论谱图预测」即关闭预测（自动把 use_pdeep2 置 0，predict 列按缺失处理）。<br></span><span class="en">The stage-A predict vote can come from multiple predictor software (pDeep2, MS2PIP and the like - all separate software installed by the user): set each software's path and switch in the rows below, then pick the primary; rows not needed can be removed. Selecting "no theoretical prediction" turns prediction off (use_pdeep2 is set to 0 and the predict column is treated as missing).</span></p>
+
+    <div class="blk predx">
+      <div class="field">
+        <label>predictor_primary — <span class="zh">主预测器（阶段 A predict 列来源）<br></span><span class="en">Primary predictor (source of the stage-A predict column)</span></label>
+        <select id="predictorPrimary" onchange="savePredRows()">
+          <option value="pdeep2" selected>pDeep2</option>
+          <option value="none" data-zh="不进行理论谱图预测（predict 列按缺失处理）" data-en="No theoretical-spectrum prediction (predict column treated as missing)">不进行理论谱图预测（predict 列按缺失处理）</option>
+        </select>
+      </div>
+      <div id="predRows"></div>
+      <button class="btn ghost" onclick="addPredRow()">＋ <span class="zh">添加预测器</span><span class="be">Add predictor</span></button>
+      <button class="btn ghost" onclick="autoFillPredParams()">&#9889; <span class="zh">一键填写路径与参数</span><span class="be">Auto-fill paths &amp; params</span></button>
+      <p class="hint"><span class="zh">配置完成后请到"参数汇总"页统一写入。</span><span class="en">After configuring, go to the Summary page to write.</span></p>
+      <div id="predMsg" class="msg"></div>
+      <p class="hint"><span class="zh">适配器位于 code/predictors/pred_&lt;type&gt;.R（随软件分发 ms2pip 适配器，预测软件本身需用户安装）；每个预测器产物 merge/predict_&lt;type&gt;.txt 与 pDeep2 predict.txt 同构；运行失败只记 merge/predictor_run_manifest.txt、该列按缺失处理，不打断整轮。<br></span><span class="en">Adapters live in code/predictors/pred_&lt;type&gt;.R (the ms2pip adapter ships with the software; the predictor software itself must be installed by the user); each predictor writes merge/predict_&lt;type&gt;.txt shaped like pDeep2's predict.txt; failures only mark merge/predictor_run_manifest.txt and the column is treated as missing.</span></p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ Parameters Summary（用户口径 2026-10-08）═══════════ -->
+<div class="sec" id="sec8">
+  <div class="card">
+    <h2><span class="chip">&#9776;</span> <span class="zh">参数汇总与生成</span><span class="h2en">Parameters summary &amp; generate</span></h2>
+    <p class="sub"><span class="zh">在此页统一生成全部参数文件（config_step1 + config_step2 + config_predictor）、保存当前表单参数、或从已有参数文件加载。</span><span class="en">Generate all parameter files, save form values, or load from existing config files — all in one place.</span></p>
+    <div id="paramSummary" style="background:#f8f9fa;border:1px solid #dee2e6;border-radius:6px;padding:12px;margin:8px 0;font-size:12px;line-height:1.6;max-height:300px;overflow-y:auto"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+      <button class="btn green" onclick="generateAllParams()">&#9654; <span class="zh">生成参数文件</span><span class="be">Generate config</span></button>
+      <button class="btn ghost" onclick="saveParams()">&#128190; <span class="zh">保存参数</span><span class="be">Save</span></button>
+      <button class="btn ghost" onclick="loadParams()">&#128194; <span class="zh">加载参数</span><span class="be">Load</span></button>
+    </div>
+    <div id="summaryMsg" class="msg" style="margin-top:8px"></div>
+  </div>
+</div>
+
+<!-- ═══════════ ③ 运行 ═══════════ -->
+<div class="sec" id="sec1">
+  <div class="card">
+    <h2><span class="chip">RUN</span> <span class="zh">一键运行</span><span class="h2en">One-click run</span></h2>
+    <p class="sub"><span class="zh">单击运行执行完整流程；断点续跑自动判断，日志实时显示。</span><span class="en">One click runs the full pipeline; resume is decided automatically and the log streams live.</span></p>
+    <button class="btn" onclick="runPipeline()">&#9654; <span class="zh">运行</span><span class="be">Run</span></button>
+    <button class="btn red" onclick="stopPipeline()">&#9632; <span class="zh">停止</span><span class="be">Stop</span></button>
+    <span id="status" class="badge idle"><span class="dot"></span><span data-zh="空闲" data-en="Idle">空闲</span></span>
+    <div id="log"><span class="zh">（运行后日志在此显示）<br></span><span class="en">(Log appears during a run)</span></div>
+  </div>
+  <div class="card">
+    <h2><span class="zh">运行历史</span><span class="h2en">Run history</span></h2>
+    <table class="tbl"><thead><tr><th data-zh="开始" data-en="Started">开始 Started</th><th data-zh="结束" data-en="Ended">结束 Ended</th><th data-zh="退出码" data-en="Exit">退出码 Exit</th></tr></thead>
+      <tbody id="runsBody"><tr><td colspan="3"><span class="zh">尚无记录</span><span class="en">No runs yet</span></td></tr></tbody></table>
+  </div>
+  <div class="card">
+    <h2><span class="zh">时间线</span><span class="h2en">Timeline</span></h2>
+    <div id="timeline"><span class="hint"><span class="zh">（运行后显示）</span><span class="en">(appears after a run)</span></span></div>
+  </div>
+</div>
+
+<!-- ═══════════ 停点续接 ═══════════ -->
+<div class="sec" id="sec2">
+  <div class="card">
+    <h2><span class="chip">RESUME</span> <span class="zh">停点续接</span><span class="h2en">Stop-point resume</span></h2>
+    <p class="sub"><span class="zh">流程打印"等待输入"后，在此选择参数文件与键、填写数值并续接。</span><span class="en">After the pipeline prints "awaiting input", pick the parameter file and key here, type the value and continue.</span></p>
+    <div class="row">
+      <div>
+        <label><span class="zh">参数文件<br></span><span class="en">Parameter file</span></label>
+        <select id="fillFile" onchange="loadFillKeys()">
+          <option value="config_step1.txt">config_step1.txt</option>
+          <option value="config_step2.txt">config_step2.txt</option>
+          <option value="config_step3.txt">config_step3.txt</option>
+        </select>
+      </div>
+      <div>
+        <label><span class="zh">键<br></span><span class="en">Key</span></label>
+        <select id="fillKey" onchange="renderFillValue()"></select>
+      </div>
+    </div>
+    <div id="fillValueArea"><span class="hint"><span class="zh">（选择参数文件后显示输入框）</span><span class="en">(input appears after a parameter file is chosen)</span></span></div>
+    <button class="btn ghost" onclick="fillConfig()"><span class="zh">写入并继续</span><span class="be">Write &amp; continue</span></button>
+    <div id="fillMsg" class="msg"></div>
+  </div>
+  <div class="card">
+    <h2><span class="chip">W8</span> <span class="zh">阶段 B 分组权重快捷模板</span><span class="h2en">Stage-B per-group weight presets</span></h2>
+    <p class="sub"><span class="zh">八参数模型的三组锁定权重与阈值（写入 config_step3.txt 的 weights_B / threshold_B；仅需一次）。<br></span><span class="en">Locked per-group W8 weights &amp; thresholds for the eight-metric model (writes weights_B / threshold_B into config_step3.txt once).</span></p>
+    <div id="w8Msg" class="msg"></div>
+    <button class="btn" onclick="presetW8('n15')"><span class="zh">15N 权重</span><span class="en">15N weights</span></button>
+    <button class="btn" onclick="presetW8('c13')"><span class="zh">13C 权重</span><span class="en">13C weights</span></button>
+    <button class="btn" onclick="presetW8('silac')"><span class="zh">SILAC 权重</span><span class="en">SILAC weights</span></button>
+  </div>
+</div>
+
+<!-- ═══════════ 结果报告 ═══════════ -->
+<div class="sec" id="sec3">
+  <div class="card">
+    <h2><span class="chip">RESULTS</span> <span class="zh">结果报告</span><span class="h2en">Results report</span></h2>
+    <p class="sub"><span class="zh">时间线＋阶段 A/B 统计＋错误类型分布＋成对标记证据＋策略归因。<br>
+      要查看<b>另一台电脑跑完的结果</b>：把整个项目文件夹（含 unlabeled\ 与 result_*）拷到本机，
+      在下方选择该文件夹并"加载"——报告、谱图与 PDF 即直接展示，无需本机重跑。</span><span class="en">Timeline + stage A/B statistics + error-type distribution + paired-label evidence + strategy attribution.<br>
+      To view results finished on another computer: copy the whole project folder (with unlabeled\ and result_*) to this machine, pick it below and Load - reports, spectra and PDFs render directly, no re-run needed.</span></p>
+    <div class="row">
+      <button class="btn ghost" onclick="window.open('/api/report','_blank')">&#128279; <span class="zh">新窗口</span><span class="be">Open</span></button>
+      <button class="btn ghost" onclick="refreshReport()">&#8635; <span class="zh">刷新</span><span class="be">Refresh</span></button>
+      <span class="hint" id="browseTag"></span>
+    </div>
+    <div class="field">
+      <input id="browseDir" placeholder="Result folder to browse (empty = current run)" data-ph-zh="结果浏览目录（另一台电脑的项目/结果文件夹，留空=本机当前结果）" data-ph-en="Result folder to browse (empty = current run)">
+      <button class="pick" onclick="pickBrowse()">&#128193; <span class="zh">文件夹</span><span class="pe">Folder</span></button>
+      <button class="btn" onclick="loadBrowse()">&#9654; <span class="zh">加载</span><span class="be">Load</span></button>
+      <button class="btn ghost" onclick="clearBrowse()">&#10005; <span class="zh">清除</span><span class="be">Clear</span></button>
+    </div>
+    <div id="reportMsg" class="msg"></div>
+    <iframe id="reportFrame" class="rep-frame" src="/api/report"></iframe>
+  </div>
+</div>
+
+<!-- ═══════════ 其他信息 ═══════════ -->
+<div class="sec" id="sec4">
+  <div class="card">
+    <h2><span class="zh">引用</span><span class="h2en">Citation</span></h2>
+    <pre class="cite"><span class="zh">isoPSV — isoPSV多引擎竞争验证软件（多引擎竞争性谱图匹配验证）。
+论文引用格式待定，登记/发表后在此更新。</span><span class="en">isoPSV - isoPSV multi-engine competitive spectrum validation software.
+Citation TBD; updated here after registration/publication.</span></pre>
+  </div>
+  <div class="card">
+    <h2><span class="zh">等价命令</span><span class="h2en">Equivalent command</span></h2>
+    <pre class="cmd">cd /d "G:\...\isoPSV_multiengine"
+set CONFIG=G:\...\config_step1.txt
+"%RSCRIPT%" code\user_run.R</pre>
+  </div>
+</div>
+
+</div></div>
+
+<script>
+// v1.0（2026-10-04）：界面语言切换，默认英文，按钮切中文（localStorage 记忆）。
+// 三层机制：①静态配对文案＝.zh/.en 系列按 html 语言类显隐（CSS）；
+// ②混合单串元素＝data-zh/data-en（及 data-ph-* 占位符），applyLangDOM 重写；
+// ③JS 动态纯文本＝L(中文, English) 取值。R 管线日志保持原样（技术输出）。
+// v1.0 (2026-10-04): UI language toggle, English by default, button
+// switches to Chinese (remembered in localStorage). Three layers: paired
+// static strings toggle via CSS on the html lang class; mixed single-string
+// elements carry data-zh/data-en (data-ph-* for placeholders) and are
+// rewritten by applyLangDOM; dynamic plain text uses L(zh, en). R pipeline
+// logs stay as-is (technical output).
+var LANG=localStorage.getItem("isopsv_lang")||"en";
+function L(zh,en){return LANG==="zh"?zh:en}
+function pickBi(t){if(typeof t!=="string")return t;var p=t.split(/\r?\n/);return LANG==="zh"?p[0]:p[p.length-1]}
+function fmtDisks(a){return (a||[]).map(function(d){return LANG==="zh"?d:String(d).replace("剩余 ","free ")}).join("   ")}
+function applyLangDOM(){
+  document.documentElement.className="lang-"+LANG;
+  document.documentElement.setAttribute("lang",LANG==="zh"?"zh-CN":"en");
+  document.title=LANG==="zh"?"isoPSV 多引擎竞争验证 · 网页版":"isoPSV Multi-Engine · Web Console";
+  var b=document.getElementById("langBtn");
+  if(b)b.innerHTML=LANG==="zh"?"&#127760; English":"&#127760; 中文";
+  document.querySelectorAll("[data-zh]").forEach(function(el){
+    var v=el.getAttribute(LANG==="zh"?"data-zh":"data-en");
+    if(v!==null&&v!=="")el.textContent=v;
+  });
+  document.querySelectorAll("[data-ph-zh]").forEach(function(el){
+    var v=el.getAttribute(LANG==="zh"?"data-ph-zh":"data-ph-en");
+    if(v!==null&&v!=="")el.setAttribute("placeholder",v);
+  });
+}
+function setLang(l){
+  LANG=l;localStorage.setItem("isopsv_lang",l);applyLangDOM();
+  rebuildDynRows();
+  renderSlots(getActiveSlots());refreshStatus();
+}
+// v1.0：动态行（修饰标记/预测器/引擎）是按构建时语言一次性渲染的，
+// 切换语言必须重建——先 save*() 把已键入未 change 的值收进 localStorage 再清空重灌
+function rebuildDynRows(){
+  try{autosave();savePredRows();saveExtRows();}catch(e){}
+  var lr=document.getElementById("labelRows");if(lr)lr.innerHTML="";
+  var pr=document.getElementById("predRows");if(pr)pr.innerHTML="";
+  var er=document.getElementById("extRows");if(er)er.innerHTML="";
+  initLabelRows();initPredRows();initExtRows();
+}
+let pollTimer=null,lastRunning=false;
+const KEY_TYPES={list:["mgf","search_file"],dir:["pfind_exe","pdeep2_exe","all_mgf","result_dir","punifind_exe","punifind_python"],file:["psm_file","fasta","predict_file"]};
+const KEYS=["result_dir","psm_file","fasta","label_class1","enzyme","unlabeled_channel","mgfInput","auto_search","pfind_exe","use_punifind","punifind_exe","punifind_rescore","punifind_denovo","punifind_python","use_pdeep2","pdeep2_exe","instrument","pdf_on","denovo_lookback","candidate_scope","proteogenomics_mode"];
+function show(id,li){document.querySelectorAll(".sec").forEach(s=>s.classList.remove("show"));document.getElementById(id).classList.add("show");document.querySelectorAll(".nav li").forEach(n=>n.classList.remove("active"));li.classList.add("active")}
+function j(url,body){return fetch(url,{method:body?"POST":"GET",headers:body?{"Content-Type":"application/json"}:{},body:body?JSON.stringify(body):undefined}).then(r=>r.json()).catch(e=>({ok:false,msg:L("服务器未响应","server unreachable")}))}
+function pick(id,kind){fileBrowserOpen(null,kind==="dir",id,kind==="files")}
+// v1.0：检测附加扫描根（界面"扫描范围"框，; 分隔；记忆到 localStorage；
+// 有值走 POST 绕过服务端 60s 缓存，无值等价原 GET）
+function detectExtraRoots(){var v=(document.getElementById("detectExtraRoot")||{}).value||"";return v.split(/[;\n]/).map(function(x){return x.trim()}).filter(Boolean)}
+function detectFetch(){var ex=detectExtraRoots();try{localStorage.setItem("isopsv_detect_roots",ex.join(";"))}catch(e){}
+if(ex.length)return fetch("/api/detect",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({extra_roots:ex})}).then(r=>r.json());
+return fetch("/api/detect").then(r=>r.json())}
+function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;")}
+function togglePfindExe(){document.getElementById("pfindExeRow").style.display=document.getElementById("auto_search").value==="0"?"none":""}
+function togglePunifind(){document.getElementById("punifindOptions").style.display=document.getElementById("use_punifind").value==="0"?"none":""}
+async function saveParams(){
+  const o={};KEYS.forEach(k=>o[k]=document.getElementById(k).value);
+  localStorage.setItem("isopsv_params",JSON.stringify(o));
+  const sm=document.getElementById("summaryMsg")||document.getElementById("cfgMsg");
+  if(sm)sm.textContent=L("表单参数已保存","Form values saved");
+  // 李治反馈（2026-10-08）：保存＝同时生成参数文件到 result_dir
+  // tester feedback: Save = also write config files to result_dir
+  await generateAllParams();
+}
+// ---- Parameters Summary 页（用户口径 2026-10-08）----
+function renderParamSummary(){
+  const el=document.getElementById("paramSummary");if(!el)return;
+  const g=id=>{const e=document.getElementById(id);return e?e.value.trim():""};
+  const rows=[
+    ["result_dir",g("result_dir")],["psm_file",g("psm_file")],["fasta",g("fasta")],
+    ["label_type",g("label_class1")||"unlabeled"],["enzyme",g("enzyme")],
+    ["mgf",g("mgfInput")],["auto_search",g("auto_search")],
+    ["pfind_exe",g("pfind_exe")],["instrument",g("instrument")],
+  ];
+  // pUniFind 参数
+  rows.push(["use_punifind",g("use_punifind")]);
+  if(g("use_punifind")==="1"){
+    rows.push(["punifind_exe",g("punifind_exe")]);
+    rows.push(["punifind_rescore",g("punifind_rescore")]);
+    rows.push(["punifind_denovo",g("punifind_denovo")]);
+    rows.push(["punifind_python",g("punifind_python")]);
+  }
+  // STEP 2 引擎（v1.0：模式取自行内下拉；GUI 引擎无 .ext-exe，旧代码空引用崩溃已修）
+  const engs=[];document.querySelectorAll("#extRows .srow").forEach(r=>{
+    const s=r.querySelector("select"),f=r.querySelector(".ext-file"),m=r.querySelector(".ext-mode");
+    if(!s)return;const isAuto=!!(m&&m.value==="auto"&&AUTO_EXE_TYPES[s.value]);
+    if(isAuto||(f&&f.value.trim()))engs.push(s.value+(isAuto?"(auto)":""));});
+  rows.push(["engines",engs.join(", ")||"(pFind only)"]);
+  // STEP 3 预测器
+  const pr=[];document.querySelectorAll("#predRows .srow").forEach(r=>{
+    const t=r.querySelector(".pred-type");if(t&&t.value!=="pdeep2")pr.push(t.value);});
+  const pp=document.getElementById("predictorPrimary");
+  rows.push(["primary_predictor",pp?pp.value:"pdeep2"]);
+  if(pr.length)rows.push(["extra_predictors",pr.join(", ")]);
+  rows.push(["pDeep2",g("use_pdeep2")==="1"?"auto ("+g("pdeep2_exe")+")":g("use_pdeep2")==="2"?"manual":"off"]);
+  let html="<table style='width:100%;border-collapse:collapse'>";
+  rows.forEach(([k,v])=>{
+    const short=v.length>55?v.slice(0,52)+"...":v;
+    html+="<tr><td style='padding:2px 8px;font-weight:600;color:#555;white-space:nowrap'>"+k+"</td><td style='padding:2px 8px;word-break:break-all'>"+(short||"<span style='color:#c00'>(empty)</span>")+"</td></tr>";});
+  html+="</table>";
+  el.innerHTML=html;
+}
+// 一键填写预测器参数（用户口径 2026-10-08；v1.0 修正）：所有内置预测器
+// params 清空＝用默认参数（pDeep3/AlphaPeptDeep 取第一步质谱仪键 instrument；
+// MS2PIP 取适配器内置 HCD 模型——v104 曾给 ms2pip 填 "Lumos,30"，但该键语义
+// 是"模型目录/模型名"，instrument,ce 是 pDeep3 的 params 惯例，属抄错，已改）。
+// v1.0（用户口径）：同时从检测缓存自动补路径——pDeep3 行填检出的安装文
+// 件夹、AlphaPeptDeep 填检出值、pDeep2 空值或仍是硬编码默认时换成检出值；
+// 用户已手填的路径（非默认值）不覆盖。无缓存时先触发一次检测。
+// one-click predictor params: clear for all built-ins = defaults apply
+// (pDeep3/AlphaPeptDeep use the step-1 instrument key; MS2PIP the built-in
+// HCD model). v1.0: also auto-fill paths from the detection cache -
+// pDeep3 rows get the detected install folder, AlphaPeptDeep the detected
+// value, pDeep2 empty/hardcoded-default paths are replaced with the detected
+// one; user-entered paths are never overwritten. Triggers detection when no
+// cache exists yet.
+function autoFillPredParams(){
+  const msg=document.getElementById("predMsg");
+  if(msg)msg.textContent=L("获取检测缓存…","fetching detection cache…");
+  getDetect().then(r=>{
+    const e=(r&&r.engines)||{};
+    let nP=0,nPath=0;
+    document.querySelectorAll("#predRows .srow").forEach(row=>{
+      const t=row.querySelector(".pred-type");
+      const p=row.querySelector(".pred-params");
+      const path=row.querySelector(".pred-py");
+      if(!t)return;
+      if(p){p.value="";nP++;}
+      if(path){
+        const cur=path.value.trim();
+        const det=t.value==="pdeep3"?e.pdeep3:t.value==="alphapeptdeep"?e.alphapeptdeep:t.value==="pdeep2"?e.pdeep2_exe:"";
+        // pdeep2 行创建时预填硬编码默认 D:/Bioinformatics/pDeep2——该默认值
+        // 视为空（检出值优先）；其余类型只填真空值
+        const isPd2Default=t.value==="pdeep2"&&cur==="D:/Bioinformatics/pDeep2";
+        if(det&&(!cur||isPd2Default)){
+          path.value=String(det);nPath++;
+          path.classList.remove("flash");void path.offsetWidth;path.classList.add("flash");
+        }
+      }
+    });
+    if(msg)msg.textContent=
+      (nPath?L("已填 ","filled ")+nPath+L(" 个路径（来自检测）；"," paths auto-filled from detection; "):"")+
+      (nP?L("已重置 ","reset ")+nP+L(" 行预测器为默认参数（instrument / 内置模型）"," predictor rows to defaults: instrument / built-in model"):L("无预测器行","no predictor rows"));
+    savePredRows();
+  }).catch(()=>{if(msg)msg.textContent=L("检测缓存获取失败","failed to get the detection cache")});
+}
+async function generateAllParams(){
+  const msg=document.getElementById("summaryMsg");
+  if(!msg)return;
+  const now=new Date(),ts=now.getFullYear()+"-"+String(now.getMonth()+1).padStart(2,"0")+"-"+String(now.getDate()).padStart(2,"0")+" "+String(now.getHours()).padStart(2,"0")+":"+String(now.getMinutes()).padStart(2,"0")+":"+String(now.getSeconds()).padStart(2,"0");
+  const rd0=document.getElementById("result_dir").value.trim();
+  if(!rd0){msg.textContent=L("⚠ 请先在 STEP 1 填写 result_dir","⚠ Fill result_dir in STEP 1 first");return}
+  msg.textContent=rd0.replace(/\\\\/g,"/")+" ["+ts+"]";
+  autosave();savePredRows();saveExtRows();
+  // 1. config_step1
+  const rd=document.getElementById("result_dir").value.trim();
+  if(!rd){msg.textContent=L("⚠ 请先在 STEP 1 填写 result_dir","⚠ Fill result_dir in STEP 1 first");return}
+  try{
+    const r1=await j("/api/generate_config",{fields:{
+      result_dir:rd,search_engine:document.getElementById("search_engine").value,
+      psm_file:document.getElementById("psm_file").value,fasta:document.getElementById("fasta").value,
+      label_type:labelTypeValue(),unlabeled_channel:document.getElementById("unlabeled_channel").value,
+      enzyme:document.getElementById("enzyme").value,mgf:document.getElementById("mgfInput").value,
+      auto_search:document.getElementById("auto_search").value,pfind_exe:document.getElementById("pfind_exe").value,
+      use_punifind:document.getElementById("use_punifind").value,
+      punifind_exe:document.getElementById("punifind_exe").value,punifind_rescore:document.getElementById("punifind_rescore").value,
+      punifind_denovo:document.getElementById("punifind_denovo").value,punifind_python:document.getElementById("punifind_python").value,
+      use_pdeep2:(document.getElementById("use_pdeep2")||{value:"0"}).value,
+      pdeep2_exe:(document.getElementById("pdeep2_exe")||{value:""}).value,
+      instrument:document.getElementById("instrument").value,pdf_on:document.getElementById("pdf_on").value,
+      denovo_lookback:document.getElementById("denovo_lookback").value,
+      candidate_scope:document.getElementById("candidate_scope").value,
+      proteogenomics_mode:document.getElementById("proteogenomics_mode").value,
+      mem_guard_mb:document.getElementById("memGuardMb").value}});
+    if(!r1.ok){msg.textContent=L("STEP1 失败：","STEP1 failed: ")+(r1.error||r1.msg||"");return}
+    msg.textContent=L("✓ ","✓ ")+(r1.path||rd)+L(" 已生成"," generated");
+  }catch(e){msg.textContent=L("STEP1 网络错误：","STEP1 network error: ")+e;return}
+  // 2. config_step2（v1.0 统一走 collectExtStrategies：问题行报错并中止）
+  const cs=collectExtStrategies();
+  if(cs.problems.length){msg.textContent=L("✓ ","✓ ")+(r1.path||rd)+L(" 已生成 | ✗ config_step2: "," generated | ✗ config_step2: ")+cs.problems.join("；");return}
+  const s=cs.s;
+  if(cs.hasAutoEng){var asEl0=document.getElementById("auto_search");if(asEl0&&asEl0.value!=="1"){asEl0.value="1";await j("/api/fill",{file:"config_step1.txt",key:"auto_search",value:"1"});autosave();}}
+  const xmxEl=document.getElementById("msfraggerXmx");
+  try{
+    const r2=await j("/api/generate_step2",{strategies:s,msfragger_xmx:(xmxEl&&xmxEl.value.trim())||"",result_dir:rd});
+    if(r2.ok)msg.textContent+=L(" | ✓ config_step2"," | ✓ config_step2");
+    else msg.textContent+=L(" | ✗ config_step2: "," | ✗ config_step2: ")+(r2.error||r2.msg||"");
+  }catch(e){msg.textContent+=L(" | ✗ config_step2 网络错误"," | ✗ config_step2 network error")}
+  // 3. config_predictor
+  const jobs=[];
+  const primary=(document.getElementById("predictorPrimary")||{value:"pdeep2"}).value;
+  jobs.push({file:"config_predictor.txt",key:"predictor_primary",value:primary,base:rd||""});
+  const pd2Sel=document.getElementById("use_pdeep2");
+  const pd2Inp=document.getElementById("pdeep2_exe");
+  if(pd2Sel){jobs.push({file:"config_step1.txt",key:"use_pdeep2",value:pd2Sel.value});
+    if(pd2Inp&&pd2Inp.value.trim())jobs.push({file:"config_step1.txt",key:"pdeep2_exe",value:pd2Inp.value.trim()});}
+  let n2=2;
+  document.querySelectorAll("#predRows .srow").forEach(row=>{
+    if(row.querySelector(".pred-type").value==="pdeep2")return;
+    const t=row.querySelector(".pred-type").value;
+    jobs.push({file:"config_predictor.txt",key:"predictor"+n2+"_type",value:t,base:rd||""});
+    jobs.push({file:"config_predictor.txt",key:"predictor"+n2+"_python",value:row.querySelector(".pred-py").value.trim(),base:rd||""});
+    jobs.push({file:"config_predictor.txt",key:"predictor"+n2+"_params",value:row.querySelector(".pred-params").value.trim(),base:rd||""});
+    jobs.push({file:"config_predictor.txt",key:"predictor"+n2+"_mode",value:row.querySelector(".pred-mode").value,base:rd||""});
+    n2++;});
+  let okP=0,failP=0;
+  for(const jb of jobs){try{const r=await j("/api/fill",jb);r.ok?okP++:failP++;}catch(e){failP++;}}
+  if(okP>0)msg.textContent+=L(" | ✓ config_predictor（"+okP+" 键）"," | ✓ config_predictor ("+okP+" keys)");
+  if(failP>0)msg.textContent+=L(" | ✗ "+failP+" 键失败"," | ✗ "+failP+" keys failed");
+  msg.textContent+=" ["+ts+"]";
+  renderParamSummary();
+}
+function detectAndFill(){  const st=document.getElementById("detectState"),rep=document.getElementById("detectReport");
+  st.textContent=L("正在扫描本机安装位置（约 10–30 秒）…","scanning local installs (10–30 s)…");
+  rep.style.display="none";
+  detectFetch().then(r=>{
+    if(!r||!r.ok){st.textContent=L("检测失败","detection failed");return}
+    detectCache=r;
+    const e=r.engines||{};
+    const fill=[["pfind_exe",e.pfind_exe],["punifind_exe",e.punifind_exe],
+                ["punifind_python",e.punifind_python],["pdeep2_exe",e.pdeep2_exe]];
+    let hit=0,miss=[];
+    // v1.0：pdeep2_exe 只在存在 pDeep2 预测器行时才有该元素（动态创建）——
+    // v99 回填链假设元素恒在，行缺失时对 null 赋值抛 TypeError，被 catch 吞成
+    // 误导性的 "request failed"。修：行缺失且检出路径时自动补建 pDeep2 行；
+    // 其余目标 null 安全跳过。
+    // v1.0: pdeep2_exe exists only when a pDeep2 predictor row is present
+    // (created dynamically). The v99 fill loop assumed the element always
+    // exists; a missing row threw TypeError on null, swallowed by the catch
+    // into a misleading "request failed". Fix: auto-create the pDeep2 row when
+    // its path is detected but the row is absent; other targets skip safely.
+    fill.forEach(([id,v])=>{if(v){const el=document.getElementById(id);
+      if(!el&&id==="pdeep2_exe"&&!pdeep2Select(null)){addPredRow("pdeep2",v,"","1");hit++;return}
+      if(el){el.value=v;hit++;el.classList.remove("flash");void el.offsetWidth;el.classList.add("flash")}else{miss.push(id)}}
+      else{miss.push(id)}});
+    // v1.0（2026-10-03 二次实弹）：报告内直接给输入框＋浏览＋写入，不再
+    // 跳转聚焦（用户口径：报告里要能"自主填写路径"）。浏览走 /api/pick_*，
+    // 即 v1.0 的 PowerShell 原生对话框；写入对核心项直接落 STEP 1 表单
+    // 字段，对外部引擎直接在 STEP 2 建行并带路径。
+    // v1.0 (2026-10-03, second live round): the report itself now carries
+    // inline inputs + browse + apply, no more jump-to-field (user ruling:
+    // paths must be fillable IN the report). Browse uses /api/pick_* (the
+    // v1.0 PowerShell native dialog); apply writes core items straight
+    // into the STEP 1 form fields and external engines into a new STEP 2 row.
+    const CORE_LABEL={pfind_exe:"pFind",punifind_exe:"pUniFind",punifind_python:"pUniFind Python",pdeep2_exe:"pDeep2"};
+    const nm={msfragger:"MSFragger",comet:"Comet",sage:"Sage",maxquant:"MaxQuant",metamorpheus:"MetaMorpheus",msconvert:"ProteoWizard msconvert"};
+    let mf="";
+    miss.forEach(id=>{mf+="<div style='margin:2px 0'><b>"+(CORE_LABEL[id]||id)+"</b> <input id='mf_"+id+"' style='width:44%;min-width:220px;padding:3px 6px' placeholder='"+L("路径","path")+"'> <button class='pick' style='padding:3px 10px' onclick=\"mfBrowse('"+id+"','dir')\">&#128193; <span class='zh'>浏览</span><span class='pe'>Browse</span></button> <button class='pick' style='padding:3px 10px' onclick=\"mfApplyCore('"+id+"')\">&#10133; <span class='zh'>写入表单</span><span class='pe'>Apply</span></button></div>"});
+    let extra="";
+    Object.keys(nm).forEach(k=>{
+      if(k==="msconvert"){extra+=(e[k]?"✔ "+nm[k]+": "+esc(String(e[k])):("— "+nm[k]+": "+L("未检出","not found")))+"\n";return}
+      if(e[k]){extra+="✔ "+nm[k]+": "+esc(String(e[k]))+"\n"}
+      else{extra+="<div style='margin:2px 0'>— <b>"+nm[k]+"</b> "+L("未检出","not found")+" <input id='mx_"+k+"' style='width:40%;min-width:200px;padding:3px 6px' placeholder='"+L("软件路径","software path")+"'> <button class='pick' style='padding:3px 10px' onclick=\"mfBrowse('"+k+"','file')\">&#128196; <span class='zh'>浏览</span><span class='pe'>Browse</span></button> <button class='pick' style='padding:3px 10px' onclick=\"mfAddExt('"+k+"')\">&#10133; <span class='zh'>添加到</span> STEP 2<span class='pe'>Add</span></button></div>\n"}
+    });
+    // v1.0：理论谱图预测器独立段（pDeep2/pDeep3/AlphaPeptDeep）
+    let pred="";
+    // v1.0（用户口径）：删"Predictor Python"行——v112 起预测器行填安装
+    // 文件夹、解释器由管线自愈探测，该行不再有信息量（v114 曾去掉 torch 兜底
+    // 仍显示"—"，现在整行移除）
+    // v1.0: the "Predictor Python" line is dropped - since v112 rows take
+    // the install folder and the pipeline resolves the interpreter, so the
+    // line carries no information any more
+    pred+="✔ pDeep2: "+(e.pdeep2_exe?esc(String(e.pdeep2_exe)):"— "+L("未检出","not found"))+"\n";
+    if(e.pdeep3) pred+="<div style='margin:2px 0'>✔ <b>pDeep3</b>: "+esc(String(e.pdeep3))+" <button class='pick' style='padding:3px 10px' onclick=\"pd3Add('"+String(e.pdeep3).replace(/\\\\/g,"/")+"')\">&#10133; <span class='zh'>添加到 STEP 3 预测器</span><span class='pe'>Add</span></button></div>\n";
+    else pred+="— pDeep3: "+L("未检出（可选）","not found (optional)")+"\n";
+    if(e.alphapeptdeep) pred+="✔ AlphaPeptDeep: "+esc(String(e.alphapeptdeep))+"\n";
+    rep.innerHTML=L("结论","verdict")+": "+esc(pickBi(r.verdict||""))+"\nCPU: "+esc(String(r.system.cpu||"?"))+"  "+esc(String(r.system.cores||"?"))+L(" 线程"," threads")+"\n"+L("内存","RAM")+": "+esc(String(r.system.ram_gb||"?"))+" GB\n"+L("磁盘","disks")+": "+esc(fmtDisks(r.system.disks))+"\nGPU: "+esc(String(r.system.gpu||"—"))+"\n\n"+L("已回填","autofilled")+": "+hit+(miss.length?(L("；未检出: ","; missing: ")+miss.map(id=>CORE_LABEL[id]||id).join(", ")):"")+(mf?("\n<b>"+L("未检出项手动填写（浏览选路径或直接粘贴→写入）","fill the missing in place:")+"</b>\n"+mf):"")+"\n"+L("搜库和从头测序引擎","search & de novo engines")+":\n"+extra+"\n"+L("理论谱图预测器","theoretical spectrum predictors")+":\n"+pred;
+    rep.style.display="block";
+    // v1.0：pDeep3 检出时自动建预测器行（免手动点按钮）
+    // v1.0：改填检出的 pDeep3 安装文件夹（v112 口径：行路径＝安装文件夹，
+    // Python 由管线 5 级自愈链探测＋PDEEP3_ROOT 直指）——旧版回填
+    // predictor_python/punifind_python，torch 环境被错填进 pDeep3 行（实测
+    // D:\Bioinformatics\torch_cpu_venv ≠ 检出的 D:\Bioinformatics\pDeep3）。
+    if(e.pdeep3 && typeof addPredRow==="function"){
+      var _has=false;
+      document.querySelectorAll("#predRows .pred-type").forEach(function(sel){
+        if(sel.value==="pdeep3")_has=true});
+      if(!_has){
+        addPredRow('pdeep3',String(e.pdeep3),'','1');
+        savePredRows();
+      }
+    }
+    st.textContent=hit?(L("已回填 ","")+hit+L(" 项路径"," path(s) autofilled")):L("未检出任何核心路径（见下方手动填写）","nothing detected - fill manually below");
+    togglePfindExe();togglePunifind();
+  }).catch(err=>{st.textContent=L("检测处理失败: ","detect processing failed: ")+((err&&err.message)||err)});
+}
+function pd3Add(root){
+  // v1.0：直接用检出的 pDeep3 安装文件夹（旧版忽略入参、回填
+  // predictor_python/punifind_python——torch 环境错填 pDeep3 行的根因）
+  var rt=root||""; if(!rt&&detectCache&&detectCache.engines)rt=detectCache.engines.pdeep3||"";
+  rt=String(rt).replace(/\\/g,"/");
+  addPredRow('pdeep3',rt,'','1');
+  document.querySelector('[onclick*="sec7"]').click();
+  var pRows=document.querySelectorAll("#predRows .pred-py");
+  if(pRows.length){pRows[pRows.length-1].classList.remove("flash");void pRows[pRows.length-1].offsetWidth;pRows[pRows.length-1].classList.add("flash")}
+  const st2=document.getElementById("predMsg");
+  if(st2)st2.textContent=rt
+    ?L("已添加 pDeep3 行（安装文件夹已自动填入，Python 由管线自动探测）；点写入 config_predictor 即可。","added pDeep3 row (install folder auto-filled; Python auto-resolved by the pipeline); click Write to save.")
+    :L("已添加 pDeep3 行；请填安装文件夹后点写入。","added pDeep3 row; fill the install folder then Write.")}
+function mfBrowse(id,kind){
+  // 报告内"浏览"：kind=dir 走文件夹对话框（核心项均为目录），file 走文件
+  // 对话框（外部引擎为 .jar/.exe 文件）——后端统一 /api/pick_file 按 kind
+  // 分发，Windows 侧即 v1.0 的 PowerShell 原生选框
+  const el=document.getElementById("mf_"+id)||document.getElementById("mx_"+id);
+  if(!el)return;
+  fileBrowserOpen(el,kind==="dir");
+}
+function mfApplyCore(id){
+  const src=document.getElementById("mf_"+id);
+  const dst=document.getElementById(id);
+  if(!src||!dst||!src.value.trim())return;
+  dst.value=src.value.trim();
+  dst.classList.remove("flash");void dst.offsetWidth;dst.classList.add("flash");
+  togglePfindExe();togglePunifind();
+  const st=document.getElementById("detectState");
+  if(st)st.textContent=L("已写入 ","applied to the form: ")+id;
+}
+function mfAddExt(k){
+  const src=document.getElementById("mx_"+k);
+  if(!src||!src.value.trim())return;
+  addExtRow(k,"","",src.value.trim(),"auto");
+  const rows=document.querySelectorAll("#extRows .srow");
+  const row=rows[rows.length-1];
+  if(row){row.scrollIntoView({behavior:"smooth",block:"center"});
+    const ex=row.querySelector(".ext-exe");
+    if(ex){ex.classList.remove("flash");void ex.offsetWidth;ex.classList.add("flash")}}
+  const st2=document.getElementById("step2Msg");
+  if(st2)st2.textContent=L("已在 STEP 2 添加 ","added to STEP 2: ")+k+L("（软件路径已带入）"," (software path carried over)");
+}
+function loadParams(){fileBrowserOpen(null,false,"__loadcfg__")}
+function warnEmptyKey(){
+  const checks=[
+    ["pdeep2_exe","use_pdeep2","1",L("pDeep2 安装路径为空，自动理论预测将无法运行（可点上方「一键检测并填写路径」自动回填）","pDeep2 install path is empty; automatic theoretical prediction will not run (one-click detect above can autofill it)")],
+    ["punifind_python","use_punifind","1",L("pUniFind Python 环境为空，rescore/denovo 结果转换将失败（一键检测可回填）","pUniFind Python environment is empty; rescore/denovo result conversion will fail (one-click detect can autofill it)")],
+    ["punifind_exe","use_punifind","1",L("pUniFind 安装目录为空，自动 rescore/denovo 将无法运行（一键检测可回填）","pUniFind install folder is empty; automatic rescore/denovo will not run (one-click detect can autofill it)")]
+  ];
+  const miss=[];
+  checks.forEach(([id,gate,gatev,msg])=>{
+    const el=document.getElementById(id);
+    const g=document.getElementById(gate);
+    if((!el||!el.value.trim())&&g&&g.value===gatev)miss.push(msg);
+  });
+  if(miss.length){document.getElementById("cfgMsg").textContent=L("注意","note")+":\n  "+miss.join("\n  ");return true}
+  return false;
+}
+function generateConfig(){
+  var rd=document.getElementById("result_dir").value.trim();
+  if(!rd){document.getElementById("cfgMsg").textContent=L("⚠ 请先填写 result_dir（结果保存文件夹）——所有产出都放在此文件夹内","⚠ Please fill result_dir first — ALL outputs go inside this folder");return}
+  j("/api/generate_config",{fields:{result_dir:rd,search_engine:document.getElementById("search_engine").value,psm_file:document.getElementById("psm_file").value,fasta:document.getElementById("fasta").value,label_type:labelTypeValue(),unlabeled_channel:document.getElementById("unlabeled_channel").value,enzyme:document.getElementById("enzyme").value,mgf:document.getElementById("mgfInput").value,auto_search:document.getElementById("auto_search").value,pfind_exe:document.getElementById("pfind_exe").value,use_punifind:document.getElementById("use_punifind").value,punifind_exe:document.getElementById("punifind_exe").value,punifind_rescore:document.getElementById("punifind_rescore").value,punifind_denovo:document.getElementById("punifind_denovo").value,punifind_python:document.getElementById("punifind_python").value,use_pdeep2:(document.getElementById("use_pdeep2")||{value:"0"}).value,pdeep2_exe:(document.getElementById("pdeep2_exe")||{value:""}).value,instrument:document.getElementById("instrument").value,pdf_on:document.getElementById("pdf_on").value,denovo_lookback:document.getElementById("denovo_lookback").value,candidate_scope:document.getElementById("candidate_scope").value,proteogenomics_mode:document.getElementById("proteogenomics_mode").value,mem_guard_mb:document.getElementById("memGuardMb").value}}).then(r=>{if(r.ok&&warnEmptyKey())return;const _ts=new Date(),_t=_ts.getFullYear()+"-"+String(_ts.getMonth()+1).padStart(2,"0")+"-"+String(_ts.getDate()).padStart(2,"0")+" "+String(_ts.getHours()).padStart(2,"0")+":"+String(_ts.getMinutes()).padStart(2,"0")+":"+String(_ts.getSeconds()).padStart(2,"0");document.getElementById("cfgMsg").textContent=r.ok?(L("已生成 ","Generated ")+r.path+" ["+_t+"]"):r.error})}
+async function runPipeline(){
+try{
+  console.log("[runPipeline] start");
+  const rb=[...document.querySelectorAll("button")].find(x=>x.textContent.includes("运行")&&x.textContent.includes("Run"));
+  if(rb){rb.disabled=true;setTimeout(()=>{rb.disabled=false},5000)}
+  const rd=document.getElementById("result_dir").value.trim();
+  console.log("[runPipeline] result_dir:", rd);
+  if(!rd){
+    alert(L("⚠ 请先在 STEP 1 填写 result_dir（结果保存文件夹）","⚠ Fill result_dir in STEP 1 first"));
+    return;
+  }
+  const cfgPath=rd.replace(/\\/g,"/")+"/config_step1.txt";
+  console.log("[runPipeline] cfgPath:", cfgPath);
+  let chk;
+  try{
+    chk=await j("/api/check_config",{result_dir:rd});
+    console.log("[runPipeline] check_config:", JSON.stringify(chk));
+  }catch(e){console.log("[runPipeline] check_config error:", e);}
+  if(chk&&!chk.ok){
+    console.log("[runPipeline] config missing, auto-generating...");
+    await generateAllParams();
+    await new Promise(r=>setTimeout(r,2000));
+    try{chk=await j("/api/check_config",{result_dir:rd});}catch(e){}
+    console.log("[runPipeline] re-check:", JSON.stringify(chk));
+    if(chk&&!chk.ok){
+      alert(L("⚠ 参数文件生成失败！\n\n目标路径：","⚠ Config file generation failed!\n\nTarget: ")+cfgPath+
+            L("\n\n请检查：\n① 该路径是否可写（换本地硬盘路径如 D:\\\\test）\n② 到'参数汇总'页看生成按钮下方是否有红色错误信息",
+              "\n\nCheck:\n① Is the path writable? (try a local disk like D:\\\\test)\n② Go to Summary page and check for error messages below the Generate button"));
+      return;
+    }
+  }
+  console.log("[runPipeline] calling /api/run with config_path:", cfgPath);
+  const r=await j("/api/run",{config_path:cfgPath});
+  console.log("[runPipeline] /api/run response:", JSON.stringify(r));
+  if(r.ok){console.log("[runPipeline] starting poll");startPoll();}
+  else{console.log("[runPipeline] run failed:", r.msg);alert(r.msg);}
+}catch(e){
+  console.error("[runPipeline] ERROR:", e);
+  alert("Run error: "+(e&&e.message?e.message:String(e)));
+}
+}
+function stopPipeline(){j("/api/stop",{}).then(()=>refreshStatus())}
+function keyType(k){if(KEY_TYPES.list.includes(k))return"list";if(KEY_TYPES.dir.includes(k))return"dir";if(KEY_TYPES.file.includes(k))return"file";return"text"}
+function loadFillKeys(){const f=document.getElementById("fillFile").value;fetch("/api/config_keys?file="+encodeURIComponent(f)).then(r=>r.json()).then(x=>{if(!x.ok)return;const sel=document.getElementById("fillKey");sel.innerHTML=x.keys.map(k=>"<option value=\""+esc(k.key)+"\" data-value=\""+esc(k.value)+"\">"+esc(k.key)+(k.active&&k.value&&!k.value.startsWith("<")?"":L("（待填）"," (to fill)"))+"</option>").join("");renderFillValue()})}
+function renderFillValue(){const sel=document.getElementById("fillKey");if(!sel.options.length)return;const val=sel.selectedOptions[0].dataset.value||"";const t=keyType(sel.value);const a=document.getElementById("fillValueArea");if(t==="list"){a.innerHTML="<label>"+L("值","Value")+"</label><textarea id='fillValueT' rows='3'>"+esc(val)+"</textarea>"}else{a.innerHTML="<label>"+L("值","Value")+"</label><div class='field'><input id='fillValueT' value=\""+esc(val)+"\"><button class='pick' onclick='pickFill()'>"+L("选择","Pick")+"</button></div>"}}
+function pickFill(){j("/api/pick_file",{kind:"file"}).then(r=>{if(r.ok)document.getElementById("fillValueT").value=r.path})}
+function presetW8(g){
+  const P={n15:{w:"0.196,0.082,0.052,0.034,0.081,0.100,0.147,0.308",t:"0.0217"},
+          c13:{w:"0.109,0.395,0.155,0.177,0.056,0.014,0.044,0.050",t:"0.0125"},
+          silac:{w:"0.047,0.140,0.141,0.084,0.011,0.108,0.412,0.057",t:"0.0314"}}[g];
+  // v1.0：写入位置＝result_dir（与其余参数同口径）——旧版写包根，包根无
+  // config_step3.txt 即报"文件不存在"；config_step3 由管线运行后才生成，
+  // 服务端现已支持首写自动创建，管线重建时保留 weights_B/threshold_B。
+  // v1.0: write into result_dir (same base as every other write) - the
+  // old code wrote to the package root, where config_step3.txt does not
+  // exist; the server now creates it on first write and the pipeline's
+  // regeneration carries weights_B/threshold_B forward.
+  const f="config_step3.txt";
+  const rd=document.getElementById("result_dir").value.trim();
+  const base=rd?{base:rd}:{};
+  j("/api/fill",Object.assign({file:f,key:"weights_B",value:P.w},base)).then(a=>{
+    j("/api/fill",Object.assign({file:f,key:"threshold_B",value:P.t},base)).then(b=>{
+      const okAll=a.ok&&b.ok;
+      document.getElementById("w8Msg").textContent=(okAll?"✓ ":"⚠ ")+g+L(" 已写入 "," wrote ")+"weights_B / threshold_B"+(rd?(" → "+f+" ("+rd+")"):"")+("\n"+a.msg+"\n"+b.msg);})});}
+function fillConfig(){const el=document.getElementById("fillValueT");if(!el)return;j("/api/fill",{file:document.getElementById("fillFile").value,key:document.getElementById("fillKey").value,value:el.value}).then(r=>{document.getElementById("fillMsg").textContent=r.msg})}
+function refreshReport(){const f=document.getElementById("reportFrame");f.src="/api/report?t="+Date.now();f.onload=()=>{document.getElementById("reportMsg").textContent=L("已生成 ","Generated ")+new Date().toLocaleTimeString()}}
+// 结果浏览模式（2026-09-26）：选定另一台电脑的项目/结果文件夹后只读展示
+function pickBrowse(){pick('browseDir','dir')}
+function updateBrowseTag(p){document.getElementById("browseTag").textContent=p?(L("浏览中 ","browsing: ")+p):""}
+function loadBrowse(){const v=document.getElementById("browseDir").value.trim();
+  j("/api/set_browse",{path:v}).then(r=>{if(r.ok){updateBrowseTag(r.path);refreshReport();document.getElementById("reportMsg").textContent=L("已加载浏览目录 ","loaded: ")+r.path}else{document.getElementById("reportMsg").textContent=r.msg||L("加载失败","failed")}})}
+function clearBrowse(){document.getElementById("browseDir").value="";
+  j("/api/clear_browse",{}).then(r=>{updateBrowseTag("");refreshReport();document.getElementById("reportMsg").textContent=L("已切回本机当前结果","back to the current run")})}
+j("/api/browse_state").then(r=>{if(r&&r.active){document.getElementById("browseDir").value=r.path;updateBrowseTag(r.path)}})
+function toSec(t){if(!t)return null;const p=t.split(":").map(Number);return p[0]*3600+p[1]*60+p[2]}
+function fmtDur(s){if(s==null||isNaN(s))return"—";if(s>=3600)return Math.floor(s/3600)+"h "+Math.round(s%3600/60)+"m";if(s>=60)return Math.floor(s/60)+"m "+Math.round(s%60)+"s";return Math.round(s)+"s"}
+function nowHMS(){const d=new Date();return("0"+d.getHours()).slice(-2)+":"+("0"+d.getMinutes()).slice(-2)+":"+("0"+d.getSeconds()).slice(-2)}
+function renderTimeline(s){const el=document.getElementById("timeline");const tl=s.timeline||[];if(!tl.length){el.innerHTML="<span class='hint'>"+L("（运行后显示）","(appears after a run)")+"</span>";return}const now=toSec(nowHMS());const rows=["<table class='tbl'><tr><th>"+L("模块","Module")+"</th><th>"+L("开始","Start")+"</th><th>"+L("结束","End")+"</th><th>"+L("用时","Time")+"</th><th>CPU</th></tr>"];tl.forEach(m=>{let dur=m.end?toSec(m.end)-toSec(m.start):(s.running?now-toSec(m.start):null);if(dur!==null&&dur<0)dur+=86400;const cpu=m.phases.reduce((a,p)=>a+(p.cpu||0),0);let en=m.end||"—";if(m.status==="running"&&s.running)en=L("进行中","running");if(m.status==="stop")en=(m.end||"—")+L(" 停点"," stop-point");if(m.status==="failed")en=(m.end||"—")+L(" 失败"," failed");rows.push("<tr><td><b>"+esc(m.name_zh)+"</b><br><span class='hint'>"+esc(m.name_en)+"</span></td><td>"+esc(m.start)+"</td><td>"+esc(en)+"</td><td>"+fmtDur(dur)+"</td><td>"+fmtDur(cpu)+"</td></tr>");m.phases.forEach(p=>{rows.push("<tr style='padding-left:16px;color:var(--sub)'><td>├ "+esc(p.name_zh)+"</td><td></td><td></td><td>"+fmtDur(p.elapsed)+"</td><td>"+fmtDur(p.cpu)+"</td></tr>")})});rows.push("</table>");el.innerHTML=rows.join("")}
+function refreshStatus(){j("/api/status").then(s=>{if(lastRunning&&!s.running)refreshReport();lastRunning=s.running;const el=document.getElementById("status");el.innerHTML=s.running?("<span class='dot'></span>"+(s.current_phase||"…")):("<span class='dot'></span>"+L("空闲","Idle"));el.className="badge "+(s.running?"run":"idle");if(!s.running)stopPoll();const tb=document.getElementById("runsBody");if(s.runs&&s.runs.length)tb.innerHTML=s.runs.map(r=>"<tr><td>"+esc(r.started)+"</td><td>"+esc(r.ended||"—")+"</td><td>"+esc(r.exit_code==null?"—":r.exit_code)+"</td></tr>").join("");renderTimeline(s)});j("/api/log").then(r=>{const el=document.getElementById("log");el.textContent=r.log||"";if(el.scrollHeight-el.scrollTop-el.clientHeight<40)el.scrollTop=el.scrollHeight})}
+function startPoll(){refreshStatus();if(!pollTimer)pollTimer=setInterval(refreshStatus,2000)}
+function stopPoll(){if(pollTimer){clearInterval(pollTimer);pollTimer=null}}
+
+// 多引擎策略（2026-09-27 用户口径）：下拉仅列外部引擎。pFind 家族策略 b–e
+// 由第一步 config_step1 的 auto_search（open/restrict）与 use_punifind
+// （rescore/denovo）键管理，在左侧 pFind / pUniFind 生态区块配置，不再经本
+// 下拉添加，避免与自动槽位重复冲突。
+// multi-engine strategies (user ruling 2026-09-27): the dropdown lists external
+// engines only. pFind-family strategies b-e are managed by config_step1's
+// auto_search (open/restrict) and use_punifind (rescore/denovo) keys in the
+// pFind / pUniFind ecosystem block and are no longer added here, avoiding
+// duplicate-slot conflicts with the automatic registration.
+const ENGINE_TYPES=[{value:"maxquant",label:"MaxQuant"},{value:"msfragger",label:"MSFragger"},{value:"msfragger_open",label:"MSFragger open"},{value:"msfragger_boost",label:"MSFragger boost (MSBooster)"},{value:"sage",label:"Sage"},{value:"comet",label:"Comet"},{value:"xtandem",label:"X!Tandem"},{value:"metamorpheus",label:"MetaMorpheus"},{value:"peaks",label:"PEAKS"},{value:"mascot",label:"Mascot"},{value:"pnovo",label:"pNovo"}];
+const SLOT_LETTERS="abcdefghijklmnop";
+const SLOT_NAMES={a:["pFind 原始","pFind original"],b:["pFind 开放式","pFind open"],c:["pFind 限定式","pFind restricted"],d:["pUniFind 矫正","pUniFind re-score"],e:["pUniFind de novo","pUniFind de novo"],f:["MaxQuant","MaxQuant"],g:["Comet","Comet"],h:["MSFragger","MSFragger"],i:["Sage","Sage"],j:["MSFragger boost","MSFragger boost"],k:["X!Tandem","X!Tandem"],l:["MetaMorpheus","MetaMorpheus"],m:["PEAKS","PEAKS"],n:["Mascot","Mascot"],o:["pNovo","pNovo"],p:["MSFragger open","MSFragger open"]};
+// 自动搜库能力：这类引擎行带软件路径输入，检测路径可一键填充，生成时写
+// <engine>_exe 与 <engine>_mode=1（参数用内置模板回退）
+// auto-search-capable engines: their rows carry a software-path input, the
+// detected path can be one-click filled, and generation writes <engine>_exe
+// plus <engine>_mode=1 (parameters fall back to bundled templates)
+const AUTO_EXE_TYPES={maxquant:"maxquant",msfragger:"msfragger",comet:"comet",sage:"sage",metamorpheus:"metamorpheus"};
+let detectCache=null;
+function getDetect(){if(detectCache)return Promise.resolve(detectCache);const st=document.getElementById("step2Msg");if(st)st.textContent=L("正在扫描本机安装位置（约 10–30 秒）…","scanning local installs (10–30 s)…");return detectFetch().then(r=>{detectCache=r||{ok:false};if(st&&st.textContent.indexOf("扫描")>=0)st.textContent=(r&&r.ok)?L("检测完成，已按类型回填软件路径","detection done, software paths filled by engine type"):L("检测失败","detection failed");return detectCache}).catch(()=>{detectCache={ok:false};if(st&&st.textContent.indexOf("扫描")>=0)st.textContent=L("检测失败","detection failed");return detectCache})}
+function fillDetectedExes(){const st=document.getElementById("step2Msg");getDetect().then(r=>{const e=(r&&r.engines)||{};let n=0;document.querySelectorAll("#extRows .srow").forEach(row=>{const sel=row.querySelector("select");const inp=row.querySelector(".ext-exe");if(!sel||!inp)return;const k=AUTO_EXE_TYPES[sel.value];if(k&&e[k]){inp.value=e[k];n++}});if(st)st.textContent=r&&r.ok?(n?(L("已填充 ","filled ")+n+L(" 个软件路径"," software path(s)")):L("未检出可自动搜库的软件路径","no auto-search software paths detected")):L("检测失败","detection failed");saveExtRows()})}
+let extRowCount=0;
+function initSlotBar(){renderSlots({a:true,b:true,c:true,d:true,e:true})}
+function initExtRows(){const saved=JSON.parse(localStorage.getItem("isopsv_ext_engines")||"[]");const known=ENGINE_TYPES.map(t=>t.value);saved.filter(r=>known.includes(r.type)).forEach(r=>addExtRow(r.type,r.file,r.raw,r.exe,r.mode));renderSlots(getActiveSlots())}
+function getActiveSlots(){const s={a:true,b:true,c:true,d:true,e:true};document.querySelectorAll("#extRows .srow").forEach(row=>{const sel=row.querySelector("select");if(sel&&sel.value){const l=extTypeToSlot(sel.value);if(l)s[l]=true}});return s}
+function extTypeToSlot(t){const f={pfind_open:"b",pfind_restrict:"c",punifind_rescore:"d",punifind_denovo:"e",maxquant:"f",comet:"g",msfragger:"h",sage:"i",msfragger_boost:"j",xtandem:"k",metamorpheus:"l",peaks:"m",mascot:"n",pnovo:"o",msfragger_open:"p"};return f[t]||null}
+function renderSlots(active){const bar=document.getElementById("slotBar");if(!bar)return;bar.innerHTML=SLOT_LETTERS.split("").map(l=>{const isOn=active&&active[l];return"<div class='slot "+(isOn?l:"off")+"'>"+l+"<span class='tip'>"+(SLOT_NAMES[l]?SLOT_NAMES[l][LANG==="zh"?0:1]:l)+(isOn?"":L(" (未配置)"," (unset)"))+"</span></div>"}).join("")}
+// v1.0（用户口径 2026-10-09）：每行引擎统一 Auto search / Manual search
+// 下拉——Auto 显示软件路径（MaxQuant 另需 raw，其余引擎自动用第一步 MGF），
+// Manual 显示结果文件框；不支持自动搜库的引擎（peaks/mascot/pnovo 等）Auto
+// 选项置灰。mode 随行存 localStorage，刷新后不再回退到隐式判断。
+// every engine row gets an Auto/Manual dropdown: Auto shows the software path
+// (MaxQuant also needs raw; other engines reuse the step-1 MGF), Manual shows
+// the result-file box; engines without auto capability get Auto disabled.
+function addExtRow(type,file,raw,exe,mode){const c=document.getElementById("extRows");if(!c)return;const row=document.createElement("div");row.className="srow";const slot=extTypeToSlot(type||"maxquant");const canAuto=!!AUTO_EXE_TYPES[type||"maxquant"];const mDef=canAuto?(mode||((type||"maxquant")==="maxquant"&&!file?"auto":((exe&&!file)?"auto":"manual"))):"manual";const exeBox=canAuto?"<input class='ext-exe' placeholder='"+L("软件路径（Auto search 必填）","software path (required for Auto search)")+"' value=\""+esc(exe||"")+"\">":"<span class='hint ext-exe-hint'>"+L("该引擎为 GUI 导出结果（选 Manual，导出件填结果文件框）","this engine ships GUI exports (pick Manual, put the export in the result-file box)")+"</span>";const modeSel="<select class='ext-mode' onchange='extModeChanged(this)'><option value='auto'"+(mDef==="auto"?" selected":"")+(canAuto?"":" disabled")+">"+L("自动搜库","Auto search")+"</option><option value='manual'"+(mDef==="manual"?" selected":"")+">"+L("手动结果","Manual result")+"</option></select>";row.innerHTML="<div class='sl'>"+(slot||"—")+"</div><select onchange='extTypeChanged(this)'>"+ENGINE_TYPES.map(t=>"<option value='"+t.value+"'"+(t.value===(type||"maxquant")?" selected":"")+">"+t.label+"</option>").join("")+"</select>"+modeSel+"<input class='ext-file' placeholder='"+L("结果文件/文件夹","result file or folder")+"' value=\""+esc(file||"")+"\"><button class='pick' onclick='pickExtFile(this)'><span class='zh'>文件</span><span class='pe'>File</span></button><button class='pick' onclick='pickExtDir(this)'><span class='zh'>文件夹</span><span class='pe'>Folder</span></button><button class='del' onclick='removeExtRow(this)'>✕</button>"+exeBox+"<div class='ext-raw-box' style='display:none'><label>raw — <span class='zh'>MaxQuant 搜库输入（raw 文件/文件夹）</span><span class='en'>raw input for MaxQuant search (files or folder)</span></label><textarea class='ext-raw' rows='2' placeholder='"+L("G:\\...\\x.raw（每行一个或填文件夹）","G:\\...\\x.raw (one per line or a folder)")+"'>"+esc(raw||"")+"</textarea><button class='pick' onclick='pickExtRaw(this,\"files\")'>&#128196; <span class='zh'>多文件</span><span class='pe'>Files</span></button><button class='pick' onclick='pickExtRaw(this,\"dir\")'>&#128193; <span class='zh'>文件夹</span><span class='pe'>Folder</span></button></div>";c.appendChild(row);extTypeChanged(row.querySelector("select"));
+  // 自动搜库类型行：检测缓存有结果时立即预填软件路径（仅填空框，不覆盖已填）
+  // auto-capable rows: prefill the software path from the detection cache when
+  // it is available (only fills empty boxes, never overwrites)
+  if(AUTO_EXE_TYPES[type||"maxquant"]){getDetect().then(r=>{const e=(r&&r.engines)||{};const k=AUTO_EXE_TYPES[type||"maxquant"];const inp=row.querySelector(".ext-exe");if(k&&e[k]&&inp&&!inp.value.trim()){inp.value=e[k]}})}}
+function extTypeChanged(sel){const row=sel.closest(".srow");
+  // v1.0：模式下拉随引擎类型更新可用性——不支持自动搜库的类型 Auto 置灰
+  // 并回落 Manual；raw 框可见性改由 extModeChanged 统一管理
+  const md=row.querySelector(".ext-mode");const canAuto=!!AUTO_EXE_TYPES[sel.value];
+  if(md){const ao=md.querySelector("option[value='auto']");if(ao)ao.disabled=!canAuto;if(!canAuto&&md.value==="auto")md.value="manual";}
+  // 切换类型时同步显示/隐藏软件路径输入（仅自动搜库能力类型有）
+  // switching type shows/hides the software-path input (auto-capable only)
+  const exeInp=row.querySelector(".ext-exe");const hint=row.querySelector(".ext-exe-hint");
+  if(exeInp)exeInp.style.display=canAuto?"":"none";
+  if(hint)hint.style.display=canAuto?"none":"";
+  if(exeInp&&canAuto&&!exeInp.value.trim()){getDetect().then(r=>{const e=(r&&r.engines)||{};const k=AUTO_EXE_TYPES[sel.value];if(k&&e[k])exeInp.value=e[k]})}
+  if(md)extModeChanged(md);
+  renderSlots(getActiveSlots())}
+// v1.0：统一模式切换——Auto＝软件路径（MaxQuant 另显 raw 框，其余引擎用
+// 第一步 MGF、不显 raw）；Manual＝结果文件框。切换时清空对方输入避免旧值
+// 混入生成参数。
+// unified toggle: Auto = software path (MaxQuant also shows raw; other engines
+// reuse the step-1 MGF); Manual = result file. The opposite input is cleared so
+// stale values never leak into the generated config.
+function extModeChanged(selM){
+  var row=selM.closest(".srow");if(!row)return;
+  var sel=row.querySelector("select");var t=sel?sel.value:"";
+  var isAuto=selM.value==="auto"&&!!AUTO_EXE_TYPES[t];
+  var fInp=row.querySelector(".ext-file");
+  var exeInp=row.querySelector(".ext-exe");
+  var rawBox=row.querySelector(".ext-raw-box");
+  row.querySelectorAll(".pick").forEach(function(b){
+    if(b.parentElement!==row)return;
+    var oc=String(b.onclick);
+    if(oc.indexOf("pickExtFile")>=0||oc.indexOf("pickExtDir")>=0)b.style.display=isAuto?"none":"";});
+  if(isAuto){
+    if(fInp){fInp.style.display="none";fInp.value="";}
+    if(exeInp)exeInp.style.display="";
+    if(rawBox)rawBox.style.display=(t==="maxquant")?"block":"none";
+  }else{
+    if(fInp)fInp.style.display="";
+    if(exeInp)exeInp.style.display="none";
+    if(rawBox){rawBox.style.display="none";var ra=row.querySelector(".ext-raw");if(ra)ra.value="";}
+  }
+}
+function removeExtRow(btn){btn.closest(".srow").remove();renderSlots(getActiveSlots());saveExtRows()}
+function pickExtFile(btn){fileBrowserOpen(btn.closest(".srow").querySelector(".ext-file"), false)}function pickExtDir(btn){fileBrowserOpen(btn.closest(".srow").querySelector(".ext-file"), true)}
+function pickExtRaw(btn,kind){fileBrowserOpen(btn.closest(".srow").querySelector(".ext-raw"),kind==="dir",null,kind==="files")}
+function saveExtRows(){const d=[];document.querySelectorAll("#extRows .srow").forEach(row=>{const sel=row.querySelector("select"),inp=row.querySelector(".ext-file"),ra=row.querySelector(".ext-raw"),ex=row.querySelector(".ext-exe"),md=row.querySelector(".ext-mode");if(sel&&inp&&(inp.value||(ex&&ex.value)))d.push({type:sel.value,file:inp.value,raw:(ra&&ra.value)||"",exe:(ex&&ex.value)||"",mode:(md&&md.value)||""})});localStorage.setItem("isopsv_ext_engines",JSON.stringify(d))}
+// v1.0：统一收集引擎行策略——Auto 行要求软件路径（MaxQuant 另要求 raw），
+// Manual 行要求结果文件；问题行汇总报错，不再静默丢弃。生成按钮与参数汇总
+// 页共用本函数。
+// collect strategy rows for both the generate button and the Summary page:
+// Auto rows need the software path (MaxQuant also raw), Manual rows need a
+// result file; problems are surfaced instead of silently dropped.
+function collectExtStrategies(){const s=[];let hasAutoEng=false;const problems=[];
+document.querySelectorAll("#extRows .srow").forEach(row=>{const sel=row.querySelector("select"),inp=row.querySelector(".ext-file"),ra=row.querySelector(".ext-raw"),ex=row.querySelector(".ext-exe"),md=row.querySelector(".ext-mode");if(!sel)return;const t=sel.value;const isAuto=!!(md&&md.value==="auto"&&AUTO_EXE_TYPES[t]);
+if(isAuto){const exe=(ex&&ex.value.trim())||"";
+if(!exe){problems.push(t+L("：Auto search 需填软件路径",": Auto search needs the software path"));return}
+if(t==="maxquant"&&!(ra&&ra.value.trim())){problems.push("MaxQuant"+L("：Auto search 需填 raw 输入（其余引擎自动用第一步 MGF）",": Auto search needs raw input (other engines reuse the step-1 MGF)"));return}
+s.push({type:t,file:"",raw:(ra&&ra.value.trim())||"",exe:exe,mode:"auto",msconvert:(detectCache&&detectCache.engines&&detectCache.engines.msconvert)||""});hasAutoEng=true;
+}else{const f=(inp&&inp.value.trim())||"";
+if(!f){problems.push(t+L("：Manual 需填结果文件",": Manual needs a result file"));return}
+s.push({type:t,file:f,raw:"",exe:"",mode:"manual",msconvert:""});}});
+return {s:s,hasAutoEng:hasAutoEng,problems:problems}}
+function generateStep2Config(){saveExtRows();const cs=collectExtStrategies();const s=cs.s;
+if(cs.problems.length){document.getElementById("step2Msg").textContent="⚠ "+cs.problems.join("；");return}
+// v1.0：有引擎选了自动模式时自动设 auto_search=1（否则管线停在手动静点）
+// v1.0：有引擎选了自动模式时自动设 auto_search=1（否则管线停在手动静点）
+if(cs.hasAutoEng){var asEl0=document.getElementById("auto_search");if(asEl0&&asEl0.value!=="1"){asEl0.value="1";j("/api/fill",{file:"config_step1.txt",key:"auto_search",value:"1"}).then(()=>{autosave()});}}
+const xmxEl=document.getElementById("msfraggerXmx");const now=new Date(),ts=now.getFullYear()+"-"+String(now.getMonth()+1).padStart(2,"0")+"-"+String(now.getDate()).padStart(2,"0")+" "+String(now.getHours()).padStart(2,"0")+":"+String(now.getMinutes()).padStart(2,"0")+":"+String(now.getSeconds()).padStart(2,"0");if(!s.length){var as=document.getElementById("auto_search").value;if(as==="1"){j("/api/generate_step2",{strategies:[],msfragger_xmx:"",result_dir:document.getElementById("result_dir").value||""}).then(r=>{document.getElementById("step2Msg").textContent=r.ok?(L("已生成 ","Generated ")+r.path+" ["+ts+"] "+L("（pFind 参数写入，仅 pFind 家族策略 b-e）","(pFind parameters, family strategies b-e only)")):(r.error||r.msg)})}else{document.getElementById("step2Msg").textContent=L("未添加引擎（如只用 pFind 请设 auto_search=1）","No engines added (set auto_search=1 for pFind only)")}return}j("/api/generate_step2",{strategies:s,msfragger_xmx:(xmxEl&&xmxEl.value.trim())||"",result_dir:document.getElementById("result_dir").value||""}).then(r=>{document.getElementById("step2Msg").textContent=r.ok?(L("已生成 ","Generated ")+r.path+" ["+ts+"]"):(r.error||r.msg)})}
+// 理论谱图预测器选项卡（v1.0，2026-09-26）：动态预测器行 + 主预测器选择，
+// 经 /api/fill 逐个写入 config_predictor.txt 的 predictor_primary / predictorN_* 键
+// 标记行式模块（v1.0 用户口径；v1.0 自定义修饰行）：类 1 全标记单选
+// （label_class1，空=无标记）；类 2 修饰形式标记多行添加（混合样本每行一个），
+// 每行 4 格＝名称｜修饰位置（任意位置/肽段N端/肽段C端/蛋白N端/蛋白C端）｜
+// 氨基酸集合（全部/自定义）｜元素组成与数量（modification.ini 风格，如
+// H(1)O(3)P(1)、C(-6)13C(6)N(-2)15N(2)）——用户自定义修饰，质量由组成式
+// 计算。序列化单行值"名称|位置码|氨基酸|组成"，与 R 侧 parse_label_row 对齐；
+// 预设下拉仅做快填。旧预设名（无竖线）R 侧仍按 AA_mass_dataframe 查表兼容。
+const LABEL_POS_OPTS=[["ANY","任意位置","Anywhere"],["PEP_N","肽段N端","Peptide N-term"],["PEP_C","肽段C端","Peptide C-term"],["PRO_N","蛋白N端","Protein N-term"],["PRO_C","蛋白C端","Protein C-term"]];
+const LABEL_PRESETS={"Dimethyl[AnyN-term]":{name:"Dimethyl",pos:"PEP_N",aa:"*",comp:"H(4)C(2)"},
+"Dimethyl_2H(4)[AnyN-term]":{name:"Dimethyl_2H(4)",pos:"PEP_N",aa:"*",comp:"2H(4)C(2)"},
+"Dimethyl_2H(6)[AnyN-term]":{name:"Dimethyl_2H(6)",pos:"PEP_N",aa:"*",comp:"H(-2)2H(6)C(2)"},
+"Label_13C(6)[K]":{name:"Label_13C(6)",pos:"ANY",aa:"K",comp:"C(-6)13C(6)"},
+"Label_13C(6)15N(2)[K]":{name:"Label_13C(6)15N(2)",pos:"ANY",aa:"K",comp:"C(-6)13C(6)N(-2)15N(2)"},
+"Label_13C(6)15N(4)[R]":{name:"Label_13C(6)15N(4)",pos:"ANY",aa:"R",comp:"C(-6)13C(6)N(-4)15N(4)"},
+"K602[K] (NeuCode 13C6-15N2)":{name:"K602",pos:"ANY",aa:"K",comp:"C(-6)13C(6)N(-2)15N(2)"},
+"K080[K] (NeuCode D8)":{name:"K080",pos:"ANY",aa:"K",comp:"H(-8)2H(8)"},
+"R004[R] (NeuCode 15N4)":{name:"R004",pos:"ANY",aa:"R",comp:"N(-4)15N(4)"},
+"R040[R] (NeuCode D4)":{name:"R040",pos:"ANY",aa:"R",comp:"H(-4)2H(4)"},
+"R604[R] (NeuCode 13C6)":{name:"R604",pos:"ANY",aa:"R",comp:"C(-6)13C(6)"},
+"R640[R] (NeuCode 13C6-15N4)":{name:"R640",pos:"ANY",aa:"R",comp:"C(-6)13C(6)N(-4)15N(4)"}};
+function labelPresetOpts(cur){return '<option value="">'+L('自定义','Custom')+'</option>'+Object.keys(LABEL_PRESETS).map(k=>'<option value="'+k+'"'+(k===cur?" selected":"")+'>'+k+'</option>').join("");}
+function addLabelRow(v){v=v||{};const d=document.createElement("div");d.className="srow";
+  const aaCustom=v.aa&&v.aa!=="*";
+  d.innerHTML='<select class="label-preset" onchange="labelPresetFill(this)">'+labelPresetOpts(v.preset)+'</select>'
+   +'<input class="label-name" oninput="this.closest(\'.srow\').querySelector(\'.label-preset\').value=\'\';autosave()" placeholder="'+L('名称（如 Phospho）','name (e.g. Phospho)')+'" value="'+esc(v.name||"")+'">'
+   +'<select class="label-pos" onchange="autosave()">'+LABEL_POS_OPTS.map(o=>'<option value="'+o[0]+'"'+(o[0]===(v.pos||"ANY")?" selected":"")+'>'+(LANG==="zh"?o[1]:(o[2]||o[1]))+'</option>').join("")+'</select>'
+   +'<select class="label-aa-mode" onchange="labelAAModeChanged(this)"><option value="*"'+(!aaCustom?" selected":"")+'>'+L('全部氨基酸','All AAs')+'</option><option value="custom"'+(aaCustom?" selected":"")+'>'+L('自定义','Custom')+'</option></select>'
+   +'<input class="label-aa" oninput="autosave()" placeholder="'+L('如 STY','e.g. STY')+'" style="display:'+(aaCustom?"":"none")+'" value="'+esc(aaCustom?(v.aa||""):"")+'">'
+   +'<input class="label-comp" oninput="this.closest(\'.srow\').querySelector(\'.label-preset\').value=\'\';autosave()" placeholder="'+L('组成（如 H(1)O(3)P(1)）','composition (e.g. H(1)O(3)P(1))')+'" value="'+esc(v.comp||"")+'">'
+   +'<button class="del" onclick="this.parentElement.remove();autosave()" title="'+L('移除该行','remove row')+'">✕</button>';
+  document.getElementById("labelRows").appendChild(d);autosave();}
+function labelPresetFill(sel){const row=sel.closest(".srow"),p=LABEL_PRESETS[sel.value];
+  if(!p)return;
+  row.querySelector(".label-name").value=p.name;
+  row.querySelector(".label-pos").value=p.pos;
+  row.querySelector(".label-aa-mode").value=p.aa==="*"?"*":"custom";
+  const aaInp=row.querySelector(".label-aa");aaInp.style.display=p.aa==="*"?"none":"";aaInp.value=p.aa==="*"?"":p.aa;
+  row.querySelector(".label-comp").value=p.comp;autosave();}
+function labelAAModeChanged(sel){const row=sel.closest(".srow"),inp=row.querySelector(".label-aa");
+  inp.style.display=sel.value==="custom"?"":"none";autosave();}
+function labelRowsData(){return [...document.querySelectorAll("#labelRows .srow")].map(row=>{
+  const name=row.querySelector(".label-name").value.trim();
+  const pos=row.querySelector(".label-pos").value;
+  const mode=row.querySelector(".label-aa-mode").value;
+  const aa=mode==="custom"?(row.querySelector(".label-aa").value.trim().toUpperCase()||"*"):"*";
+  const comp=row.querySelector(".label-comp").value.trim();
+  return {name:name,pos:pos,aa:aa,comp:comp};});}
+function labelTypeValue(){const c1=document.getElementById("label_class1").value;
+  const rows=labelRowsData().filter(r=>r.name&&r.comp).map(r=>r.name+"|"+r.pos+"|"+r.aa+"|"+r.comp);
+  return [c1,...rows].filter(x=>x).join("\n");}
+function initLabelRows(){let saved=[];
+  try{saved=JSON.parse(localStorage.getItem("isopsv_label_rows2")||"[]")}catch(e){saved=[]}
+  if(!saved.length){ // 旧版迁移：预设名字符串行 → 4 字段对象
+    try{const old=JSON.parse(localStorage.getItem("isopsv_label_rows")||"[]");
+      saved=old.filter(x=>LABEL_PRESETS[x]).map(x=>Object.assign({preset:x},LABEL_PRESETS[x]));}catch(e){}}
+  saved.forEach(x=>addLabelRow(x));
+  const c1=document.getElementById("label_class1");
+  if(c1&&localStorage.getItem("isopsv_label_class1"))c1.value=localStorage.getItem("isopsv_label_class1");}
+// v1.0（用户口径 2026-10-09）：下拉只列有适配器的预测器——Prosit 无
+// pred_prosit.R（选了必报"适配器缺失"），从列表移除，实装后再加回。
+// v1.0（用户口径 2026-10-09）：Custom script 同口径下架——界面写死的
+// type=custom 对应 pred_custom.R 不存在，属虚挂；自接预测器仍可手改
+// config_predictor.txt（predictorN_type=<名>＋四键＋pred_<名>.R 入
+// predictors/），接通界面留待有实际需求时再做。
+// v1.0: only predictors WITH adapters are offered - Prosit has no
+// pred_prosit.R (selecting it always failed with "adapter missing"); it is
+// removed until an adapter ships. v1.0: Custom script removed the same
+// way - the UI hardcodes type=custom but pred_custom.R does not exist; wiring
+// a new predictor still works by hand-editing config_predictor.txt
+// (predictorN_type=<name> + four keys + pred_<name>.R in predictors/).
+const PRED_TYPES={pdeep2:"pDeep2",pdeep3:"pDeep3",alphapeptdeep:"AlphaPeptDeep",ms2pip:"MS2PIP"};function predName(k){return PRED_TYPES[k]||k}
+let predRowSeq=0;
+// 统一预测器行（2026-09-27 用户口径）：所有行同一模板，类型下拉含 pDeep2 并可
+// 随时改换；pDeep2 行的路径=安装目录（id pdeep2_exe）、开关=自动/手动/关闭
+// （id use_pdeep2），其他行=Python 路径+模型目录+启用/关闭；同一时刻至多一行
+// pDeep2（切换重复时提示并回退）。
+function pdeep2Select(exclude){let r=null;document.querySelectorAll("#predRows .pred-type").forEach(s=>{if(s.value==="pdeep2"&&s!==exclude)r=s;});return r;}
+function predTypeOpts(cur){return Object.entries(PRED_TYPES).map(([k,v])=>`<option value="${k}"${k===cur?" selected":""}>${predName(k)}</option>`).join("");}
+function applyPredType(row,type,py,params,mode){
+  const sel=row.querySelector(".pred-type");sel.dataset.prev=type;
+  const pathInp=row.querySelector(".pred-py");
+  const parInp=row.querySelector(".pred-params");
+  const modeSel=row.querySelector(".pred-mode");
+  // v1.0（用户口径）：路径一律到"软件安装文件夹"级，不到 python.exe 级
+  // ——管线自动探测解释器；params 对全部预测器隐藏（默认参数自动：
+  // pDeep3/AlphaPeptDeep 用第一步质谱仪键、MS2PIP 用内置 HCD 模型）。
+  // 隐藏时清空避免旧值混入生成参数。
+  // v1.0: the path is at the SOFTWARE-INSTALL-FOLDER level, never
+  // python.exe - the pipeline resolves the interpreter; params is hidden for
+  // every predictor (defaults apply automatically: pDeep3/AlphaPeptDeep take
+  // the step-1 instrument key, MS2PIP the built-in HCD model). Hidden implies
+  // cleared so stale values never leak into the generated config.
+  if(type==="pdeep2"){
+    pathInp.id="pdeep2_exe";pathInp.placeholder=L("pDeep2 安装文件夹（独立软件，需用户安装）","pDeep2 install folder (separate software, user-installed)");
+    if(!pathInp.value)pathInp.value=py||"D:/Bioinformatics/pDeep2";
+    parInp.style.display="none";parInp.value="";
+    modeSel.id="use_pdeep2";
+    modeSel.innerHTML=[["1",L("自动","Auto")],["2",L("手动","Manual")],["0",L("关闭","Off")]].map(o=>`<option value="${o[0]}"${String(mode||"1")===o[0]?" selected":""}>${o[1]}</option>`).join("");
+  }else if(type==="pdeep3"){
+    pathInp.removeAttribute("id");pathInp.placeholder=L("pDeep3 安装文件夹（Python 自动探测：同级 python37 / pDeep2 py37 / 附件包）","pDeep3 install folder (Python auto-detected: sibling python37 / pDeep2 py37 / addon)");
+    if(py)pathInp.value=py;
+    parInp.style.display="none";parInp.value="";
+    modeSel.removeAttribute("id");
+    modeSel.innerHTML=[["1",L("启用","Enable")],["0",L("关闭","Disable")]].map(o=>`<option value="${o[0]}"${String(mode||"1")===o[0]?" selected":""}>${o[1]}</option>`).join("");
+  }else{
+    pathInp.removeAttribute("id");pathInp.placeholder=(type==="ms2pip")?L("安装了 MS2PIP 的 Python 环境文件夹（pip 装入的环境；可填环境根或 python.exe，自动识别）","Python env folder with MS2PIP installed (pip env root or python.exe, auto-resolved)"):L("安装了 AlphaPeptDeep 的 Python 环境文件夹（pip 装入的环境；可填环境根或 python.exe，自动识别）","Python env folder with AlphaPeptDeep installed (pip env root or python.exe, auto-resolved)");
+    if(py)pathInp.value=py;
+    parInp.style.display="none";parInp.value="";
+    modeSel.removeAttribute("id");
+    modeSel.innerHTML=[["1",L("启用","Enable")],["0",L("关闭","Disable")]].map(o=>`<option value="${o[0]}"${String(mode||"1")===o[0]?" selected":""}>${o[1]}</option>`).join("");
+  }
+}
+function predTypeChanged(sel){
+  const row=sel.closest(".srow");
+  if(sel.value==="pdeep2"){
+    const other=pdeep2Select(sel);
+    if(other&&other!==sel){alert(L("pDeep2 行已存在（每行一个预测软件，至多一行）","a pDeep2 row already exists (one predictor per row)"));sel.value=sel.dataset.prev||"ms2pip";applyPredType(row,sel.value,"","","1");return;}
+  }
+  applyPredType(row,sel.value,"","","1");
+  syncPredPrimary();savePredRows();}
+function addPredRow(type,py,params,mode){
+  if(type===undefined){type=pdeep2Select(null)?"ms2pip":"pdeep2";}
+  if(type==="pdeep2"&&pdeep2Select(null)){alert(L("pDeep2 行已存在（每行一个预测软件）","a pDeep2 row already exists (one predictor per row)"));return;}
+  const seq=++predRowSeq;const d=document.createElement("div");d.className="srow";d.dataset.seq=seq;
+  d.innerHTML=`<select class="pred-type" onchange="predTypeChanged(this)">${predTypeOpts(type)}</select>
+    <input class="pred-py" oninput="autosave()" value="${esc(py||"")}">
+    <input class="pred-params" oninput="autosave()" placeholder="params" value="${esc(params||"")}">
+    <select class="pred-mode" onchange="autosave()"></select>
+    <button class="del" onclick="this.parentElement.remove();syncPredPrimary();savePredRows()" title="移除该行 remove this row">✕</button>`;
+  document.getElementById("predRows").appendChild(d);
+  applyPredType(d,type,py,params,mode);syncPredPrimary();savePredRows();}
+function syncPredPrimary(){const sel=document.getElementById("predictorPrimary");const keep=sel.value;
+  const opts=[];const seen=new Set();
+  document.querySelectorAll("#predRows .pred-type").forEach(s=>{const v=s.value;
+    if(!seen.has(v)){opts.push('<option value="'+v+'">'+predName(v)+'</option>');seen.add(v);}});
+  opts.push('<option value="none">'+L('不进行理论谱图预测（predict 列按缺失处理）','No theoretical-spectrum prediction (predict treated as missing)')+'</option>');
+  sel.innerHTML=opts.join("");
+  if([...sel.options].some(o=>o.value===keep))sel.value=keep;}
+function savePredRows(){const d=[];document.querySelectorAll("#predRows .srow").forEach(row=>{d.push({type:row.querySelector(".pred-type").value,py:row.querySelector(".pred-py").value,params:row.querySelector(".pred-params").value,mode:row.querySelector(".pred-mode").value})});localStorage.setItem("isopsv_pred_rows",JSON.stringify(d));const pp=document.getElementById("predictorPrimary");if(pp)localStorage.setItem("isopsv_pred_primary",pp.value)}
+function initPredRows(){
+  let saved=JSON.parse(localStorage.getItem("isopsv_pred_rows")||"null");
+  if(saved===null||!Array.isArray(saved)||saved.length===0){saved=[{type:"pdeep2",py:"",params:"",mode:"1"}];}
+  saved.filter(r=>PRED_TYPES[r.type]).forEach(r=>addPredRow(r.type,r.py,r.params,r.mode));
+  syncPredPrimary();
+  const pp=localStorage.getItem("isopsv_pred_primary");const sel=document.getElementById("predictorPrimary");
+  if(pp&&sel&&[...sel.options].some(o=>o.value===pp))sel.value=pp;}
+function generatePredConfig(){savePredRows();
+  // v99j：config 不存在时先自动生成（"Generate config" 未点即直接 Write 的场景）
+  var rd=document.getElementById("result_dir").value.trim();
+  var _needGen=!rd;
+  if(!_needGen){
+    // 同步检查太贵——直接尝试写，失败则先生成再重试（见下方 catch）
+  }
+
+  // N-13（2026-09-26）：写前先清陈旧 predictor2..8 键（/api/fill 空值=移除键）——
+  // 删行后残留的 predictorN_* 否则会让 user_run 执行陈旧预测器
+  const jobs=[];
+  for(let i=2;i<=8;i++){for(const k of ["type","python","params","mode"])jobs.push({file:"config_step1.txt",key:"predictor"+i+"_"+k,value:""});}
+  // v1.0（2026-09-27 用户口径）：主预测器选"不进行理论谱图预测"时同步把
+  // use_pdeep2 置 0（predict 列按缺失处理）；改回预测器而 use_pdeep2 仍为 0 时
+  // 自动恢复为 1（自动模式）；手动模式（2）不动。
+  const primary=document.getElementById("predictorPrimary").value;
+  jobs.push({file:"config_predictor.txt",key:"predictor_primary",value:primary,base:rd||""});
+  // pDeep2 行：存在则按其开关与路径写入；整行被移除则强制 use_pdeep2=0 并清路径键
+  const pd2Sel=document.getElementById("use_pdeep2");
+  const pd2Inp=document.getElementById("pdeep2_exe");
+  // 李治/杨翰反馈①b：预测器键改写独立参数文件 config_predictor.txt
+  // pDeep2 的 use_pdeep2/pdeep2_exe 仍写 config_step1（属搜库流程配置）
+  if(pd2Sel){jobs.push({file:"config_step1.txt",key:"use_pdeep2",value:pd2Sel.value});
+    if(pd2Inp&&pd2Inp.value.trim())jobs.push({file:"config_step1.txt",key:"pdeep2_exe",value:pd2Inp.value.trim()});}
+  else {jobs.push({file:"config_step1.txt",key:"use_pdeep2",value:"0"});
+    jobs.push({file:"config_step1.txt",key:"pdeep2_exe",value:""});}
+  if(primary==="none"){jobs.push({file:"config_step1.txt",key:"use_pdeep2",value:"0"});if(pd2Sel)pd2Sel.value="0";}
+  else if(pd2Sel&&pd2Sel.value==="0"){jobs.push({file:"config_step1.txt",key:"use_pdeep2",value:"1"});pd2Sel.value="1";}
+  autosave();
+  let n=2;
+  document.querySelectorAll("#predRows .srow").forEach(row=>{if(row.querySelector(".pred-type").value==="pdeep2")return;const t=row.querySelector(".pred-type").value;
+    jobs.push({file:"config_predictor.txt",key:"predictor"+n+"_type",value:t,base:rd||""});
+    jobs.push({file:"config_predictor.txt",key:"predictor"+n+"_python",value:row.querySelector(".pred-py").value.trim(),base:rd||""});
+    jobs.push({file:"config_predictor.txt",key:"predictor"+n+"_params",value:row.querySelector(".pred-params").value.trim(),base:rd||""});
+    jobs.push({file:"config_predictor.txt",key:"predictor"+n+"_mode",value:row.querySelector(".pred-mode").value,base:rd||""});
+    n++;});
+  (async()=>{let ok=0,fail=0;
+    for(const jb of jobs){const r=await j("/api/fill",jb);r.ok?ok++:fail++;}
+    if(fail>0&&fail===jobs.length&&rd){
+      // 全部失败且 result_dir 有值 → config 可能不存在，先自动生成再重试一次
+      generateConfig();
+      setTimeout(function(){
+        var ok2=0,fail2=0;
+        (async()=>{for(const jb of jobs){const r=await j("/api/fill",jb);r.ok?ok2++:fail2++;}
+          const _t2=new Date(),_ts2=_t2.getFullYear()+"-"+String(_t2.getMonth()+1).padStart(2,"0")+"-"+String(_t2.getDate()).padStart(2,"0")+" "+String(_t2.getHours()).padStart(2,"0")+":"+String(_t2.getMinutes()).padStart(2,"0")+":"+String(_t2.getSeconds()).padStart(2,"0");
+          document.getElementById("predMsg").textContent=L("自动生成 config_predictor.txt 后重写：","Auto-generated config_predictor.txt then wrote ")+ok2+L(" 键（失败 "," keys (")+fail2+L("）"," failed)")+" ["+_ts2+"]";})();
+      },2000);
+    }else{
+      const _t3=new Date(),_ts3=_t3.getFullYear()+"-"+String(_t3.getMonth()+1).padStart(2,"0")+"-"+String(_t3.getDate()).padStart(2,"0")+" "+String(_t3.getHours()).padStart(2,"0")+":"+String(_t3.getMinutes()).padStart(2,"0")+":"+String(_t3.getSeconds()).padStart(2,"0");
+      document.getElementById("predMsg").textContent=L("已写入 config_predictor.txt ","Wrote to config_predictor.txt ")+ok+L(" 键（失败 "," keys (")+fail+L("）"," failed)")+" ["+_ts3+"]";
+    }})();}
+
+// 表单自动持久化（2026-09-23）：所有输入 change 即存 localStorage，页面刷新自动恢复——
+// 避免"生成到错误目录/空路径"类操作事故
+function autosave(){const o={};KEYS.forEach(k=>{const el=document.getElementById(k);if(el)o[k]=el.value});localStorage.setItem("isopsv_form",JSON.stringify(o));localStorage.setItem("isopsv_label_rows2",JSON.stringify(labelRowsData()));}
+function autoload(){const o=JSON.parse(localStorage.getItem("isopsv_form")||"{}");let n=0;KEYS.forEach(k=>{const el=document.getElementById(k);if(el&&o[k]!==undefined&&o[k]!==null){el.value=o[k];n++}});if(n){togglePfindExe();togglePunifind();document.getElementById("cfgMsg").textContent=L("已恢复上次填写 ","restored ")+n+L(" 项"," field(s)")}}
+KEYS.forEach(k=>{const el=document.getElementById(k);if(el)el.addEventListener("change",autosave)});
+document.getElementById("mgfInput").addEventListener("input",autosave);
+
+// v1.0：页脚显示服务端版本（排障时一眼分清磁盘包与运行进程的新旧）
+// v1.0: footer shows the SERVER version (disk-vs-process mismatch visible)
+(function(){var f=document.createElement('div');f.id='verTag';f.style.cssText='text-align:center;color:#9aa5b1;font-size:12px;padding:10px 0 4px';document.body.appendChild(f);
+fetch('/api/version').then(r=>r.json()).then(v=>{f.textContent='server '+v.version+' · started '+(v.started||'')+' · picker '+(v.picker||'?')}).catch(()=>{f.textContent='server version unknown'})})();
+var _pickTimer=null;
+function pickHint(on,msg){var d=document.getElementById('pickHint');if(!d){d=document.createElement('div');d.id='pickHint';d.style.cssText='position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:99999;background:#fdf0ec;border:1px solid #e5c5ba;color:#c76a4a;font-size:13px;padding:8px 16px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.18);max-width:86%';document.body.appendChild(d)}
+if(_pickTimer){clearTimeout(_pickTimer);_pickTimer=null}
+if(on){d.style.display='block';d.textContent=msg||L('选择器启动中…','picker launching…');
+_pickTimer=setTimeout(function(){d.textContent=L('仍未弹出？对话框可能在任务栏、其他显示器或被安全软件拦截——可手动在文本框输入路径，或把此现象反馈开发侧','still no dialog? it may be on the taskbar, another display, or blocked - type the path manually or report this')},12000)}
+else{d.style.display='none';d.textContent=''}
+}
+// v1.0（2026-10-03 终局）：浏览器原生选框——Chrome 自带的文件/文件夹
+// 选择界面，与操作系统对话框完全无关，任何机器上都不可能弹不出来。选完后
+// 服务端尝试在常见安装目录搜索完整路径，找不到则填名让用户补前缀。
+// v1.0 (2026-10-03 final): browser-native picker - Chrome's own file/
+// folder selection UI, completely independent of OS dialogs. After picking,
+// the server tries to resolve the full path from common install roots;
+// if not found the name is filled and the user completes the prefix.
+function browserPick(targetEl, isDir, targetField) {
+    var inp = document.createElement('input');
+    inp.type = 'file';
+    if (isDir) inp.webkitdirectory = true;
+    inp.style.display = 'none';
+    document.body.appendChild(inp);
+    inp.onchange = function() {
+        if (inp.files.length > 0) {
+            var f = inp.files[0];
+            var name = isDir ? (f.webkitRelativePath || '').split('/')[0] : f.name;
+            if (!name) name = f.name;
+            // 服务端搜索完整路径
+            fetch('/api/resolve_path', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name: name})
+            }).then(r => r.json()).then(r => {
+                if (r.ok && r.path) {
+                    if (targetEl) targetEl.value = r.path;
+                    if (targetField) {
+                        var el = document.getElementById(targetField);
+                        if (el) { el.value = r.path; el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); }
+                    }
+                    pickHint(0);
+                } else {
+                    if (targetEl) targetEl.value = name;
+                    if (targetField) {
+                        var el2 = document.getElementById(targetField);
+                        if (el2) { el2.value = name; el2.classList.remove('flash'); void el2.offsetWidth; el2.classList.add('flash'); }
+                    }
+                    pickHint(1, L('已选择 "'+name+'"，请补全完整路径前缀','selected "'+name+'" - please add the full path prefix'));
+                }
+            }).catch(function() {
+                if (targetEl) targetEl.value = name;
+                pickHint(1, L('已选择 "'+name+'"，请补全路径','selected "'+name+'" - add the path prefix'));
+            });
+        } else {
+            pickHint(0);
+        }
+        document.body.removeChild(inp);
+    };
+    pickHint(1, L('请在浏览器选框中选择','pick in the browser dialog'));
+    inp.click();
+}
+
+// 初始化（放最后）
+applyLangDOM();try{var _der=localStorage.getItem("isopsv_detect_roots");if(_der&&document.getElementById("detectExtraRoot"))document.getElementById("detectExtraRoot").value=_der}catch(e){}
+initLabelRows();initPredRows();autoload();togglePfindExe();togglePunifind();loadFillKeys();initSlotBar();initExtRows();refreshStatus();
+
+// v1.0：内嵌文件浏览器——完全在网页内渲染的文件夹/文件导航，
+// 不依赖任何系统对话框，路径始终完整自动填入。
+// v1.0: in-page file browser - fully rendered inside the web page,
+// no OS dialog dependency, full absolute path always auto-filled.
+
+var _fbState = { targetEl: null, targetField: null, isDir: false, multi: false, sel: [], path: "", parent: "" };
+
+// v1.0：multi＝文件多选模式（Files 按钮）——点击文件切换勾选，底部按钮一次写入多行
+function fileBrowserOpen(targetEl, isDir, targetField, multi) {
+  _fbState.targetEl = targetEl;
+  _fbState.targetField = targetField;
+  _fbState.isDir = isDir;
+  _fbState.multi = !!multi && !isDir;
+  _fbState.sel = [];
+  _fbState.path = "";
+
+  // 创建或复用模态框
+  var ov = document.getElementById('fbOverlay');
+  if (!ov) {
+    ov = document.createElement('div');
+    ov.id = 'fbOverlay';
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:99998;display:flex;align-items:center;justify-content:center';
+    ov.innerHTML = '<div id="fbBox" style="background:#fff;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.25);width:520px;max-width:92vw;max-height:80vh;display:flex;flex-direction:column;overflow:hidden">'
+      + '<div style="padding:14px 18px;border-bottom:1px solid #e0e0e0;display:flex;align-items:center;gap:8px">'
+      + '<b style="flex:1;font-size:14px" id="fbTitle"></b>'
+      + '<button id="fbUp" class="pick" style="padding:4px 12px">↑ <span class="zh">上级</span><span class="en">Up</span></button>'
+      + '<button id="fbClose" class="del" style="padding:4px 10px;font-size:16px;border:none;background:none;cursor:pointer;color:#999">✕</button>'
+      + '</div>'
+      + '<div id="fbPath" style="padding:8px 18px;font-size:12.5px;color:#666;background:#f8f9fa;border-bottom:1px solid #eee;font-family:monospace;word-break:break-all"></div>'
+      + '<div id="fbList" style="flex:1;overflow-y:auto;padding:8px 12px"></div>'
+      + '<div style="padding:10px 18px;border-top:1px solid #e0e0e0;display:flex;gap:8px;justify-content:flex-end">'
+      + '<button id="fbSelect" class="pick" style="padding:6px 20px;font-weight:600;background:#2563eb;color:#fff;border:none;border-radius:6px;cursor:pointer"><span class="zh">选择此文件夹</span><span class="en">Select this</span></button>'
+      + '</div>'
+      + '</div>';
+    document.body.appendChild(ov);
+    document.getElementById('fbClose').onclick = fileBrowserClose;
+    document.getElementById('fbUp').onclick = function() { if (_fbState.parent) fileBrowserNav(_fbState.parent); };
+    document.getElementById('fbSelect').onclick = fileBrowserConfirm;
+    ov.addEventListener('click', function(e) { if (e.target === ov) fileBrowserClose(); });
+  }
+  document.getElementById('fbTitle').innerHTML = isDir ? '<span class="zh">选择文件夹</span><span class="en">Select folder</span>' : (_fbState.multi ? '<span class="zh">选择文件（可多选）</span><span class="en">Select files (multi)</span>' : '<span class="zh">选择文件</span><span class="en">Select file</span>');
+  document.getElementById('fbSelect').style.display = (isDir || _fbState.multi) ? '' : 'none';
+  fbUpdateSelectBtn();
+  ov.style.display = 'flex';
+  fileBrowserNav(''); // 从盘符列表开始
+}
+
+function fileBrowserClose() {
+  var ov = document.getElementById('fbOverlay');
+  if (ov) ov.style.display = 'none';
+  pickHint(0);
+}
+
+function fileBrowserNav(path) {
+  var list = document.getElementById('fbList');
+  var pathEl = document.getElementById('fbPath');
+  pathEl.textContent = path || L('选择盘符','select a drive');
+  list.innerHTML = '<div style="padding:20px;text-align:center;color:#999">'+L('加载中…','loading…')+'</div>';
+
+  fetch('/api/list_dir', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: path, files: !_fbState.isDir })
+  }).then(function(r) { return r.json(); }).then(function(r) {
+    list.innerHTML = '';
+    if (!r.ok) {
+      list.innerHTML = '<div style="padding:20px;text-align:center;color:#c76a4a">' + (r.msg || L('无法读取','cannot read')) + '</div>';
+      return;
+    }
+    _fbState.path = r.path || '';
+    _fbState.parent = r.parent || '';
+    _fbState.sel = [];
+    pathEl.textContent = _fbState.path || L('选择盘符','select a drive');
+    document.getElementById('fbUp').style.visibility = _fbState.parent ? 'visible' : 'hidden';
+
+    // 盘符列表
+    if (r.drives && r.drives.length > 0) {
+      r.drives.forEach(function(d) {
+        var item = document.createElement('div');
+        item.style.cssText = 'padding:10px 14px;cursor:pointer;border-radius:6px;display:flex;align-items:center;gap:8px;font-size:14px';
+        item.onmouseenter = function() { item.style.background = '#e8f0fe'; };
+        item.onmouseleave = function() { item.style.background = ''; };
+        item.innerHTML = '<span style="font-size:18px">💽</span> <b>' + d + '</b>';
+        item.onclick = function() { fileBrowserNav(d); };
+        list.appendChild(item);
+      });
+      return;
+    }
+
+    // 新建文件夹按钮（用户口径 2026-10-09）
+    if (_fbState.path) {
+      var mkBtn = document.createElement('div');
+      mkBtn.style.cssText = 'padding:6px 14px;cursor:pointer;border-radius:6px;display:flex;align-items:center;gap:8px;font-size:13px;color:#1565c0;border:1px dashed #90caf9;margin:4px 10px';
+      mkBtn.innerHTML = '＋ ' + L('新建文件夹', 'New folder');
+      mkBtn.onclick = function() {
+        var name = prompt(L('输入新文件夹名称：', 'Enter new folder name:'));
+        if (name && name.trim()) {
+          fetch('/api/mkdir', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({path: _fbState.path, name: name.trim()})
+          }).then(function(res) { return res.json(); }).then(function(res) {
+            if (res.ok) fileBrowserNav(_fbState.path);
+            else alert(res.msg || 'mkdir failed');
+          });
+        }
+      };
+      list.appendChild(mkBtn);
+    }
+
+    // 子目录（含重命名）
+    (r.dirs || []).forEach(function(name) {
+      var item = document.createElement('div');
+      item.style.cssText = 'padding:8px 14px;cursor:pointer;border-radius:6px;display:flex;align-items:center;gap:8px;font-size:13.5px';
+      item.onmouseenter = function() { item.style.background = '#e8f0fe'; };
+      item.onmouseleave = function() { item.style.background = ''; };
+      var lbl = document.createElement('span');
+      lbl.textContent = '📁 ' + name;
+      item.appendChild(lbl);
+      // 重命名按钮（悬停时显示）
+      var rnB = document.createElement('span');
+      rnB.textContent = '✏️';
+      rnB.title = L('重命名', 'Rename');
+      rnB.style.cssText = 'margin-left:auto;font-size:14px;cursor:pointer;opacity:0;transition:opacity .15s';
+      item.onmouseenter = function() { item.style.background = '#e8f0fe'; rnB.style.opacity = '1'; };
+      item.onmouseleave = function() { item.style.background = ''; rnB.style.opacity = '0'; };
+      rnB.onclick = function(ev) {
+        ev.stopPropagation();
+        var newName = prompt(L('重命名为：', 'Rename to:'), name);
+        if (newName && newName.trim() && newName !== name) {
+          var oldP = _fbState.path + '\\' + name;
+          var newP = _fbState.path + '\\' + newName.trim();
+          fetch('/api/rename', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({old: oldP, new: newP})
+          }).then(function(res) { return res.json(); }).then(function(res) {
+            if (res.ok) fileBrowserNav(_fbState.path);
+            else alert(res.msg || 'rename failed');
+          });
+        }
+      };
+      item.appendChild(rnB);
+      item.onclick = function() { fileBrowserNav(_fbState.path + '\\' + name); };
+      list.appendChild(item);
+    });
+
+    // 文件（仅文件选择模式）
+    if (!_fbState.isDir) {
+      (r.files || []).forEach(function(name) {
+        var item = document.createElement('div');
+        item.style.cssText = 'padding:8px 14px;cursor:pointer;border-radius:6px;display:flex;align-items:center;gap:8px;font-size:13.5px;color:#444';
+        item.onmouseenter = function() { item.style.background = '#fef3e2'; };
+        item.onmouseleave = function() { item.style.background = ''; };
+        item.innerHTML = '<span style="font-size:16px">' + (_fbState.multi ? '⬜' : '📄') + '</span> ' + esc(name);
+        if (_fbState.multi) {
+          item.onmouseenter = function() { if(!item.dataset.sel) item.style.background = '#eef4fb'; };
+          item.onmouseleave = function() { item.style.background = item.dataset.sel ? '#dbeafe' : ''; };
+          item.onclick = function() {
+            if (item.dataset.sel) { delete item.dataset.sel; item.style.background = ''; item.firstChild.textContent = '⬜'; }
+            else { item.dataset.sel = '1'; item.style.background = '#dbeafe'; item.firstChild.textContent = '✅'; }
+            var i2 = _fbState.sel.indexOf(name);
+            if (i2 >= 0) _fbState.sel.splice(i2, 1); else _fbState.sel.push(name);
+            fbUpdateSelectBtn();
+          };
+        } else {
+          item.onclick = function() {
+            var full = _fbState.path + '\\' + name;
+            fileBrowserApply(full);
+          };
+        }
+        list.appendChild(item);
+      });
+    }
+
+    if (!(r.dirs || []).length && !(r.files || []).length && !r.drives) {
+      list.innerHTML = '<div style="padding:20px;text-align:center;color:#999">'+L('空文件夹','empty folder')+'</div>';
+    }
+  }).catch(function(e) {
+    list.innerHTML = '<div style="padding:20px;text-align:center;color:#c76a4a">'+L('请求失败: ','request failed: ') + e + '</div>';
+  });
+}
+
+function fileBrowserConfirm() {
+  if (_fbState.isDir && _fbState.path) {
+    fileBrowserApply(_fbState.path);
+    return;
+  }
+  if (_fbState.multi && _fbState.sel.length) {
+    fileBrowserApplyMulti();
+  }
+}
+
+function fbUpdateSelectBtn() {
+  var b = document.getElementById('fbSelect');
+  if (!b) return;
+  if (_fbState.multi) {
+    b.innerHTML = '<span class="zh">选择 ' + _fbState.sel.length + ' 个文件</span><span class="en">Select ' + _fbState.sel.length + ' file(s)</span>';
+    b.style.opacity = _fbState.sel.length ? 1 : .5;
+  }
+}
+
+// v1.0：多选写入——按"每行一个"追加到目标（textarea），已有多行内容时先补换行
+function fileBrowserApplyMulti() {
+  var val = _fbState.sel.map(function(n) { return _fbState.path + '\\' + n; }).join('\n');
+  var wrote = false;
+  if (_fbState.targetEl) {
+    var cur = _fbState.targetEl.value.replace(/\s+$/, '');
+    _fbState.targetEl.value = cur ? (cur + '\n' + val) : val;
+    _fbState.targetEl.classList.remove('flash'); void _fbState.targetEl.offsetWidth; _fbState.targetEl.classList.add('flash');
+    wrote = true;
+  }
+  if (_fbState.targetField) {
+    var el = document.getElementById(_fbState.targetField);
+    if (el) {
+      var cur2 = el.value.replace(/\s+$/, '');
+      el.value = cur2 ? (cur2 + '\n' + val) : val;
+      el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
+      wrote = true;
+    }
+  }
+  if (typeof togglePfindExe === 'function') togglePfindExe();
+  if (typeof togglePunifind === 'function') togglePunifind();
+  fileBrowserClose();
+  if (!wrote) pickHint(1, L('未找到目标输入框', 'no target field found'));
+}
+
+function fileBrowserApply(fullPath) {
+  // v99i: Load params — pick config_step*.txt then load directly
+  if (_fbState.targetField === "__loadcfg__") {
+    fileBrowserClose();
+    j("/api/load_config",{path:fullPath}).then(x=>{
+      if(!x.ok){alert(x.msg||x.error||"load failed");return}
+      var f=x.fields||{};
+      var map={result_dir:"result_dir",search_engine:"search_engine",psm_file:"psm_file",
+               fasta:"fasta",enzyme:"enzyme",unlabeled_channel:"unlabeled_channel",
+               mgf:"mgfInput",auto_search:"auto_search",pfind_exe:"pfind_exe",
+               use_punifind:"use_punifind",
+               punifind_exe:"punifind_exe",punifind_rescore:"punifind_rescore",
+               punifind_denovo:"punifind_denovo",use_pdeep2:"use_pdeep2",
+               pdeep2_exe:"pdeep2_exe",instrument:"instrument",
+               denovo_lookback:"denovo_lookback",candidate_scope:"candidate_scope",
+               proteogenomics_mode:"proteogenomics_mode"};
+      var n=0;
+      Object.keys(map).forEach(function(k){
+        if(f[k]!==undefined&&f[k]!==""){
+          var el=document.getElementById(map[k]);
+          if(el){el.value=f[k];n++}
+        }});
+      // label_class1（下拉）
+      if(f.label_class1){var lc=document.getElementById("label_class1");if(lc){lc.value=f.label_class1;n++}}
+      // pdf_on（下拉）
+      if(f.pdf_on){var po=document.getElementById("pdf_on");if(po){po.value=f.pdf_on;n++}}
+      togglePfindExe();togglePunifind();
+      // v99m：预测器行重建（从 config 的 predictorN_* 键还原 STEP 3 行）
+      if(f.predictor2_type||f.predictor_primary){
+        var pr=document.getElementById("predRows");if(pr)pr.innerHTML="";
+        var pp=f.predictor_primary||"pdeep2";
+        // pDeep2 行（主预测器=pdeep2 或 use_pdeep2 存在时）
+        if(pp==="pdeep2"||f.use_pdeep2){
+          addPredRow("pdeep2",f.pdeep2_exe||"","",f.use_pdeep2||"1");
+        }
+        // predictor2..8 行
+        for(var pi=2;pi<=8;pi++){
+          var pt=f["predictor"+pi+"_type"];
+          if(pt&&pt!=="pdeep2"&&pt!==""){
+            addPredRow(pt,f["predictor"+pi+"_python"]||"",f["predictor"+pi+"_params"]||"",f["predictor"+pi+"_mode"]||"1");
+          }
+        }
+        // 主预测器下拉
+        var ppSel=document.getElementById("predictorPrimary");
+        if(ppSel)ppSel.value=pp;
+        savePredRows();
+        n++;
+      }
+      autosave();
+      document.getElementById("cfgMsg").textContent=n?(L("已载入 ","Loaded (")+n+")"+(f.predictor2_type?L("＋预测器行已重建"," + predictor rows restored"):"")):L("无键","No keys");
+    });
+    return;
+  }
+  if (_fbState.targetEl) {
+    _fbState.targetEl.value = fullPath;
+    _fbState.targetEl.classList.remove('flash');
+    void _fbState.targetEl.offsetWidth;
+    _fbState.targetEl.classList.add('flash');
+  }
+  if (_fbState.targetField) {
+    var el = document.getElementById(_fbState.targetField);
+    if (el) {
+      el.value = fullPath;
+      el.classList.remove('flash');
+      void el.offsetWidth;
+      el.classList.add('flash');
+    }
+  }
+  // 同步 toggle
+  if (typeof togglePfindExe === 'function') togglePfindExe();
+  if (typeof togglePunifind === 'function') togglePunifind();
+  fileBrowserClose();
+}
+
+</script>
+</body>
+</html>
