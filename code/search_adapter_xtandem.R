@@ -103,7 +103,7 @@ convert_xtandem_xml <- function(xml_file, out_file, map_file = NULL) {
   L <- readLines(xml_file, warn = FALSE)
   L <- enc2utf8(L)
   txt <- paste(L, collapse = "\n")
-  # P0-5（2026-09-26，GLM 审查）：TRE 正则的 . 不匹配换行，真实 tandem.xml 是
+  # P0-5TRE 正则的 . 不匹配换行，真实 tandem.xml 是
   # 多行格式（测试夹具单行掩盖了问题）——perl=TRUE + (?s) 使 . 跨行匹配；同时
   # 用 [[:space:]] 前瞻替代 \\b（\\b 在 C locale 下行为不可靠，实测 R 4.5.1
   # LC_CTYPE=C 时恒不匹配）。
@@ -114,7 +114,7 @@ convert_xtandem_xml <- function(xml_file, out_file, map_file = NULL) {
   n <- length(groups)
   fn <- character(n); seqs <- character(n); mods <- character(n)
   expect <- numeric(n); charge <- character(n)
-  # P1（2026-09-26，deepseek 实弹）：新版 X!Tandem 的 <group label> 是蛋白描述
+  # P1新版 X!Tandem 的 <group label> 是蛋白描述
   # 而非谱图标题（按蛋白名去重会把 46,610 组塌缩成 1,488 行）——提供可选 map
   # 参数（new_scan<TAB>original_title）时按 <group id>（= 输入谱 1-based 序）
   # 解析标题；无 map 或 id 缺失/越界时保留 label 回退并计数上报
@@ -183,8 +183,8 @@ convert_xtandem_xml <- function(xml_file, out_file, map_file = NULL) {
                     Charge = m[, 2], expect = as.numeric(m[, 3]),
                     stringsAsFactors = FALSE, check.names = FALSE)
   }
-  d <- d[order(d$expect, na.last = TRUE), , drop = FALSE]
-  if (!all_mode) d <- d[!duplicated(d$File_Name), , drop = FALSE]
+  d <- d[order(d$expect, na.last = TRUE),, drop = FALSE]
+  if (!all_mode) d <- d[!duplicated(d$File_Name),, drop = FALSE]
   d$expect <- NULL
   d$Proteins[d$Proteins == ""] <- ""
   write.table(d, out_file, sep = "\t", row.names = FALSE, quote = FALSE)

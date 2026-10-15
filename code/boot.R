@@ -1,6 +1,6 @@
 # =============================================================================
-# boot.R — 核心库唯一加载入口（N-1，2026-09-25）
-# boot.R - single entry point loading the core libraries (N-1, 2026-09-25)
+# boot.R — 核心库唯一加载入口
+# boot.R - single entry point loading the core libraries 
 #
 # 六个驱动脚本（user_step2/stageA_classify/stageB_conflict_report/user_step3/
 # extend_report_A/unlabeled_extract）此前在文件顶部裸用相对路径 source 核心库，

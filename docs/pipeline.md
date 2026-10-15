@@ -357,7 +357,7 @@ Rscript code/user_run.R          （CONFIG 环境变量指向 config_step1.txt�
   `env -u LANG -u LC_ALL -u LC_CTYPE`；user_run.R 有内建 normalizePath
   兜底，但其他工具仍可能受影响。
 
-## 引擎环境前提（工作站实弹归纳）
+## 引擎环境前提（工作站实测归纳）
 
 - **MetaMorpheus**：需 **.NET 10 运行时**（`winget install
   Microsoft.DotNet.Runtime.10`）且须**官方完整命令行包**（含 `Data/`、
@@ -420,7 +420,7 @@ Rscript code/user_run.R          （CONFIG 环境变量指向 config_step1.txt�
   逐谱索引 `spectrum_pdf_index.tsv`（File_Name → 类目/文件/页码）落在
   1.unlabeled_result/ 与 2.labeled_result/ 的 PDF 旁。
 - 结果浏览：网页结果页可整夹加载从别的电脑拷来的项目文件夹（选目录→Load）：
-  报告、谱图与 PDF 卡片只读该文件夹——无需重跑。Clear 切回本机当前结果。
+  报告、谱图与 PDF 卡片只读该文件夹——无需重跑。Clear 切回本地当前结果。
 - 单谱导出：code/single_spectrum_export.R（库版）或独立的
   single_spectrum_export_standalone.R（自包含、可移植）——在对话框里选
   pFind-Filtered.spectra 与 MGF 文件；每谱输出一个 scan<编号>.pdf（16:9）＋

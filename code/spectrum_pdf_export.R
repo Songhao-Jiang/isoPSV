@@ -6,8 +6,7 @@
 # 用途：
 # 在 user_run.R 三步流程（阶段 A＋阶段 B＋冲突报告）完成后自动执行本模块，
 # 用 Fig.7 定稿判定模型（五指标加权得分＋阈值 τ＋预测救援 θ）对成对报告
-# 逐谱判定，并把判校正谱按"完全判定/模糊类型"渲染成两本 PDF（用户
-# 2026-09-05 规格）：
+# 逐谱判定，并把判校正谱按"完全判定/模糊类型"渲染成两本 PDF
 #   ① error_match_spectra.pdf ＝ 完全判定：判校正且非救援（Δ≥τ）且投票结论
 #      明确为原始结果错误；
 #   ② ambiguous_matches_spectra.pdf ＝ 其余全部"需要判断"的谱：模糊结论
@@ -24,7 +23,7 @@
 # stage B + conflict report) in user_run.R. It applies the finalized Fig.7
 # judgment model (five-metric weighted score + threshold tau + prediction
 # rescue theta) to every spectrum of the paired report and renders the
-# correction spectra as one PDF (user ruling 2026-09-11: ONLY confident
+# correction spectra as one PDF (user ruling: ONLY confident
 # original-result-wrong):
 #   error_match_spectra.pdf = judged, not a rescue, the vote clearly says
 #     original result wrong (conclusion "original result wrong").
@@ -49,13 +48,12 @@
 #
 # 输出：
 #   <结果目录>/2.labeled_result/error_match_spectra.pdf
-#   <结果目录>/2.labeled_result/novel_peptide_spectra.pdf（可信新肽段，
-#     2026-09-26 起；上=新肽段本身、下=最强已注释竞争者）
+#   <结果目录>/2.labeled_result/novel_peptide_spectra.pdf
 #
 # Outputs:
 #   <result folder>/2.labeled_result/error_match_spectra.pdf
 #   <result folder>/2.labeled_result/novel_peptide_spectra.pdf (credible novel
-#     peptides, from 2026-09-26; top = the novel peptide, bottom = its
+#     peptides, from; top = the novel peptide, bottom = its
 #     strongest annotated competitor)
 # =============================================================================
 args0 <- commandArgs(FALSE)
@@ -80,7 +78,7 @@ cfg3_path <- Sys.getenv("CONFIG3")
 if (!nzchar(cfg3_path)) stop("CONFIG3 not set (set by user_run.R)")
 cfg3 <- read_param_file(cfg3_path)
 cfg_dir <- cfg3$config_dir
-if (is.null(cfg_dir) || length(cfg_dir) == 0 || !nzchar(cfg_dir[1]))   # 2026-09-26 审查 P0-3/P3-6：config_dir 缺失/为空时给可读报错
+if (is.null(cfg_dir) || length(cfg_dir) == 0 || !nzchar(cfg_dir[1]))   # 审查 P0-3/P3-6：config_dir 缺失/为空时给可读报错
   stop("config_step3 的 config_dir 缺失或为空，请检查配置（或删除 result_* 后重跑）
 config_dir missing/empty in config_step3")
 # 结果文件夹（RESULT_DIR 由总程序注入；独立运行按时间戳定位/新建）
@@ -93,7 +91,7 @@ all_mgf_dir <- Sys.getenv("ALL_MGF")
 if (!nzchar(all_mgf_dir)) stop("ALL_MGF not set (set by user_run.R)")
 pdf_limit <- suppressWarnings(as.numeric(Sys.getenv("PDF_LIMIT", "Inf")))
 if (is.na(pdf_limit)) pdf_limit <- Inf
-# PDF 拆分（2026-09-26 用户口径）：新肽段/错误谱 PDF 页数太大、单文件加载过重——
+# PDF 拆分新肽段/错误谱 PDF 页数太大、单文件加载过重——
 # 按 raw 分组输出，组内超过 pdf_pages_per_file（默认 1000 页）再切 part；
 # 谱图 PDF 索引 spectrum_pdf_index.tsv 记录每谱所属类别/文件/页码
 ppf_raw <- if (!is.null(base_cfg$pdf_pages_per_file) &&
@@ -107,15 +105,15 @@ IDX <- list()
 # shared weights)
 W6 <- c(ul_by = 0.6200, lb_by = 0.0340, ul_all = 0.1186, lb_all = 0.1700,
         predict = 0, pcos = 0.0573)
-# P1（2026-09-26，deepseek）：同 spectrum_pdf_export_A.R——补 unlabeled 并防御式查找
+# P1同 spectrum_pdf_export_A.R——补 unlabeled 并防御式查找
 TAU_MAP <- c(n15 = 0.0083, c13 = 0.0083, silac = 0.0183, unlabeled = 0.0083)
 THETA <- 0.30
 tau_v <- label_tau_of(parse_label_spec(label_type))
 if (is.null(tau_v)) tau_v <- 0.0083
-# 分组权重覆盖（用户口径 2026-09-21）：config_step3 可选键 weights_B（六指标
+# 分组权重覆盖config_step3 可选键 weights_B（六指标
 # 逗号分隔，顺序 ul_by,lb_by,ul_all,lb_all,predict,pcos）与 threshold_B 优先；
 # 旧配置无这两键时行为与原版一致（与 master_table_export.R 同一约定）
-# per-label override (user ruling 2026-09-21): optional config keys weights_B /
+# per-label override optional config keys weights_B /
 # threshold_B take precedence; absent keys reproduce the unified behavior
 wb_raw <- if (!is.null(cfg3$weights_B) && length(cfg3$weights_B) > 0)
   tail(cfg3$weights_B, 1) else ""
@@ -190,7 +188,7 @@ LL <- lapply(MET, function(cn) {
 # judgment
 score_of <- function(i) {
   M <- sapply(names(W6), function(mn) LL[[mn]][[i]] / DIV[[mn]])
-  if (is.null(dim(M))) M <- matrix(M, nrow = 1L)   # 单候选行守卫（与主表口径一致，2026-09-11）
+  if (is.null(dim(M))) M <- matrix(M, nrow = 1L)   # 单候选行守卫
   avail <- apply(M, 2, function(colv) all(!is.na(colv)))
   ww <- W6[avail]
   if (sum(ww) <= 0) ww <- rep(1, sum(avail))
@@ -221,11 +219,11 @@ rescue <- !is.na(delta) & delta < tau_v & !is.na(dpred) & dpred >= THETA
 ions_identical <- !is.na(delta) & delta == 0
 ions_small_diff <- !is.na(delta) & delta != 0 & abs(tau_v - delta) <= 0.015
 
-# ---- 谱集合（用户口径 2026-09-11 修订：只保留混合谱＋确信的原始结果错误）----
+# ---- 谱集合----
 # error_match_spectra.pdf ＝ 混合谱（同价/异价嵌合，结论 chimeric spectrum）∪
 # 确信的原始结果错误（判校正且非救援且投票结论 original result wrong）；
 # 不再输出模糊/救援/近阈值类型的 PDF（ambiguous_matches_spectra.pdf 停用）。
-# ---- the spectrum set (user ruling 2026-09-11: keep only chimeric + confident
+# ---- the spectrum set (user ruling: keep only chimeric + confident
 # original-result-wrong rows (judged, not rescue, vote says original result
 # wrong); chimeric / ambiguous / rescue / near-threshold spectra are NOT
 # rendered.
@@ -234,10 +232,10 @@ fuzzy_concl <- c("chimeric spectrum", "ambiguous: poor spectrum quality",
 fuzzy <- !is.na(cval(conf$conclusion_status)) &
   cval(conf$conclusion_status) %in% fuzzy_concl
 concl_v <- cval(conf$conclusion_status)
-# 完全判定（用户口径 2026-09-11 B）：按冲突报告定稿结论（vote_says_wrong）收录
+# 完全判定按冲突报告定稿结论（vote_says_wrong）收录
 # 全部 original result wrong 行——分数确证、预测救援与投票-分数分歧型一并收录，
 # 与网页谱图列表（conclusion = original result wrong 全集）一致。
-# fully determined (user ruling 2026-09-11 B): take the FULL conflict-report
+# fully determined take the FULL conflict-report
 # conclusion set (vote says original wrong) - score-confident, prediction-
 # rescue and vote-vs-score-disagreement rows alike, matching the web list.
 defi <- !fuzzy & !is.na(concl_v) &
@@ -483,9 +481,9 @@ mcol <- function(col) {
 }
 p1_prot <- mcol("cand1_protein");  p1_loc <- mcol("cand1_location")
 p2_prot <- mcol("corrected_protein"); p2_loc <- mcol("corrected_location")
-# 修饰/氨基酸变化（用户口径 2026-09-11）：主表 mod_changed / aa_changed 为权威
+# 修饰/氨基酸变化主表 mod_changed / aa_changed 为权威
 # 来源（冲突报告 modification_diff 仅作主表缺失时的回退）
-# modification / amino-acid change (user ruling 2026-09-11): the master-table
+# modification / amino-acid change the master-table
 # mod_changed / aa_changed columns are authoritative (the conflict report's
 # modification_diff is only the fallback)
 p_mc <- mcol("mod_changed"); p_ac <- mcol("aa_changed")
@@ -622,7 +620,7 @@ render_batch <- function(rows_idx, file_tag, pdf_name = NULL) {
               else "keep original",
               if (rescue[r]) " + prediction rescue" else "",
               cval(conf$conclusion_status[r])))
-    # 自查整改（2026-09-26）：单谱渲染失败只跳过该谱，不中断批次
+    # 自查整改单谱渲染失败只跳过该谱，不中断批次
     ok <- tryCatch({
       draw_page(sp_obj, top, bot, lines5, chg_v, ann)
       TRUE
@@ -636,14 +634,14 @@ render_batch <- function(rows_idx, file_tag, pdf_name = NULL) {
   if (length(drawn) == 0 && file.exists(pdf_f)) file.remove(pdf_f)
   drawn
 }
-# 自查整改（2026-09-26）：raw 名原样进文件名不安全，清洗限长并去重
+# 自查整改raw 名原样进文件名不安全，清洗限长并去重
 raw_token <- function(rw) {
   s <- substr(rw, 1, 80)
   s <- gsub("[^A-Za-z0-9_.-]", "_", s)
   if (!nzchar(s)) s <- "_"
   s
 }
-# ---- 按 raw 分组 + 组内超阈值切片的驱动（2026-09-26 拆分口径）----
+# ---- 按 raw 分组 + 组内超阈值切片的驱动----
 render_grouped <- function(rows_idx, file_tag, get_fn) {
   if (length(rows_idx) == 0) return(invisible(character(0)))
   fns <- get_fn(rows_idx)
@@ -670,12 +668,12 @@ render_grouped <- function(rows_idx, file_tag, get_fn) {
   invisible(character(0))
 }
 
-# ---- 第三类：可信新肽段谱图（novel_peptide_spectra.pdf，2026-09-26 用户要求）----
+# ---- 第三类：可信新肽段谱图----
 # 可信新肽段只在标记侧主表两分法报告产出（六重存疑规则需成对注释语境；无标记
 # 同名报告按口径三列留空）。每页复用四面板管线：上=新肽段本身（corrected_*
 # 口径），下=最强已注释竞争者 closest_annotated_competitor；缺失时下层面板留空。
 # The third PDF: credible novel peptides (novel_peptide_spectra.pdf, user request
-# 2026-09-26). Credible novel peptides only exist in the labeled-side two-part
+# ). Credible novel peptides only exist in the labeled-side two-part
 # report (the six doubt rules need the paired annotation context; the unlabeled
 # twin report leaves the three columns empty by ruling). Each page reuses the
 # four-panel pipeline: top = the novel peptide itself (corrected_*), bottom =
@@ -756,7 +754,7 @@ render_novel_batch <- function(rows_idx, pdf_name = NULL) {
       sprintf("Closest annotated competitor: %s",
               if (nzchar(seq2) && seq2 != "-") seq2 else "-"),
       "Judgment: credible novel peptide (passed all six doubt rules)")
-    # 自查整改（2026-09-26）：单谱渲染失败只跳过该谱，不中断批次
+    # 自查整改单谱渲染失败只跳过该谱，不中断批次
     ok <- tryCatch({
       draw_page(sp_obj, top, bot, lines5, chg_v, ann)
       TRUE
@@ -770,7 +768,7 @@ render_novel_batch <- function(rows_idx, pdf_name = NULL) {
   if (length(drawn) == 0 && file.exists(pdf_f)) file.remove(pdf_f)
   drawn
 }
-# ---- 新肽段按 raw 分组 + 超阈值切片的驱动（2026-09-26 拆分口径）----
+# ---- 新肽段按 raw 分组 + 超阈值切片的驱动----
 render_novel_grouped <- function(rows_idx) {
   if (length(rows_idx) == 0) return(invisible(character(0)))
   fns <- vapply(rows_idx, function(k) {
@@ -800,7 +798,7 @@ render_novel_grouped <- function(rows_idx) {
   invisible(character(0))
 }
 
-# ---- PDF 输出（仅确信原始结果错误，用户口径 2026-09-11；2026-09-26 拆分口径：
+# ---- PDF 输出（仅确信原始结果错误，设计约定；拆分口径：
 # 按 raw 分组＋阈值切片，索引 spectrum_pdf_index.tsv）----
 render_grouped(err_idx, "error_match_spectra",
                function(i) as.character(paired$File_Name[i]))
@@ -808,7 +806,7 @@ if (length(nov_idx)) render_novel_grouped(nov_idx)
 if (length(IDX) > 0) {
   idx_df <- do.call(rbind, IDX)
   colnames(idx_df) <- c("File_Name", "category", "pdf_file", "page")
-  idx_df <- idx_df[order(idx_df[, 1], idx_df[, 2], idx_df[, 4]), , drop = FALSE]
+  idx_df <- idx_df[order(idx_df[, 1], idx_df[, 2], idx_df[, 4]),, drop = FALSE]
   write.table(idx_df, file.path(stb_dir, "spectrum_pdf_index.tsv"),
               sep = "\t", row.names = FALSE, quote = FALSE)
   cat(sprintf("[谱图 PDF] 索引 spectrum_pdf_index.tsv（%d 行）\n", nrow(idx_df)))

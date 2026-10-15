@@ -89,10 +89,10 @@ convert_pnovo_res <- function(res_file, param_file, out_file) {
                   check.names = FALSE, na.strings = character(0),
                   quote = "", colClasses = "character", header = FALSE)
   keep <- which(!is.na(d[[1]]) & nzchar(d[[1]]) & !is.na(d[[2]]) & nzchar(d[[2]]))
-  d <- d[keep, , drop = FALSE]
+  d <- d[keep,, drop = FALSE]
   # 全候选模式（ISOPSV_CAND_ALL=1）：保留全部候选（每标题按名次排列，文件序）
   if (!identical(Sys.getenv("ISOPSV_CAND_ALL"), "1")) {
-    d <- d[!duplicated(d[[1]]), , drop = FALSE]      # 每谱首行＝top-1
+    d <- d[!duplicated(d[[1]]),, drop = FALSE]      # 每谱首行＝top-1
   }
   fn <- d[[1]]
   seq <- vapply(d[[2]], pnovo_restore_seq, character(1), vmap = vmap,
@@ -103,7 +103,7 @@ convert_pnovo_res <- function(res_file, param_file, out_file) {
   out <- data.frame(File_Name = fn, Sequence = seq, Modification = "",
                     Proteins = "", Charge = charge,
                     stringsAsFactors = FALSE, check.names = FALSE)
-  out <- out[!is.na(out$Sequence) & nzchar(out$Sequence), , drop = FALSE]
+  out <- out[!is.na(out$Sequence) & nzchar(out$Sequence),, drop = FALSE]
   write.table(out, out_file, sep = "\t", row.names = FALSE, quote = FALSE)
   cat(sprintf("pNovo results.res -> %s：%d 行（top-1，还原后非空）\n",
               out_file, nrow(out)))

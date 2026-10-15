@@ -11,11 +11,11 @@ Endpoints: serve the form, generate the step-1 config into the user-chosen
 result folder, run/stop the master program with a live log, and patch the
 step-1/2/3 configs at stop points.
 
-v1.0（2026-10-04）：网页界面语言切换（默认英文，侧栏按钮切中文，localStorage 记忆）。
+v1.0网页界面语言切换（默认英文，侧栏按钮切中文，localStorage 记忆）。
 前端三层机制：配对 span 显隐＋data-zh/data-en＋L(中文, English)；服务端消息保持
 "中文
 english" 双语对；R 管线日志不动。本文件仅随版升级，无逻辑改动。
-v1.0 (2026-10-04): web UI language toggle (English by default, sidebar
+v1.0 web UI language toggle (English by default, sidebar
 button switches to Chinese, remembered in localStorage). Frontend uses three
 layers (paired spans + data-zh/data-en + L(zh, en)); server messages stay
 bilingual pairs; R pipeline logs unchanged. No logic changes in this file.
@@ -33,12 +33,12 @@ from collections import Counter, defaultdict, deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HOST, PORT = "127.0.0.1", 8780
-# v1.0（2026-10-03，实弹坐实）：不再接受 argv 传包根——bat 的 "%~dp0"
+# v1.0不再接受 argv 传包根——bat 的 "%~dp0"
 # 自带尾反斜杠，"G:\...\isoPSV_multiengine\" 的 \" 在 Windows 命令行解析
 # 中＝转义引号，子进程实际收到尾带引号的假路径（本地复现：
 # argv[1]='…isoPSV_multiengine"'）→ CLIENT_ROOT 全链失效（版本 unknown、
 # 日志/配置路径错位）。脚本必然位于 <包根>\web\，由 __file__ 反推最稳。
-# v1.0 (2026-10-03, confirmed live): the package root must NOT arrive via
+# v1.0 the package root must NOT arrive via
 # argv - the bat passes "%~dp0" whose trailing backslash escapes the closing
 # quote, so the child receives a path ENDING IN A QUOTE (reproduced locally:
 # argv[1]='...isoPSV_multiengine"') and every CLIENT_ROOT-derived path broke
@@ -49,10 +49,10 @@ CODE_DIR = os.path.join(CLIENT_ROOT, "code")
 
 
 def _probe_rscript():
-    """R 解释器探测（P1-1，2026-09-25）：环境变量 → PATH → 注册表 →
+    """R 解释器探测环境变量 → PATH → 注册表 →
     常见安装目录枚举；返回路径或 ""。旧实现硬编码 D 盘特定版本，是客户端
     部署最高频故障点。
-    R interpreter probe (P1-1, 2026-09-25): environment variable -> PATH ->
+    R interpreter probe environment variable -> PATH ->
     registry -> common install directories; returns a path or "". The old
     implementation hardcoded a D-drive version, the most frequent client
     deployment failure."""
@@ -62,10 +62,10 @@ def _probe_rscript():
     if w:
         return w
     if os.name == "nt":
-        # F-2（2026-09-26）：按版本号降序取最新（旧实现枚举到第一个存在的
+        # F-2按版本号降序取最新（旧实现枚举到第一个存在的
         # 注册表项即返回，且 glob 分支纯字典序——"R-4.10.0" < "R-4.6.1"，
-        # 机器上多版本共存时会取到旧版）。
-        # F-2 (2026-09-26): prefer the newest by version number (the old code
+        # 机器上多版本共存时会取到早期实现）。
+        # F-2 prefer the newest by version number (the old code
         # returned the first existing registry entry, and the glob branch was
         # plain lexicographic order - "R-4.10.0" < "R-4.6.1", so it could pick
         # an older version when several coexist).
@@ -201,21 +201,21 @@ def _browse_ctx():
             "mgf_dir": bmgf}
 
 proc = None               # current running pipeline subprocess
-_PROC_LOCK = threading.Lock()   # P1-6（2026-09-25）：串行化 run/stop 对 proc 的读写
+_PROC_LOCK = threading.Lock()   # P1-6串行化 run/stop 对 proc 的读写
 RUNS = []                 # run history: list of dicts (started, ended, exit_code)
 CURRENT_CFG = None        # path of the config_step1.txt the next run uses
 CURRENT_RESULT = None     # result folder of the current config (its parent)
-# 结果浏览模式（2026-09-26）：只读展示"另一台电脑跑完"的结果文件夹——
+# 结果浏览模式只读展示"另一台电脑跑完"的结果文件夹——
 # 用户经 /api/set_browse 选定项目目录或 result_* 目录后，报告/谱图/PDF 全部
-# 改从该目录读取，不再要求本机重跑。
+# 改从该目录读取，不再要求本地重跑。
 BROWSE_DIR = None         # 选定的浏览目录（realpath）
 _BROWSE_MGF = None        # 浏览模式的无标记谱目录（浏览目录同层 unlabeled/，可无）
-_BROWSE_LOCK = threading.Lock()   # 自查整改（2026-09-26）：浏览状态整体换写，避免并发读到新旧混搭
+_BROWSE_LOCK = threading.Lock()   # 自查整改浏览状态整体换写，避免并发读到新旧混搭
 _EXTRA_PDF_ROOTS = []     # /api/pdfs 手填目录的白名单登记（与 /pdf 服务共用，防"能扫不能看"）
 _PS_PROBE = {"done": False, "result": ""}
 def _ps_probe():
-    """v1.0：一次性探测 PowerShell 可用性（页脚展示 picker: ok/failed）——
-    弹窗问题的第一道远程诊断。v1.0: one-shot PowerShell liveness probe
+    """：一次性探测 PowerShell 可用性（页脚展示 picker: ok/failed）——
+    弹窗问题的第一道远程诊断。: one-shot PowerShell liveness probe
     (footer shows picker: ok/failed) - the first line of remote diagnosis for
     the dialog issues."""
     if not _PS_PROBE["done"]:
@@ -246,24 +246,24 @@ _INDEX_STAT = None        # (mtime, size) of the cached copy (reload on change)
 _TK_LOCK = threading.Lock()  # serialize the native dialogs across HTTP threads
 
 
-# v1.0（2026-10-03，v84 实弹定性：PS Forms 在客户端被无声悬挂——请求永
+# （v84 实测定性：PS Forms 在客户端被无声悬挂——请求永
 # 久 pending、无报错、探针 ok）——选择器改**进程内 ctypes 直调 Win32 对话
 # 框 API**：comdlg32.GetOpenFileNameW（文件/多选）＋shell32.SHBrowseFor-
 # FolderW（文件夹）。零子进程、零 .NET、零 COM——杀软/EDR 无拦截模式可盯。
 # 作为首选路线；PS Forms/COM 降为后备（超时 60s，悬挂环境会快速越过）。
-# v1.0 (2026-10-03, live v84: PS Forms hangs silently on the client -
+# (live v84: PS Forms hangs silently on the client -
 # request pending forever, no error, probe ok) - the picker now calls the
 # Win32 dialog APIs IN-PROCESS via ctypes: comdlg32.GetOpenFileNameW (files)
 # and shell32.SHBrowseForFolderW (folders). No child process, no .NET, no
 # COM - nothing for AV/EDR to pattern-match. This is the primary route;
 # the PowerShell routes stay as fallbacks (60 s timeout each so hung
 # environments skip them quickly).
-# v1.0（2026-10-03，v84 实弹定性：PS Forms 在客户端被无声悬挂——请求永
+# （v84 实测定性：PS Forms 在客户端被无声悬挂——请求永
 # 久 pending、无报错、探针 ok）——选择器首选路线改**进程内 ctypes 直调
 # Win32 对话框 API**：comdlg32.GetOpenFileNameW（文件/多选）＋shell32.
 # SHBrowseForFolderW（文件夹）。零子进程、零 .NET、零 COM——杀软/EDR 无拦
 # 截模式可盯。PS Forms/COM 降为后备（各 60s 超时，悬挂环境快速越过）。
-# v1.0 (2026-10-03, live v84: PS Forms hangs silently on the client -
+# (live v84: PS Forms hangs silently on the client -
 # request pending forever, no error, probe ok) - the PRIMARY picker route now
 # calls the Win32 dialog APIs IN-PROCESS via ctypes: comdlg32.
 # GetOpenFileNameW (files/multi) and shell32.SHBrowseForFolderW (folders).
@@ -277,12 +277,12 @@ def _pick_path_ctypes(kind):
     import ctypes
     from ctypes import wintypes
     try:
-        # v1.0（2026-10-03，v85 实弹终局）：用**控制台窗口**作对话框属主——
+        # v1.0用**控制台窗口**作对话框属主——
         # 服务器跑在 start_isoPSV.bat 的黑色 cmd 窗口里，这个窗口用户看得见、
         # 点得到，Windows 一定把对话框放在属主上面。此前 hwndOwner=None／离屏
         # 小窗／主屏居中窗体在该客户端全部不生效（窗口管理器忽略无前台属主的
         # 对话框），控制台窗口是这台机器上唯一确定可见的窗口句柄。
-        # v1.0 (2026-10-03, live v85 final): use the CONSOLE WINDOW as the
+        # v1.0 use the CONSOLE WINDOW as the
         # dialog owner - the server runs in the black cmd window from
         # start_isoPSV.bat which the user can see and click; Windows places
         # owned dialogs on top of their owner. All previous owner strategies
@@ -381,12 +381,12 @@ def _pick_path_ctypes(kind):
 
 
 def _pick_path_ps(kind):
-    """v1.0（2026-10-03，v81 实弹：进程已新版仍无弹窗）：三层强化——
+    """v1.0三层强化——
     (1) 属主窗体改"离屏小窗"（Minimized 在部分环境拖累对话框前置）；
     (2) 文件夹加 Shell.Application COM 后备（不走 .NET Forms，策略受限机器
         也能弹）；(3) 失败返回 stderr 诊断（此前前端静默吞掉，"没弹窗也没
         报错"）。返回 (ok, path_or_err)。
-    v1.0 (2026-10-03, live v81 - new process confirmed, still no dialog):
+    (live v81 - new process confirmed, still no dialog):
     (1) owner switched to an off-screen tiny window (Minimized hurt
     foregrounding on some setups); (2) folders fall back to the
     Shell.Application COM browser (no .NET Forms - works under restrictive
@@ -398,10 +398,10 @@ def _pick_path_ps(kind):
     # 无效，对话框跟着沉底）
     # off-screen tiny owner: TopMost + 1x1 at (-32000,-32000) (a Minimized
     # owner fails to foreground the dialog on some setups)
-    # v1.0（2026-10-03，v83 实弹）：-32000 离屏定位在"副屏位于左侧负坐
+    # v1.0-32000 离屏定位在"副屏位于左侧负坐
     # 标"的多显示器布局上会落在真实屏幕——对话框跟着跑到不可见屏。改为定
     # 位在主屏工作区中心（TopMost 属主），任何布局下对话框都出现在主屏。
-    # v1.0 (2026-10-03, live v83): the -32000 off-screen position lands on
+    # v1.0 the -32000 off-screen position lands on
     # a REAL monitor when a secondary display sits at negative coordinates -
     # the dialog followed it off-screen. Center the owner on the primary
     # screen's working area instead so the dialog always shows there.
@@ -605,7 +605,7 @@ def build_step1_config(fields):
         dirs = [os.path.dirname(os.path.abspath(p)) for p in entries]
         if len(set(dirs)) == 1 and os.path.isdir(dirs[0]):
             all_mgf = dirs[0]
-    # P0-8（2026-09-26，GLM 审查）：单值字段拒绝换行——否则字段值可注入
+    # P0-8单值字段拒绝换行——否则字段值可注入
     # 任意键行（"mgf\t<值>" 拼接被换行拆成新键），构成任意内容写原语
     # v1.0 修复：label_type 自 v1.0 起是多行键（每行一个标记），此前
     # 被本名单误剥换行、多行值粘连成单行——移出名单，改在下方逐行净化
@@ -616,12 +616,13 @@ def build_step1_config(fields):
               "use_pdeep2", "pdeep2_exe", "instrument", "pdf_on",
               "denovo_lookback", "mem_guard_mb",
               "unlabeled_channel",
-              "candidate_scope", "proteogenomics_mode")
+              "candidate_scope", "proteogenomics_mode",
+              "min_pep_len", "ms1_ppm", "ms2_ppm")
     for k in single:
         v = str(fields.get(k, "") or "")
         if "\n" in v or "\r" in v:
             fields[k] = v.replace("\r", "").replace("\n", "").strip()
-    # v1.0：label_type 逐行净化——每行去空白与制表符（P0-8 同口径防键注入）
+    #：label_type 逐行净化——每行去空白与制表符
     lt_rows = [x.strip().replace("\t", " ")
                for x in str(fields.get("label_type", "") or "").replace("\r", "\n").split("\n")]
     lt_rows = [x for x in lt_rows if x] or ["unlabeled"]
@@ -632,20 +633,27 @@ def build_step1_config(fields):
         "search_engine\t" + fields.get("search_engine", "pfind"),
         "psm_file\t" + fields.get("psm_file", ""),
         "fasta\t" + fields.get("fasta", ""),
-        # v1.0（2026-09-28 用户口径）：label_type 为多行键（每行一个标记：
-        # N15/C13、旧预设名或 v1.0 自定义行 名称|位置|氨基酸|组成），
+        # v1.0label_type 为多行键
         # 空=无标记；网页表单按类 1+行合成多行值
-        "label_type\t" + "\n".join(lt_rows),
-        # v1.0（2026-09-26）：酶切类型下拉，默认 trypsin
+        #：多标记改为每行完整重复键写出——旧写法（首行带键、
+        # 续行裸行）在 R 侧 read_param_file 解析成垃圾键、标记静默丢失
+        #（fixmod 只剩第一行）。重复键走既有向量保留机制，四标记全量生效。
+        #: each label row is written as a FULL repeated key row - the
+        # old form (keyed first line + bare continuation lines) parsed into
+        # junk keys in read_param_file and silently dropped labels (fixmod
+        # kept only the first row). Repeated keys ride the existing vector
+        # mechanism so all labels survive.
+        "\n".join("label_type\t" + r for r in lt_rows),
+        # v1.0酶切类型下拉，默认 trypsin
         "enzyme\t" + (fields.get("enzyme", "") or "trypsin"),
         "mgf\t" + fields.get("mgf", ""),
         "all_mgf\t" + all_mgf,
         "auto_search\t" + fields.get("auto_search", "1"),
         "pfind_exe\t" + fields.get("pfind_exe", ""),
-        # v1.0（2026-10-09 用户口径）：python_exe 键不再生成——重编号解释器
+        # v1.0python_exe 键不再生成——重编号解释器
         # 由 R 侧探测（PATH → py -3 → python3 → 软件自带 runtime/python）；
         # 旧 config 手写的 python_exe 键仍被兼容读取
-        # v1.0: the python_exe key is no longer written - the renumbering
+        #: the python_exe key is no longer written - the renumbering
         # interpreter is probed R-side (PATH -> py -3 -> python3 -> the bundled
         # runtime/python); legacy python_exe keys in old configs still work
         "use_punifind\t" + fields.get("use_punifind", "1"),
@@ -658,15 +666,19 @@ def build_step1_config(fields):
         "instrument\t" + (fields.get("instrument", "") or "Lumos"),
         "pdf_on\t" + (fields.get("pdf_on", "") or "0"),
         "denovo_lookback\t" + (fields.get("denovo_lookback", "") or "keep"),
-        # v1.0（2026-09-27 用户口径）：全候选竞争模式（忽略引擎 1% FDR）
+        # v1.0全候选竞争模式（忽略引擎 1% FDR）
         # 与工作流程门控（全量/纯蛋白质基因组学/已注释矫正）
         "candidate_scope\t" + (fields.get("candidate_scope", "") or "filtered"),
         "proteogenomics_mode\t" + (fields.get("proteogenomics_mode", "") or "0"),
+        #：最小肽段长度/母离子容差/碎片容差（写入 pFind 模板）
+        "min_pep_len\t" + (fields.get("min_pep_len", "") or "7"),
+        "ms1_ppm\t" + (fields.get("ms1_ppm", "") or "20"),
+        "ms2_ppm\t" + (fields.get("ms2_ppm", "") or "20"),
         "",
     ]
-    # F-9（2026-09-26）：内存守卫上限（MB）——留空不写键，user_run 沿用默认
+    # F-9内存守卫上限（MB）——留空不写键，user_run 沿用默认
     # （物理内存 80% 自适应）；非法值由 user_run 忽略。
-    # F-9 (2026-09-26): memory guard ceiling in MB - empty keeps the default
+    # F-9 memory guard ceiling in MB - empty keeps the default
     # (80% of physical RAM) in user_run; invalid values are ignored there.
     mem_guard = str(fields.get("mem_guard_mb", "") or "").strip()
     if mem_guard:
@@ -683,7 +695,7 @@ def run_pipeline():
     global proc, CURRENT_CFG
 
     def _watch_and_copy_log(result_dir, start_time):
-        """李治反馈①：进程退出（完成/报错）后把 web_run.log 拷贝到 result_dir
+        """用户反馈①：进程退出（完成/报错）后把 web_run.log 拷贝到 result_dir
         作为带时间戳的运行日志。watcher 线程 daemon，server 退出时自动结束。
         tester feedback: copy web_run.log to result_dir as a timestamped
         run log after the pipeline exits (success or error)."""
@@ -701,7 +713,7 @@ def run_pipeline():
         except Exception:
             pass
 
-    # P1-6（2026-09-25）：锁内完成 检查→启动 全程，消除两个并发 /api/run
+    # P1-6锁内完成 检查→启动 全程，消除两个并发 /api/run
     # 同时通过 poll() 检查、各自 Popen 的 check-then-act 竞态（前一个句柄
     # 被覆盖后无法 stop，两个流程写同一结果目录互相污染）。
     with _PROC_LOCK:
@@ -713,7 +725,7 @@ def run_pipeline():
             except Exception:
                 pass
             proc = None
-        # 李治反馈②：CURRENT_CFG 为空时先找 CURRENT_RESULT（上次 generate 写入的
+        # 用户反馈②：CURRENT_CFG 为空时先找 CURRENT_RESULT（上次 generate 写入的
         # result_dir）下的 config_step1.txt，再退回包根
         # tester feedback: when CURRENT_CFG is unset, look in the last generated
         # result_dir before falling back to the package root
@@ -731,7 +743,7 @@ def run_pipeline():
             return False, ("参数文件不存在——请先到'参数汇总'页点'生成参数文件'\n"
                            "config file not found - go to Summary page and click Generate config\n"
                            "(looked in: " + (CURRENT_RESULT or CLIENT_ROOT) + ")")
-        # 施佳辉反馈（2026-10-08）：result_dir 空或缺失时第一步报 not found
+        # 用户反馈result_dir 空或缺失时第一步报 not found
         # tester feedback: step 1 errors when result_dir is empty or missing
         _rd_for_log = ""
         try:
@@ -756,7 +768,7 @@ def run_pipeline():
         except Exception as e:
             return False, "读取配置文件失败\nfailed to read config: %s" % e
         if not os.path.exists(RSCRIPT):
-            # P2-8（2026-09-25 代码审查）：报错文案与自动探测同步
+            # P2-8报错文案与自动探测同步
             return False, "未探测到 Rscript，请安装 R（≥4.1，推荐 4.5.x）或设置 RSCRIPT 环境变量指向 Rscript.exe\nRscript not found; install R (>=4.1, 4.5.x recommended) or set the RSCRIPT environment variable"
         env = dict(os.environ)
         env.pop("LC_CTYPE", None)
@@ -779,7 +791,7 @@ def run_pipeline():
         RUNS.append({"started": time.strftime("%Y-%m-%d %H:%M:%S"),
                      "ended": "", "exit_code": None})
         RUNS[:] = RUNS[-20:]           # keep the run history bounded
-        # 李治反馈①：watcher 线程等进程退出后拷贝日志到 result_dir
+        # 用户反馈①：watcher 线程等进程退出后拷贝日志到 result_dir
         import threading as _th
         _th.Thread(target=_watch_and_copy_log,
                    args=(_rd_for_log, RUNS[-1]["started"]), daemon=True).start()
@@ -797,7 +809,7 @@ def pick_path(kind):
 
 
 # ---------------------------------------------------------------------------
-# 一键环境检测（用户口径 2026-09-21：网页按钮 → 自动扫描 → 回填路径）
+# 一键环境检测
 # one-click environment detection: web button -> scan installs -> autofill paths
 # 与 code\sysinfo_probe.R 同一套检测口径（R 版为命令行独立脚本，此为网页版）
 # ---------------------------------------------------------------------------
@@ -811,7 +823,7 @@ def _walk_bounded(root, max_depth=3, max_nodes=30000, deadline=None):
     stack = [(root, 0)]
     while stack and n < max_nodes:
         if deadline is not None and (n & 15) == 0 and time.time() > deadline:
-            return            # v1.0：总时限到即停（AV 慢机防拖死）
+            return            #：总时限到即停（AV 慢机防拖死）
         cur, d = stack.pop()
         n += 1
         try:
@@ -828,30 +840,61 @@ def _walk_bounded(root, max_depth=3, max_nodes=30000, deadline=None):
             except OSError:
                 continue
 
+_VER_SEG_RE = re.compile(r"v?(\d+(?:\.\d+){1,3})")
+
+
+def _path_version_tuple(path):
+    """：从路径中解析版本号元组（自文件名向上取第一个含版本样式的段，
+    段内取最后一个版本串）——MaxQuant_v_2.4.11.0→(2,4,11,0)、MSFragger-4.4.1
+    →(4,4,1)、Comet_v2026.02.2→(2026,2,2)、sage-v0.15.0-beta.2-...→(0,15,0)。
+    无版本样式返回 ()（排序时低于一切有版本者）。
+    Parse a version tuple from a path (nearest version-looking segment from
+    the file name upward, last version string within the segment). No
+    version-looking token -> () (sorts below any versioned candidate)."""
+    for seg in reversed(str(path).replace("\\", "/").split("/")):
+        hits = _VER_SEG_RE.findall(seg)
+        if hits:
+            return tuple(int(x) for x in hits[-1].split("."))
+    return ()
+
+
+def _pick_latest_version(cands):
+    """：多版本共存时选版本号最新者（版本元组比较，非文件日期）；
+    无版本号者排最后；版本相同保持扫描序（确定性，max 取首个最大值）。
+    Pick the newest-version candidate (version tuples parsed from paths,
+    not file dates); unversioned candidates sort last; ties keep scan
+    order (max returns the first maximal element)."""
+    return max(cands, key=_path_version_tuple)
+
+
 def detect_environment(extra_roots=None):
     """扫描常见安装根目录定位管线依赖；返回 engines/system/verdict。
-    extra_roots：用户在界面上追加的扫描根目录（v1.0，最多 4 个、须存在、
-    去重后插队在最前）；None/空＝仅内置根目录（行为与旧版逐字节一致）。
+    extra_roots：用户在界面上追加的扫描根目录（最多 10 个、须存在、
+    去重后插队在最前）；None/空＝仅内置根目录（行为与早期实现逐字节一致）。
     Scan the common install roots for pipeline dependencies.
-    extra_roots: user-added scan roots from the UI (v1.0; at most 4, must
+    extra_roots: user-added scan roots from the UI (at most 10, must
     exist, deduplicated and placed first); None/empty = built-in roots only."""
     eng = dict.fromkeys(
         ["pfind_exe", "pdeep2_exe", "punifind_exe", "punifind_python",
          "msfragger", "comet", "sage", "maxquant", "metamorpheus", "msconvert",
          "xtandem", "msbooster", "pdeep3", "alphapeptdeep", "predictor_python"], "")
-    # v1.0：用户显式指定的扫描根（extra_roots）单独跟踪——这些目录
-    # 走全量深搜（12 层/12 万节点/120 s 预算），即"输入路径的所有文件搜索"；
+    # 用户显式指定的扫描根（extra_roots）单独跟踪——这些目录
+    # 走全量深搜（12 层/12 万节点/共享预算），即"输入路径的所有文件搜索"；
     # 内置根维持限深限量（深 Program Files 更紧）。
-    # v1.0: user-specified roots (extra_roots) are tracked separately and
-    # walked exhaustively (12 levels / 120k nodes / 120 s) - a full file search
-    # under the given path; built-in roots keep their bounded walks.
+    #：上限 4→10（无硬性理由的保守值放宽）；共享预算 120→240 s
+    # （10 根分摊、防大根吃光预算饿死后续根；仍硬性封顶）。
+    # user-specified roots (extra_roots) are tracked separately and
+    # walked exhaustively (12 levels / 120k nodes / shared budget) - a full
+    # file search under the given path; built-in roots keep bounded walks.
+    #: cap 4 -> 10 (the old value was a conservative pick); shared
+    # budget 120 -> 240 s (split across up to 10 roots, still hard-bounded).
     extras = []
     if extra_roots:
-        for r in extra_roots[:4]:
+        for r in extra_roots[:10]:
             r = str(r).strip().strip('"')
             if r and os.path.isdir(r) and r.lower() not in [x.lower() for x in extras]:
                 extras.append(r)
-    # v1.0：用户填了扫描范围 → 只扫用户目录，跳过全部内置根
+    #：用户填了扫描范围 → 只扫用户目录，跳过全部内置根
     # （客户端 AV 可挂死 os.scandir，内置大根在 AV 机上不可控——用户指哪扫哪）
     if extras:
         roots = list(extras)
@@ -861,10 +904,20 @@ def detect_environment(extra_roots=None):
             if r.lower() not in [x.lower() for x in roots] and os.path.isdir(r):
                 roots.append(r)
     t0 = time.time()
+    #：多版本共存引擎改为收集全部候选、扫描后按版本号选最新
+    # （旧逻辑首个命中即停＝目录字母序选中最老版本）。pFind/pDeep2/pUniFind
+    # 家族维持首中即停（安装结构固定、无多版本目录惯例）。
+    #: versioned engines collect every candidate and the newest
+    # version is picked after the walk (the old first-hit-wins effectively
+    # selected the OLDEST alphabetically). The pFind/pDeep2/pUniFind family
+    # keeps first-hit semantics (fixed install layouts, no multi-version
+    # convention).
+    cand = {"msfragger": [], "comet": [], "sage": [], "maxquant": [],
+            "metamorpheus": [], "msconvert": [], "xtandem": [], "msbooster": []}
     for root in roots:
         rl = root.lower()
         if rl in [x.lower() for x in extras]:
-            walk_kw = dict(max_depth=12, max_nodes=120000, deadline=t0 + 120)
+            walk_kw = dict(max_depth=12, max_nodes=120000, deadline=t0 + 240)
         elif rl.startswith("c:/program files"):
             walk_kw = dict(max_depth=4, max_nodes=8000, deadline=t0 + 45)
         else:
@@ -884,25 +937,25 @@ def detect_environment(extra_roots=None):
                 eng["punifind_exe"] = dname
             elif not eng["punifind_python"] and nm == "torch" and dname.lower().endswith("site-packages"):
                 eng["punifind_python"] = os.path.dirname(os.path.dirname(dname))
-            elif not eng["msfragger"] and nm.startswith("msfragger") and nm.endswith(".jar"):
-                eng["msfragger"] = fpath
-            elif not eng["comet"] and nm.startswith("comet") and nm.endswith(".exe"):
-                eng["comet"] = fpath
-            elif not eng["sage"] and nm == "sage.exe":
-                eng["sage"] = fpath
-            elif not eng["maxquant"] and nm == "maxquantcmd.exe":
-                eng["maxquant"] = fpath
-            elif not eng["metamorpheus"] and nm == "cmd.exe" and "metamorpheus" in fpath.lower():
-                eng["metamorpheus"] = fpath
-            elif not eng["metamorpheus"] and nm == "metamorpheusgui.exe":
-                eng["metamorpheus"] = fpath
-            elif not eng["msconvert"] and nm == "msconvert.exe":
-                eng["msconvert"] = fpath
-            elif not eng["xtandem"] and nm == "tandem.exe":
-                eng["xtandem"] = fpath
-            elif not eng["msbooster"] and nm.endswith(".jar") and "msbooster" in nm:
-                eng["msbooster"] = fpath
-            # v1.0：pDeep3（仓库特征＝pDeep/cmd/tune_and_predict.py）与
+            elif nm.startswith("msfragger") and nm.endswith(".jar"):
+                cand["msfragger"].append(fpath)
+            elif nm.startswith("comet") and nm.endswith(".exe"):
+                cand["comet"].append(fpath)
+            elif nm == "sage.exe":
+                cand["sage"].append(fpath)
+            elif nm == "maxquantcmd.exe":
+                cand["maxquant"].append(fpath)
+            elif nm == "cmd.exe" and "metamorpheus" in fpath.lower():
+                cand["metamorpheus"].append(fpath)
+            elif nm == "metamorpheusgui.exe":
+                cand["metamorpheus"].append(fpath)
+            elif nm == "msconvert.exe":
+                cand["msconvert"].append(fpath)
+            elif nm == "tandem.exe":
+                cand["xtandem"].append(fpath)
+            elif nm.endswith(".jar") and "msbooster" in nm:
+                cand["msbooster"].append(fpath)
+            #：pDeep3（仓库特征＝pDeep/cmd/tune_and_predict.py）与
             # AlphaPeptDeep（site-packages/peptdeep 包）——取仓库根
             elif not eng["pdeep3"] and nm == "tune_and_predict.py" and "pdeep" in dname.lower():
                 d2 = os.path.dirname(dname)
@@ -910,11 +963,17 @@ def detect_environment(extra_roots=None):
                     eng["pdeep3"] = os.path.dirname(d2)
             elif not eng["alphapeptdeep"] and nm == "peptdeep" and dname.lower().endswith("site-packages"):
                 eng["alphapeptdeep"] = os.path.dirname(os.path.dirname(dname))
-            # v1.0：附件包 python37 → predictor_python
+            #：附件包 python37 → predictor_python
             # 修：查父目录名（basename 含 python37）而非父目录内容——嵌套扫描
             # 时 dname=…/python37，basename 就是 python37，直接命中
             elif not eng["predictor_python"] and nm == "python.exe" and                     "python37" in os.path.basename(dname).lower():
                 eng["predictor_python"] = os.path.join(dname, nm)
+    #：多版本候选收口——版本号最新者胜出（无版本者最后、平局保扫描序）
+    #: settle multi-version candidates - newest version wins
+    # (unversioned last, ties keep scan order)
+    for _k in cand:
+        if cand[_k]:
+            eng[_k] = _pick_latest_version(cand[_k])
     # 定向兜底：torch 虚拟环境（walk 深度不够时直接探测 *venv* 目录）
     # targeted fallback: torch venv probed directly (below the walk depth)
     if not eng["punifind_python"]:
@@ -942,7 +1001,7 @@ def detect_environment(extra_roots=None):
     # 系统信息
     sysinfo = {"cpu": "", "cores": os.cpu_count() or 0, "ram_gb": 0.0,
                "disks": [], "gpu": ""}
-    # v1.0：弃 PowerShell（客户端 AV 悬挂 PS 子进程的实弹前科）——纯 Python
+    #：弃 PowerShell（客户端 AV 悬挂 PS 子进程的实测前科）——纯 Python
     try:
         sysinfo["cpu"] = os.environ.get("PROCESSOR_IDENTIFIER", "")
     except Exception:
@@ -969,10 +1028,10 @@ def detect_environment(extra_roots=None):
                 sysinfo["disks"].append("%s: 剩余 %.0f/%.0f GB" % (drv, free/1024**3, t/1024**3))
             except Exception:
                 pass
-    # v1.0：GPU 恢复显示——改用注册表 winreg 直读显示适配器类键（零子进程，
+    #：GPU 恢复显示——改用注册表 winreg 直读显示适配器类键（零子进程，
     # 与 v98 弃 PS 原则兼容：Display Adapter 类 {4d36e968-…} 下各 000N 子键的
     # DriverDesc 即显卡名）。失败留空不阻断。
-    # v1.0: GPU restored via an in-process registry read (no subprocess,
+    #: GPU restored via an in-process registry read (no subprocess,
     # keeping the v98 no-PS principle): DriverDesc under the display-adapter
     # class {4d36e968-...} subkeys 000N gives the adapter names. Empty on
     # failure, never blocking.
@@ -993,7 +1052,7 @@ def detect_environment(extra_roots=None):
                     with winreg.OpenKey(_k, _sub) as _sk:
                         _desc, _ = winreg.QueryValueEx(_sk, "DriverDesc")
                     # 剔除远程/虚拟显示适配器（向日葵 Oray、ToDesk、Parsec、
-                    # VMware、Basic Display）——实弹本机曾混入 OrayIddDriver
+                    # VMware、Basic Display）——实测本地曾混入 OrayIddDriver
                     # drop remote/virtual display adapters (Oray, ToDesk,
                     # Parsec, VMware, Basic Display)
                     _d = _desc.lower() if _desc else ""
@@ -1009,6 +1068,15 @@ def detect_environment(extra_roots=None):
     core4 = all(eng[k] for k in ("pfind_exe", "pdeep2_exe", "punifind_exe", "punifind_python"))
     verdict = ("核心依赖齐备（pFind/pDeep2/pUniFind/Python 环境）\ncore dependencies ready"
                if core4 else "部分核心依赖未检出，请按下方清单手动填写\nsome core dependencies missing - fill manually")
+    # （设计约定）：pFind 为流程强制依赖——未检出时给专门指引
+    # pFind is a hard requirement - dedicated guidance when not found
+    if not eng["pfind_exe"]:
+        verdict = ("pFind 未检出——pFind 为本软件必装依赖（pParse 转换与搜库策略 b/c 均依赖它）。"
+                   "请将 pFind 安装目录（如 C:\\pFindStudio 或其所在目录）填入上方'扫描范围/Extra scan roots'后重新检测；"
+                   "或安装 pFind Studio：http://www.pfind.net\n"
+                   "pFind not found - it is a REQUIRED dependency (pParse conversion and strategies b/c). "
+                   "Add the pFind install folder (e.g. C:\\pFindStudio) to 'Extra scan roots' above and re-detect, "
+                   "or install pFind Studio: http://www.pfind.net")
     return {"ok": True, "engines": eng, "system": sysinfo, "verdict": verdict}
 # ---------------------------------------------------------------------------
 
@@ -1017,10 +1085,10 @@ _DETECT_TS = 0.0
 
 
 def _pick_path(kind):
-    # v1.0：Windows 首选**进程内 ctypes** Win32 对话框（零子进程——PS
-    # Forms 在实弹客户端被无声悬挂，请求永久挂起）；ctypes 非取消性失败才
+    #：Windows 首选**进程内 ctypes** Win32 对话框（零子进程——PS
+    # Forms 在实测客户端被无声悬挂，请求永久挂起）；ctypes 非取消性失败才
     # 落 PowerShell 后备；两路都取消→"未选择"；都失败→带两路诊断。
-    # v1.0: on Windows the IN-PROCESS ctypes dialogs come first (no child
+    #: on Windows the IN-PROCESS ctypes dialogs come first (no child
     # process - PS Forms hung silently on the live client, leaving the
     # request pending forever); PowerShell is the fallback only when ctypes
     # fails for a non-cancel reason; both-cancel -> "cancelled";
@@ -1177,7 +1245,7 @@ _MODMASS = None     # AA/修饰质量表缓存
 
 def _config_mgf_files():
     """从 config_step1 的 all_mgf/mgf 键展开 MGF 文件清单（文件夹展开 *.mgf）。
-    浏览模式下只采用浏览项目同层 unlabeled/（另一台电脑的结果，本机 config
+    浏览模式下只采用浏览项目同层 unlabeled/（另一台电脑的结果，本地 config
     的 mgf 路径不适用，避免同标题旧 MGF 抢谱）。"""
     bc = _browse_ctx()
     if bc:
@@ -1206,7 +1274,7 @@ def _config_mgf_files():
                         files.append(os.path.join(p, f))
             elif os.path.exists(p):
                 files.append(p)
-    # 浏览模式：谱图来自浏览项目同层的 unlabeled/（另一台电脑的结果，本机
+    # 浏览模式：谱图来自浏览项目同层的 unlabeled/（另一台电脑的结果，本地
     # config 的 mgf 路径不存在）
     seen, uniq = set(), []
     for f in files:
@@ -1379,11 +1447,10 @@ def spectrum_info(file_name):
 
 
 def spectra_list(limit=2000):
-    """可浏览谱清单＝最后确定的"原始结果错误"谱图（用户口径 2026-09-11）：
+    """可浏览谱清单＝最后确定的"原始结果错误"谱图
     冲突报告 conclusion_status == "original result wrong"（标记样本）；
     无冲突报告时回退 report_A 的 decision_A == "candidate_misidentification"。
-    The browsable list = the FINALIZED original-result-wrong spectra (user
-    ruling 2026-09-11): conflict_report conclusion_status == "original result
+    The browsable list = the FINALIZED original-result-wrong spectra conflict_report conclusion_status == "original result
     wrong" (labeled samples); fallback report_A decision_A ==
     "candidate_misidentification"."""
     pbase = CURRENT_RESULT or CLIENT_ROOT
@@ -1494,10 +1561,10 @@ def find_pdfs(dirs, depth=3, cap=500):
 
 
 def pdf_scan_dirs(extra=None):
-    """默认扫描根：当前结果文件夹（用户口径 2026-09-11：只展示当前运行的
+    """默认扫描根：当前结果文件夹（设计约定：只展示当前运行的
     PDF，不再扫软件根目录以免归档旧 PDF 混入）；无当前结果时退回客户端根；
     另加用户手填的文件夹。
-    Default scan roots: the CURRENT result folder only (user ruling 2026-09-11:
+    Default scan roots: the CURRENT result folder only (user ruling:
     show only the current run's PDFs; the client-root scan is removed so
     archived PDFs no longer leak in); falls back to the client root when no
     result exists; plus an optional user-supplied folder."""
@@ -1505,7 +1572,7 @@ def pdf_scan_dirs(extra=None):
     if extra and os.path.isdir(extra):
         dirs.append(extra)
     if BROWSE_DIR:
-        # 浏览模式只展示浏览目录的 PDF（本机结果不混入）
+        # 浏览模式只展示浏览目录的 PDF（本地结果不混入）
         dirs.append(_result_base(BROWSE_DIR))
     elif CURRENT_RESULT:
         dirs.append(CURRENT_RESULT)
@@ -1626,7 +1693,7 @@ def build_report_html():
     tl = None
     tl_hint = ""
     if bc:
-        # 自查整改（2026-09-26）：浏览模式下不展示本机时间线；浏览项目内有
+        # 自查整改浏览模式下不展示本地时间线；浏览项目内有
         # web_run.log 时解析之，否则明确提示
         log_cand = next((c for c in (os.path.join(bc["pbase"], "web_run.log"),
                                      os.path.join(bc["rbase"], "web_run.log"))
@@ -1638,7 +1705,7 @@ def build_report_html():
             except OSError:
                 tl = None
         if not tl:
-            tl_hint = "浏览目录内无运行日志（本机时间线不展示）"
+            tl_hint = "浏览目录内无运行日志（本地时间线不展示）"
     else:
         tl = current_timeline() or []
     if tl_hint and not tl:
@@ -1668,7 +1735,7 @@ def build_report_html():
                 lines = fh.read().splitlines()
                 if lines and "\t" in lines[0]:
                     lines = lines[1:]          # 去掉表头行
-                sum_txt = "<br>".join(esc(l.replace("\t", " : ")) for l in lines)
+                sum_txt = "<br>".join(esc(l.replace("\t", ": ")) for l in lines)
         except OSError:
             sum_txt = ""
 
@@ -1682,7 +1749,7 @@ def build_report_html():
         cs, n_cr = count_tsv_col(cr, "conclusion_status")
         # 分组与肽段层面统计：Single / Paired 分开 ＋ 肽段三 panel
         # grouped and peptide-level stats: Single vs Paired + three panels
-        # 列名兼容：状态列 paired_state_B（旧版 double_state_B）；肽段序列列
+        # 列名兼容：状态列 paired_state_B（早期实现 double_state_B）；肽段序列列
         # a.Sequence（多引擎版）或 X1.Sequence（经典版）；error_reason/
         # vote_says_wrong 可选——先读表头一次性探测可用列，缺列自动降级
         # column-name tolerance: the state column is paired_state_B
@@ -1791,10 +1858,10 @@ def build_report_html():
             files.append(rel + "  (" + ("%.1f MB" % (os.path.getsize(p) / 1e6)) + ")")
     files_html = "".join("<li>%s</li>" % esc(f) for f in files) or "<li>—</li>"
 
-    # 两分法结果呈现（用户口径 2026-09-12）：软件固定输出两个部分——
+    # 两分法结果呈现软件固定输出两个部分——
     # ① 已注释库错误鉴定报告（原始鉴定蛋白在用户 FASTA 内，判校正＝错误匹配清单）
     # ② 可信新肽段报告（原始鉴定蛋白不在用户 FASTA 内，credible_novel＝竞争保留＋非混合谱）
-    # two-part result presentation (user ruling 2026-09-12): the software always
+    # two-part result presentation the software always
     # reports both parts - (1) annotated-library misidentification report (the
     # original protein is in the user FASTA; judged-corrected rows are the wrong
     # matches), (2) credible novel-peptide report (original protein not in the
@@ -1892,7 +1959,7 @@ def build_report_html():
             paired_card = ("<div class='card hl-g'><h2>判校正行的成对标记证据"
                            " <span class='en'>paired-label evidence of corrected rows</span></h2>"
                            + "".join(html_bits) + "</div>")
-    # 五类合并错误分布（主表 diff_type → MERGE5 映射）
+    # 五类合并错误分布
     # five merged error categories
     merge5_card = ""
     m5 = count_merge5_errors(rbase)
@@ -1923,7 +1990,7 @@ def build_report_html():
     html = """<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="UTF-8"><title>isoPSV 结果报告</title>
 <style>
- :root { --ac:#0b6b8a; --ac2:#0e8a5f; --ink:#1e2d3d; --sub:#5b7284; --line:#d5dfe8; --soft:#eaf3f8; }
+:root { --ac:#0b6b8a; --ac2:#0e8a5f; --ink:#1e2d3d; --sub:#5b7284; --line:#d5dfe8; --soft:#eaf3f8; }
  * { box-sizing:border-box; }
  body { font-family:"Segoe UI","Microsoft YaHei","PingFang SC",sans-serif; margin:0; padding:22px 28px 60px; color:var(--ink); background:#f4f7fa; line-height:1.6; }
  .en { color:#8ca3b5; font-weight:normal; font-size:.88em; }
@@ -1989,8 +2056,7 @@ def build_report_html():
 
 
 def _sanitize_inline_field(v):
-    """剥离换行/制表符/NUL（P0-8 通用化，2026-09-26 MiniMax P0-2；N-20 扩展，
-    2026-09-26 GLM）：单值字段含换行会被拼接成新的键值行（任意键注入）；含 \t
+    """剥离换行/制表符/NUL单值字段含换行会被拼接成新的键值行（任意键注入）；含 \t
     会在 R 端按制表符解析出歧义键，含 \0 会让 R readLines 报错——一律剔除。
     多行值字段（raw 等）不在此处理。"""
     return str(v or "").replace("\r", "").replace("\n", "").replace("\t", "").replace("\x00", "").strip()
@@ -2002,8 +2068,8 @@ def build_step2_config(strategies, msfragger_xmx=""):
     用户需先对 raw 跑 MaxQuant，再把 msms.txt 填为结果文件）。具备自动搜库能力
     的引擎行（msfragger/comet/sage/metamorpheus/maxquant）可附 exe 软件路径——
     写入 <engine>_exe 与 <engine>_mode=1，管线按内置模板回退参数并自动运行
-    （2026-09-24 网页策略行一键填充路径配套）；msfragger_xmx 非空时写入
-    全局键（N-10，2026-09-25）。
+；msfragger_xmx 非空时写入
+    全局键。
     Build the config_step2.txt text from the form strategy rows (search_file +
     search_file_type one pair per line; MaxQuant rows also record search_file_raw
     - MaxQuant cannot parse MGF, so the user runs it on the raws first and the
@@ -2011,7 +2077,7 @@ def build_step2_config(strategies, msfragger_xmx=""):
     (msfragger/comet/sage/metamorpheus/maxquant) may carry an exe software path -
     it is written as <engine>_exe with <engine>_mode=1 and the pipeline falls
     back to the bundled parameter templates and runs the engine automatically
-    (companion to the 2026-09-24 web one-click path fill)."""
+    ."""
     lines = ["# config_step2.txt — 多引擎策略配置（网页版生成）",
              "# config_step2.txt - multi-engine strategy configuration (generated by the web shell)"]
     auto_capable = {"msfragger", "comet", "sage", "metamorpheus", "maxquant"}
@@ -2020,7 +2086,7 @@ def build_step2_config(strategies, msfragger_xmx=""):
         sf = _sanitize_inline_field(s.get("file"))
         st = _sanitize_inline_field(s.get("type"))
         exe = _sanitize_inline_field(s.get("exe"))
-        # v1.0：行内显式 mode（auto/manual）；缺省时沿用旧推断
+        #：行内显式 mode（auto/manual）；缺省时沿用旧推断
         # （file 空＋exe 非空＝auto）以兼容旧表单。manual 行忽略 exe。
         # explicit per-row mode (v1.0); rows without mode keep the legacy
         # inference (empty file + exe = auto). exe is ignored on manual rows.
@@ -2028,7 +2094,7 @@ def build_step2_config(strategies, msfragger_xmx=""):
         is_auto = ((mode == "auto") if mode else (not sf and bool(exe))) and st in auto_capable
         if not sf and not is_auto:
             continue
-        # 杨翰反馈（2026-10-08）：auto 模式下 search_file 为空但 search_file_type
+        # 用户反馈auto 模式下 search_file 为空但 search_file_type
         # 仍写入 → 管线看到 type 无 file 挂在"等待手动输入"。写入占位标记，
         # 管线检测到后走适配器自动搜库而非停等。
         # tester feedback: auto mode had empty search_file causing the pipeline
@@ -2098,7 +2164,7 @@ def read_correction_paired_summary(rbase):
 def read_two_part_summary(rbase):
     """读取 two_part_report_summary.txt → [(子目录, 文件名, 行数, 摘要行), ...]。
     先 2.labeled_result（标记样本），回退 1.unlabeled_result（无标记样本；
-    v1.0 用户口径：无标记两分法报告落在 report 路径）。
+    v1.0 设计约定：无标记两分法报告落在 report 路径）。
     Read two_part_report_summary.txt -> [(subdir, file, rows, headline), ...].
     Checks 2.labeled_result first (labeled samples), then 1.unlabeled_result
     (unlabeled samples; v1.0 ruling: the unlabeled two-part reports live in
@@ -2245,10 +2311,10 @@ def count_strategy_attribution(rbase):
 def patch_config(fname, key, value, base_override=""):
     """补写 config_step1/2/3 的一个键：删除已有活动键行后按值行数写入
     （多行值＝列表键，如 search_file/mgf，每行一个）。已有活动键则替换，否则追加。
-    v1.0：base_override 允许前端指定绝对路径写入位置（config_predictor
+：base_override 允许前端指定绝对路径写入位置（config_predictor
     写到 result_dir 而非包根）。
     Patch one key of config_step1/2/3: drop the existing active key lines, then
-    write one line per value. v1.0: base_override lets the frontend pin
+    write one line per value.: base_override lets the frontend pin
     the write location (config_predictor goes to result_dir)."""
     base = base_override if base_override and os.path.isdir(base_override) else (CURRENT_RESULT or CLIENT_ROOT)
     if fname not in ("config_step1.txt", "config_step2.txt", "config_step3.txt", "config_predictor.txt"):
@@ -2256,11 +2322,11 @@ def patch_config(fname, key, value, base_override=""):
     path = os.path.join(base, fname)
     if not os.path.exists(path):
         # config_predictor.txt / config_step3.txt 可能首次写入——创建空文件。
-        # v1.0：config_step3 加入创建白名单——它由管线在第 2 步后才生成，
+        #：config_step3 加入创建白名单——它由管线在第 2 步后才生成，
         # W8 预写（weights_B/threshold_B）发生在任何运行之前；管线重建该文件
         # 时会保留既有用户键（v1.0 old_* 回填语义），预写即生效。
         # config_predictor.txt / config_step3.txt may be first-write - create
-        # an empty file. v1.0: config_step3 joins the create list - it is
+        # an empty file.: config_step3 joins the create list - it is
         # generated by the pipeline only after step 2, while the W8 pre-write
         # (weights_B/threshold_B) happens before any run; regeneration carries
         # existing user keys forward (v1.0 old_* semantics), so the
@@ -2279,7 +2345,7 @@ def patch_config(fname, key, value, base_override=""):
     if text is None:
         return False, "文件编码无法识别\nfile encoding not recognized"
     lines = text.splitlines()
-    # MiniMax P0-2（2026-09-26）：key 脱换行；多行值按行拆分后每行值也脱换行
+    # MiniMax P0-2key 脱换行；多行值按行拆分后每行值也脱换行
     key = _sanitize_inline_field(key)
     values = [_sanitize_inline_field(v) for v in value.replace("\r", "\n").split("\n") if v.strip()]
     kept = []
@@ -2289,7 +2355,7 @@ def patch_config(fname, key, value, base_override=""):
             continue
         kept.append(l)
     kept.extend(key + "\t" + v for v in values)
-    # 杨翰反馈②：Windows 文件句柄残留导致覆写失败——先删再写保干净
+    # 用户反馈②：Windows 文件句柄残留导致覆写失败——先删再写保干净
     # tester feedback: delete before write to avoid Windows file handle issues
     try:
         os.remove(path)
@@ -2305,7 +2371,7 @@ def list_config_keys(fname):
     List the keys of a parameter file (including commented placeholder keys) so
     the stop-point resume page can generate its key list automatically."""
     base = CURRENT_RESULT or CLIENT_ROOT
-    # P0-7（2026-09-26，GLM 审查）：文件名白名单——os.path.join 对绝对路径/
+    # P0-7文件名白名单——os.path.join 对绝对路径/
     # ..\..\ 直接透传，读端此前可任意读本地文本（写端 patch_config 有同名
     # 白名单，读端缺失）
     if fname not in ("config_step1.txt", "config_step2.txt", "config_step3.txt", "config_predictor.txt"):
@@ -2347,10 +2413,10 @@ class Handler(BaseHTTPRequestHandler):
         data = body if isinstance(body, bytes) else body.encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", ctype)
-        # v1.0（2026-10-03，客户端实弹）：此前不发缓存头，浏览器启发式缓存
+        # v1.0此前不发缓存头，浏览器启发式缓存
         # 旧 index.html——升级包后用户不强制刷新就仍是旧页面（新按钮"点了没反
         # 应"假象）。本地服务全响应 no-store，升级即生效。
-        # v1.0 (2026-10-03, live client feedback): no cache headers were sent,
+        # v1.0 no cache headers were sent,
         # so browsers heuristically cached the old index.html - after an upgrade
         # the stale page kept serving until a hard refresh. Serve everything
         # no-store; upgrades now take effect on a plain refresh.
@@ -2362,10 +2428,10 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
-        # P0-9（2026-09-26，GLM 审查）/G-4（空 Host 也拒绝）：Host 校验封死
+        # P0-9/G-4（空 Host 也拒绝）：Host 校验封死
         # DNS rebinding 远程利用面——只收 127.0.0.1:8780 / localhost:8780
         host = self.headers.get("Host", "")
-        # MiniMax P1-8（2026-09-26）：无端口 Host 也归一为 :8780 判定（只收本机端口）
+        # MiniMax P1-8无端口 Host 也归一为:8780 判定（只收本地端口）
         if host in ("127.0.0.1", "localhost"):
             host = "%s:%d" % (host, PORT)
         if host not in ("127.0.0.1:%d" % PORT, "localhost:%d" % PORT):
@@ -2375,9 +2441,9 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/", "/index.html"):
             self._send(200, get_index_bytes(), "text/html; charset=utf-8")
         elif path == "/api/version":
-            # v1.0：服务端自报家门（磁盘 VERSION＋运行解释器），页脚显示；
+            #：服务端自报家门（磁盘 VERSION＋运行解释器），页脚显示；
             # "磁盘已升级但进程是旧的"从此一眼可辨
-            # v1.0: server self-identification (disk VERSION + running
+            #: server self-identification (disk VERSION + running
             # interpreter), shown in the page footer
             self._send(200, json.dumps(
                 {"version": _pkg_version(),
@@ -2482,15 +2548,15 @@ class Handler(BaseHTTPRequestHandler):
             pdfs = find_pdfs(pdf_scan_dirs(extra or None))
             self._send(200, json.dumps({"ok": True, "pdfs": pdfs}, ensure_ascii=False))
         elif path == "/pdf":
-            # 服务一个 PDF（本机工具，供结果页 iframe 窗口内查看/打印）
+            # 服务一个 PDF（本地工具，供结果页 iframe 窗口内查看/打印）
             # serve one PDF (local tool; embedded in the report page iframe)
-            # v1.0（2026-09-26，审查 P0-1/H2）：路径白名单——realpath 必须落在
+            # v1.0路径白名单——realpath 必须落在
             # 客户端根目录（或结果目录）之下，禁止读取任意本地 PDF；响应头加
-            # nosniff。B-13（2026-09-26）：报告页 iframe 需内联查看，故不加
+            # nosniff。B-13报告页 iframe 需内联查看，故不加
             # Content-Disposition: attachment（注释与实现对齐）。
-            # v1.0 (2026-09-26, review P0-1/H2): path whitelist - the realpath
+            # v1.0 path whitelist - the realpath
             # must stay under the client root (or a result folder); no arbitrary
-            # local PDF reads. nosniff added. B-13 (2026-09-26): the report-page
+            # local PDF reads. nosniff added. B-13 the report-page
             # iframe views the PDF inline, so no Content-Disposition: attachment.
             origin = self.headers.get("Origin", "")
             if origin and urllib.parse.urlparse(origin).netloc not in (
@@ -2508,7 +2574,7 @@ class Handler(BaseHTTPRequestHandler):
                      list(_EXTRA_PDF_ROOTS):
                 if r and r not in allowed_roots:
                     allowed_roots.append(r)
-            # 自查整改（2026-09-26）：白名单根与请求路径同口径 realpath+normcase，
+            # 自查整改白名单根与请求路径同口径 realpath+normcase，
             # 防 junction/符号链接前缀失配；并入 CURRENT_RESULT/浏览目录/手填目录，
             # 使"能扫描就能打开"（清单与白名单共用同一份根集合）
             allowed_roots = [os.path.normcase(os.path.realpath(r))
@@ -2561,19 +2627,19 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, json.dumps({"error": "not found"}))
 
     def do_POST(self):
-        # P0-9（2026-09-26，GLM 审查）/G-4（空 Host 也拒绝）：与 do_GET 同口径
+        # P0-9/G-4（空 Host 也拒绝）：与 do_GET 同口径
         host = self.headers.get("Host", "")
-        # MiniMax P1-8（2026-09-26）：无端口 Host 也归一为 :8780 判定（只收本机端口）
+        # MiniMax P1-8无端口 Host 也归一为:8780 判定（只收本地端口）
         if host in ("127.0.0.1", "localhost"):
             host = "%s:%d" % (host, PORT)
         if host not in ("127.0.0.1:%d" % PORT, "localhost:%d" % PORT):
             self._send(403, json.dumps({"error": "forbidden host"}))
             return
-        # 2026-09-26 冒烟修复（v1.0）：proc 必须一并声明 global——P0-A 在
+        # 冒烟修复（v1.0）：proc 必须一并声明 global——P0-A 在
         # /api/stop 分支内新增 `proc = None` 赋值后，proc 在 do_POST 内变为
         # 局部名，`p = proc` 读取先于赋值触发 UnboundLocalError（停止按钮
         # 全路径崩溃）。冒烟测试 POST /api/stop 捕获。
-        # 2026-09-26 smoke fix (v1.0): proc must also be declared global -
+        # smoke fix (v1.0): proc must also be declared global -
         # after P0-A added `proc = None` inside the /api/stop branch, proc
         # became function-local and the `p = proc` read raised
         # UnboundLocalError (the stop button crashed on every call). Caught by
@@ -2595,21 +2661,21 @@ class Handler(BaseHTTPRequestHandler):
             self._send(400, json.dumps({"error": "invalid json"}))
             return
         if path == "/api/pick_file":
-            # 排队③（2026-09-26）：改 POST——GET 会允许任意站点触发文件对话框
+            # 排队③改 POST——GET 会允许任意站点触发文件对话框
             # （跨站对话框轰炸）；POST 经 Host/Origin 校验后同进程锁内弹框
             kind = body.get("kind") or "file"
             ok, msg = pick_path(kind)
-            # v1.0：响应带 route（ctypes/ps/ctypes-failed->ps）——远程
+            #：响应带 route（ctypes/ps/ctypes-failed->ps）——远程
             # 排障一眼分清走的哪条路线
             self._send(200, json.dumps({"ok": ok, "path": msg if ok else "",
                                         "msg": msg, "route": _PICK_ROUTE[0]},
                                        ensure_ascii=False))
         elif path == "/api/detect":
-            # v1.0：POST body {extra_roots:[...]}＝用户在界面追加的扫描根
+            #：POST body {extra_roots:[...]}＝用户在界面追加的扫描根
             # 目录（最多 4 个、须存在；detect_environment 内去重并置于内置
             # 根之前）。带 extras 绕过 60s 缓存（用户主动扫描，多等一轮可接
             # 受）；不带的 POST 等价 GET（走缓存）。
-            # v1.0: POST body {extra_roots:[...]} = user-added scan roots
+            #: POST body {extra_roots:[...]} = user-added scan roots
             # from the UI (<=4, must exist; detect_environment dedupes and
             # puts them before the built-in roots). With extras the 60 s cache
             # is bypassed; without extras the POST equals the GET (cached).
@@ -2631,9 +2697,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(500, json.dumps({"ok": False, "error": str(e)},
                                            ensure_ascii=False))
         elif path == "/api/resolve_path":
-            # v1.0：浏览器原生选框只给文件/文件夹名，此端点在常见安装
+            #：浏览器原生选框只给文件/文件夹名，此端点在常见安装
             # 根目录搜索同名条目返回完整路径（找不到则前端填名让用户补全）
-            # v1.0: the browser-native picker only yields the file/folder
+            #: the browser-native picker only yields the file/folder
             # NAME; this endpoint searches the common install roots for a
             # matching entry and returns the full path (if not found the
             # frontend fills the name and the user completes the prefix)
@@ -2676,8 +2742,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, json.dumps({"ok": False, "path": "",
                                             "msg": "not found in scan roots"}, ensure_ascii=False))
         elif path == "/api/list_dir":
-            # v1.0：内嵌文件浏览器——列出指定目录的子目录（与可选文件）
-            # v1.0: in-page file browser - list subdirectories (and optional files)
+            #：内嵌文件浏览器——列出指定目录的子目录（与可选文件）
+            #: in-page file browser - list subdirectories (and optional files)
             dpath = (body.get("path") or "").strip()
             show_files = bool(body.get("files"))
             if not dpath:
@@ -2720,7 +2786,7 @@ class Handler(BaseHTTPRequestHandler):
                                         "parent": parent if parent != dpath else ""},
                                        ensure_ascii=False))
         elif path == "/api/set_browse":
-            # 结果浏览模式（2026-09-26）：选定另一台电脑的结果项目目录/结果目录，
+            # 结果浏览模式选定另一台电脑的结果项目目录/结果目录，
             # 报告、谱图、PDF 全部只读改从该目录读取
             ok, msg = _set_browse(body.get("path", ""))
             self._send(200, json.dumps({"ok": ok,
@@ -2793,7 +2859,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, json.dumps({"ok": True, "path": p, "content": txt},
                                        ensure_ascii=False))
         elif path == "/api/run":
-            # 李治反馈：全局变量在多线程 HTTP 服务中不可靠——前端直接传 config 路径
+            # 用户反馈：全局变量在多线程 HTTP 服务中不可靠——前端直接传 config 路径
             # do_POST 顶部已有 global CURRENT_CFG，此处直接赋值
             _cfg_from_fe = (body.get("config_path") or "").strip()
             if _cfg_from_fe and os.path.isfile(_cfg_from_fe):
@@ -2801,7 +2867,7 @@ class Handler(BaseHTTPRequestHandler):
             ok, msg = run_pipeline()
             self._send(200, json.dumps({"ok": ok, "msg": msg}, ensure_ascii=False))
         elif path == "/api/stop":
-            # P1-2/P0-A（2026-09-25）：锁内取句柄快照。Windows 上 terminate()
+            # P1-2/P0-A锁内取句柄快照。Windows 上 terminate()
             # 是硬杀父进程——先 terminate 则 taskkill /T（进程树）条件恒假、
             # 子进程（Searcher/java/PSOCK worker）全部残留；故 Windows 先
             # taskkill 杀树，POSIX 保持温和→强制阶梯。成功后置 proc=None。
@@ -2810,7 +2876,7 @@ class Handler(BaseHTTPRequestHandler):
             tk_msg = ""
             if p is not None and p.poll() is None:
                 if os.name == "nt":
-                    # §3.1（2026-09-26）：检查 taskkill 返回码——权限/跨用户
+                    # §3.1检查 taskkill 返回码——权限/跨用户
                     # 失败时不再静默空等，把失败信息回给前端。
                     tk = subprocess.run(["taskkill", "/T", "/F", "/PID", str(p.pid)],
                                         capture_output=True)
@@ -2855,7 +2921,7 @@ class Handler(BaseHTTPRequestHandler):
                                    body.get("base", ""))
             self._send(200, json.dumps({"ok": ok, "msg": msg}, ensure_ascii=False))
         elif path == "/api/load_config":
-            # v99l：本机工具（localhost + Host 校验），允许从任意路径加载
+            # v99l：本地工具（localhost + Host 校验），允许从任意路径加载
             # config——保留 basename 白名单（只收 config_step1/2/3.txt），
             # 弃"join 固定 base"限制（用户从文件浏览器选到哪就从哪读）
             p = (body.get("path") or "").strip()
@@ -2898,7 +2964,7 @@ class Handler(BaseHTTPRequestHandler):
             except OSError as e:
                 self._send(200, json.dumps({"ok": False, "msg": str(e)}, ensure_ascii=False))
         elif path == "/api/check_config":
-            # 李治反馈②：Run 前检查 result_dir 内是否有 config_step1.txt
+            # 用户反馈②：Run 前检查 result_dir 内是否有 config_step1.txt
             rd = (body.get("result_dir") or "").strip()
             cfg1 = os.path.join(rd, "config_step1.txt") if rd else ""
             ok = bool(cfg1 and os.path.isfile(cfg1))
@@ -2912,9 +2978,9 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def _pkg_version():
-    """v1.0：读包根 VERSION 文件（网页页脚与 /api/version 用——远程排障
+    """：读包根 VERSION 文件（网页页脚与 /api/version 用——远程排障
     一眼分清'磁盘包已升级但进程还是旧'的情形）。
-    v1.0: read the package VERSION file (shown in the page footer and
+: read the package VERSION file (shown in the page footer and
     served by /api/version - makes 'disk upgraded but process stale'
     instantly visible during remote debugging)."""
     try:
@@ -2925,11 +2991,11 @@ def _pkg_version():
 
 
 def _kill_stale_listener():
-    """v1.0（2026-10-03，客户端实弹）：升级包后旧 server 进程仍占 8780，
+    """v1.0升级包后旧 server 进程仍占 8780，
     新进程 bind 失败而浏览器一直连旧进程（页面新、API 旧、"按钮没反应"）。
     按端口精准结束旧监听（Get-NetTCPConnection → OwningProcess），只动
     8780 监听者，不碰其他 python。
-    v1.0 (2026-10-03, live): after an upgrade the OLD server keeps port
+    v1.0 after an upgrade the OLD server keeps port
     8780; the new one fails to bind and the browser keeps talking to the
     stale process (new page, old API, "dead buttons"). Kill the listener on
     8780 precisely via Get-NetTCPConnection; other python processes are
@@ -2952,8 +3018,8 @@ def main():
     try:
         srv = ThreadingHTTPServer((HOST, PORT), Handler)
     except OSError:
-        # v1.0：端口被旧进程占用 → 自动清场重试一次；再失败给双语指引
-        # v1.0: port held by a stale process - clear it and retry once;
+        #：端口被旧进程占用 → 自动清场重试一次；再失败给双语指引
+        #: port held by a stale process - clear it and retry once;
         # if it still fails, print bilingual guidance
         print("!! 端口 %d 被占用（多半是升级前的旧服务进程）——尝试自动结束旧进程…"
               % PORT)
@@ -2970,9 +3036,9 @@ def main():
             raise SystemExit(1)
     print("=== 网页版壳子 web shell（%s）===" % _pkg_version())
     print("客户端目录 client root:", CLIENT_ROOT)
-    # F-2（2026-09-26）：把探测选中的 Rscript 路径与版本打出来（远程排障时
+    # F-2把探测选中的 Rscript 路径与版本打出来（远程排障时
     # 一眼可见多版本共存时选了哪个）。
-    # F-2 (2026-09-26): log the probed Rscript path and version, so it is
+    # F-2 log the probed Rscript path and version, so it is
     # immediately visible which R was picked when several coexist.
     print("Rscript 路径 Rscript:", RSCRIPT)
     try:

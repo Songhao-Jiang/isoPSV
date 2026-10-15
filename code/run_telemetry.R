@@ -1,5 +1,5 @@
 # =============================================================================
-# run_telemetry.R - 运行遥测记录脚本（用户口径 2026-09-21：软件质控之二）
+# run_telemetry.R - 运行遥测记录脚本
 #
 # 记录每个运行步骤：起止时间、耗时、CPU 峰值、内存峰值、步骤内外存占用峰值、
 # 结束后外存增加值。
@@ -93,8 +93,8 @@ if (mode == "start") {
   for (i in seq_along(mk)) {
     a <- mk[i]
     b <- if (i < length(mk)) mk[i + 1] - 1 else nrow(d)
-    seg <- if (b >= a + 1) d[(a + 1):b, , drop = FALSE] else d[0, , drop = FALSE]
-    if (nrow(seg) == 0) seg <- d[a, , drop = FALSE]   # 相邻 mark（无采样间隔）不并入下段
+    seg <- if (b >= a + 1) d[(a + 1):b,, drop = FALSE] else d[0,, drop = FALSE]
+    if (nrow(seg) == 0) seg <- d[a,, drop = FALSE]   # 相邻 mark（无采样间隔）不并入下段
     steps <- rbind(steps, data.frame(
       step = d$step[a],
       start = d$ts[a],

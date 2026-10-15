@@ -70,7 +70,7 @@ cfg3_path <- Sys.getenv("CONFIG3")
 if (!nzchar(cfg3_path)) stop("CONFIG3 not set (set by user_run.R)")
 cfg3 <- read_param_file(cfg3_path)
 cfg_dir <- cfg3$config_dir
-if (is.null(cfg_dir) || length(cfg_dir) == 0 || !nzchar(cfg_dir[1]))   # 2026-09-26 审查 P0-3/P3-6：config_dir 缺失/为空时给可读报错
+if (is.null(cfg_dir) || length(cfg_dir) == 0 || !nzchar(cfg_dir[1]))   # 审查 P0-3/P3-6：config_dir 缺失/为空时给可读报错
   stop("config_step3 的 config_dir 缺失或为空，请检查配置（或删除 result_* 后重跑）
 config_dir missing/empty in config_step3")
 # 结果文件夹（RESULT_DIR 由总程序注入；独立运行按时间戳定位/新建）
@@ -83,13 +83,13 @@ all_mgf_dir <- Sys.getenv("ALL_MGF")
 fasta_file <- if (!is.null(base_cfg$fasta) && length(base_cfg$fasta) > 0)
   tail(resolve_cfg_paths(base_cfg, "fasta"), 1) else ""
 
-# P0-3（2026-09-25）：无标记样本检查前置——旧位置在阶段 A 报告读入之后，用户
+# P0-3无标记样本检查前置——旧位置在阶段 A 报告读入之后，用户
 # 跑完大半解析才失败；改为解析完配置立即判断（成对报告缺失＝无标记样本）。
-# 无标记样本暂不支持全谱主表（2026-09-06）：本表依赖成对报告的
+# 无标记样本暂不支持全谱主表本表依赖成对报告的
 # unlabel_ions_match.* 等列名，而阶段 A 报告是 candidate_* 列名体系，列映射缺失；
 # 无标记样本的科学需求由 stageA/report_A.tsv 与 classification_A.tsv 覆盖。
 # 直接调用本脚本且无成对报告时，以明确提示退出而不是产出缺列的表。
-# P0-3 (2026-09-25): the unlabeled check moved to the front - it used to sit
+# P0-3 the unlabeled check moved to the front - it used to sit
 # after the stage-A report read, so the user failed only after most parsing
 # was done; now it runs right after config resolution (no paired report =
 # unlabeled sample).
@@ -112,11 +112,11 @@ TAU_MAP <- c(n15 = 0.0083, c13 = 0.0083, silac = 0.0183, unlabeled = 0.0083)
 THETA <- 0.30
 tau_v <- label_tau_of(parse_label_spec(label_type))
 if (is.null(tau_v)) tau_v <- 0.0083
-# ---- 分组权重覆盖（用户口径 2026-09-21）--------------------------
+# ---- 分组权重覆盖--------------------------
 # config_step3 可选键 weights_B（六指标逗号分隔，顺序 ul_by,lb_by,ul_all,
 # lb_all,predict,pcos）与 threshold_B（本标签类型的 τ）优先于上方统一默认值；
 # 旧配置无这两键时行为与原版完全一致（统一 W\*）
-# ---- per-label weight override (user ruling 2026-09-21) -----------
+# ---- per-label weight override -----------
 # optional config keys weights_B (six comma-separated metrics in the order
 # above) and threshold_B (the τ of THIS label type) take precedence; configs
 # without them reproduce the unified W\* behavior exactly
@@ -205,21 +205,21 @@ parse_col <- function(x) lapply(strsplit(as.character(x), "[|;]"), function(v)
   suppressWarnings(as.numeric(v)))
 ncand <- lengths(strsplit(as.character(p$candidates), "|", fixed = TRUE))
 # 冲突行的候选数以成对报告 match_state 为准（阶段 A 的 candidates 列多数行只有
-# 1 条，直接用它会让主表丢失竞争结构、漏判需校正——2026-09-07 修复，与谱图
+# 1 条，直接用它会让主表丢失竞争结构、漏判需校正——修复，与谱图
 # PDF 判定同口径）
 # the candidate count of conflict rows follows the paired report's match_state
 # (the stage-A candidates column holds a single entry for most rows; using it
 # directly drops the competition structure and under-judges corrections -
-# fixed 2026-09-07, the same basis as the spectrum-PDF judgment)
+# fixed the same basis as the spectrum-PDF judgment)
 if (!is.null(pr) && "match_state" %in% names(pr)) {
   pr_nc <- lengths(strsplit(as.character(pr$match_state), ";", fixed = TRUE))
   for (i in which(conflict_row)) ncand[i] <- pr_nc[pr_i[i]]
 }
 # 无标记指标：冲突行优先用成对报告（与 panel_f 主表同源，阶段 B 在原始 MGF 上
-# 重算）；无差异行用阶段 A 报告（分隔符 | 或 ; 均兼容）
+# 重算）；无差异行用阶段 A 报告（分隔符 | 或; 均兼容）
 # unlabeled metrics: conflict rows prefer the paired report (the same source
 # as the panel-f master table; stage B recomputes them on the raw MGF), while
-# non-conflict rows use the stage-A report (both | and ; separators accepted)
+# non-conflict rows use the stage-A report (both | and; separators accepted)
 ul_col <- list(ul_by = "candidate_PSM_score_by", ul_all = "candidate_PSM_score_all",
                predict = "candidate_predict_cosine")
 pr_ul <- list(ul_by = "unlabel_ions_match.PSM_score_by",
@@ -281,10 +281,9 @@ LLB <- lapply(lb_col, function(cn) {
   }
   out
 })
-# 指标总表（按谱）——weights_B 给 8 值时纳入双覆盖率（用户口径 2026-09-21
-# 八参数版）；covL 即无标记 by 覆盖率（上文已解析），lb_cov 由 LLB 新增
+# 指标总表（按谱）——weights_B 给 8 值时纳入双覆盖率；covL 即无标记 by 覆盖率（上文已解析），lb_cov 由 LLB 新增
 # the combined metric table (per spectrum) - with an 8-value weights_B the two
-# coverage metrics join (user ruling 2026-09-21): covL is the unlabeled by
+# coverage metrics join covL is the unlabeled by
 # coverage parsed above; lb_cov comes from the extended LLB
 LL <- list(ul_by = LUL[["ul_by"]], lb_by = LLB[["lb_by"]],
            ul_all = LUL[["ul_all"]], lb_all = LLB[["lb_all"]],
@@ -296,7 +295,7 @@ DIV <- c(ul_by = 100, lb_by = 100, ul_all = 100, lb_all = 100, predict = 1,
 # 配对状态与标记谱号：冲突行取成对报告，其余行留空
 # paired state and labeled scan: conflict rows from the paired report, blank
 # elsewhere
-# 2026-09-12：阶段 B 现覆盖全部谱，成对状态一律取成对报告（"matched" 占位
+#：阶段 B 现覆盖全部谱，成对状态一律取成对报告（"matched" 占位
 # 仅保留给报告里确实没有的行，如 raw 缺失）
 mstL <- lapply(seq_len(n), function(i) {
   if (!is.na(pr_i[i]))
@@ -383,14 +382,14 @@ if (nzchar(fasta_file) && file.exists(fasta_file)) {
     nq <- nchar(q); ns <- nchar(fa_seq[pi])
     pre <- if (st > 1L) substr(fa_seq[pi], st - 1L, st - 1L) else "_"
     post <- if (st + nq <= ns) substr(fa_seq[pi], st + nq, st + nq) else "_"
-    # pFind 原生 Positions 格式（用户口径 2026-09-17）："位点,前一残基,后一残基/"
+    # pFind 原生 Positions 格式"位点,前一残基,后一残基/"
     # 位点＝0 起前置残基数，缺相邻残基用 "_"
     c(fa_acc[pi], sprintf("%d,%s,%s/", st - 1L, pre, post))
   }
   assign("fmap", fmap, envir = fa_env)
 }
 loc_cache <- new.env(parent = emptyenv())                    # 肽段级缓存（I/L 键）
-# B-7（2026-09-26）：环境不能存 NULL——assign(key, NULL) 在 R 里是"删除绑定"，
+# B-7环境不能存 NULL——assign(key, NULL) 在 R 里是"删除绑定"，
 # 漏命中缓存形同虚设（v1.0 的修复无效）。改用 NA_character_ 哨兵：get 后
 # is.na 判定即视为未命中。
 loc_of <- function(sq) {                                       # 直接＋GG→N 回退
@@ -418,10 +417,10 @@ loc_of <- function(sq) {                                       # 直接＋GG→N
     }
   }
   # 直接与回退都未命中时也缓存 NULL，避免重复扫描
-  # （2026-09-26 审查 P2-3：原 assign 误落在 if 块内，gg=0 或 >5 的肽段每条
+  # （审查 P2-3：原 assign 误落在 if 块内，gg=0 或 >5 的肽段每条
   # 漏命中都重扫全库 5.55ms；移到 if 外并缓存全路径）
   # cache the NULL result too so the fallback is not re-scanned
-  # (2026-09-26 review P2-3: the assign used to sit INSIDE the if block, so
+  # (review P2-3: the assign used to sit INSIDE the if block, so
   # peptides with 0 or >5 GG re-scanned the whole DB at 5.55 ms per miss;
   # moved out of the if so every path is cached)
   assign(key, NA_character_, envir = loc_cache)   # 哨兵＝未命中
@@ -433,7 +432,7 @@ loc_of <- function(sq) {                                       # 直接＋GG→N
 inherit_loc <- function(a, b, loc1) {
   if (!nzchar(a) || !nzchar(b) || !nzchar(loc1)) return(NULL)
   if (adist(chartr("LI", "II", a), chartr("LI", "II", b))[1, 1] > nchar(b) %/% 3) return(NULL)
-  # pFind 原生 Positions 格式 "位点,前一残基,后一残基/"（用户口径 2026-09-17）
+  # pFind 原生 Positions 格式 "位点,前一残基,后一残基/"
   f <- regmatches(loc1, regexec("^([0-9]+),([A-Z_]),([A-Z_])/?$", loc1))[[1]]
   if (length(f) == 0L) return(NULL)
   pos0 <- as.integer(f[2]); pre0 <- f[3]; post0 <- f[4]
@@ -531,10 +530,10 @@ aa_cancel <- function(s1, s2) {
 # is flagged chimeric)
 chim_flag <- cval(conf, "chimeric") == "1"
 lu <- NULL
-# ---- 异价嵌合判据（用户口径 2026-09-11）----
+# ---- 异价嵌合判据----
 # 被替换肽按物理质量（含修饰）在隔离窗（≤1.0 m/z）内与谱图母离子吻合的价态 z*
 # 若不同于谱图标题价态 → "chimera_different_charge"；否则维持原嵌合标签。
-# Different-charge chimera test (user ruling 2026-09-11): the charge z* whose
+# Different-charge chimera test the charge z* whose
 # m/z (physical mass with mods) falls within 1.0 m/z of the spectrum precursor
 # m/z differs from the spectrum title's charge -> "chimera_different_charge";
 # otherwise the row keeps the plain chimeric label.
@@ -564,16 +563,16 @@ diff_charge <- function(fn, seq, mstr) {
   which.min(d) != z_s && min(d) <= 1.0
 }
 if (nzchar(all_mgf_dir) && any(chim_flag)) {
-  # 仅加载嵌合谱所在 raw（P7 提效，2026-09-11：全文件夹加载实测 4-5 分钟）
-  # load only the raws holding chimeric spectra (P7, 2026-09-11: loading the
+  # 仅加载嵌合谱所在 raw
+  # load only the raws holding chimeric spectra (P7,: loading the
   # whole folder measured 4-5 minutes)
   needed_raws <- unique(unname(vapply(as.character(p$File_Name[chim_flag]),
                                       function(t) title_raw_scan(t)["raw"], character(1))))
   old3 <- setwd(script_dir)
   lu <- tryCatch(load_unlabeled_spectra(all_mgf_dir, only = needed_raws), error = function(e) {
-    # 加载失败不再静默：特异比例列将整体留空，必须让用户知情（2026-09-11 扫描发现）
+    # 加载失败不再静默：特异比例列将整体留空，必须让用户知情
     # a failed load is no longer silent: the specific-ratio columns stay blank,
-    # which the user must be told about (2026-09-11 audit)
+    # which the user must be told about 
     cat("[主表导出] 警告：无标记 MGF 加载失败，特异比例列留空：", conditionMessage(e), "
 ")
     cat("[master table] WARNING: unlabeled MGF load failed, specific-ratio columns left blank: ",
@@ -583,10 +582,10 @@ if (nzchar(all_mgf_dir) && any(chim_flag)) {
   })
   setwd(old3)
 }
-# matched_positions_of 结果缓存（2026-09-19 优化）：主表逐行循环中同一
+# matched_positions_of 结果缓存主表逐行循环中同一
 # (谱图, 序列, 修饰) 会被反复匹配（cand1 与多个候选、跨行重复候选），
 # 缓存按键命中后直接返回整数向量，把特异比例计算的重复谱图匹配消除。
-# matched_positions_of cache (opt 2026-09-19): the row loop re-matches the
+# matched_positions_of cache the row loop re-matches the
 # same (spectrum, sequence, modification) over and over (cand1 against each
 # candidate, repeated candidates across rows); memoize by key and return the
 # cached integer vector, removing the duplicate spectrum matches behind the
@@ -607,7 +606,7 @@ spec_ratio <- function(i, k) {                                 # 与 cand1 相�
   raw <- unname(title_raw_scan(fn)["raw"])
   objs <- lu$objs[[raw]]
   if (is.null(objs)) return("")
-  # v1.0（性能第二轮）：O(1) 命名向量索引（lu$ix 由 load_unlabeled_spectra
+  # （性能第二轮）：O(1) 命名向量索引（lu$ix 由 load_unlabeled_spectra
   # 提供），旧 match 线性扫保留为回退
   li <- if (!is.null(lu$ix) && !is.null(lu$ix[[raw]])) {
     unname(lu$ix[[raw]][fn])
@@ -641,13 +640,12 @@ cand_sm <- lapply(seq_len(n), function(i) {                    # [[seq,mod],[seq
   }
   out
 })
-# ---- 预计算全部候选序列的蛋白定位（P5 优化，2026-09-11）----
+# ---- 预计算全部候选序列的蛋白定位----
 # 每个唯一序列只查一次并回填 loc_cache（GG→N 回退一并完成），主循环全部命中缓存。
 # 此前用 18 worker 集群：仅 4499 条序列，集群启动与整库串×18 次序列化开销反而
 # 占大头；独立计时实测 4411 条定位仅 3.5s（全部命中，regexpr 单线程毫秒级），
 # 直接串行即可，worker 闭包复制（fmap_w/loc_w）随之删除。
-# ---- precompute the protein location of every candidate sequence (P5 opt,
-# 2026-09-11): each unique sequence is resolved once (GG->N fallback included)
+# ---- precompute the protein location of every candidate sequence each unique sequence is resolved once (GG->N fallback included)
 # and cached, so the main loop always hits the cache. The former 18-worker
 # cluster was removed - for ~4.5k sequences its startup plus serializing the
 # concatenated proteome to every worker dominated the runtime; a standalone
@@ -663,12 +661,12 @@ if (nzchar(fasta_file) && file.exists(fasta_file)) {
     cat(sprintf("[主表导出] 蛋白定位预计算 %d 条唯一序列完成\n", length(all_sq)))
   }
 }
-# ---- 混合谱与非混合谱分道竞争（2026-09-19 用户口径）--------------------
+# ---- 混合谱与非混合谱分道竞争--------------------
 # 把每个冲突行的候选按"与 cand1 的特异离子比例"分成两道：比例 ≥0.1 的候选
 # 为混合谱竞争者（D/E 道），其余为非混合谱竞争者（B/C 道）。两道各自按同一
 # 判定（ΔScore≥τ 或理论谱图找回）独立决出胜者，并给出整体结论列，从而区分
 # "混合谱且原始错误"（两道都改判）与"混合谱但原始正确"（非混合道保留原始）。
-# ---- split-lane competition (user ruling 2026-09-19) ----------------------
+# ---- split-lane competition ----------------------
 # Each conflict row's candidates are split by their specific-ion ratio against
 # cand1: candidates at >=0.1 form the chimeric lane (D/E) and the rest form the
 # non-chimeric lane (B/C). Each lane runs the same judgment (ΔScore>=tau or
@@ -718,11 +716,11 @@ for (i in seq_len(n)) {
   r <- list(File_Name = as.character(p$File_Name[i]))
   # 冲突行的候选以成对报告 candidates 列为准（紧凑列表，与打分/指标 token 顺序
   # 一一对应；冲突报告 X1..X5 按策略列会有空槽，直接取会把候选与打分错位——
-  # 2026-09-07 二次修复，与谱图 PDF 判定同源）
+  # 二次修复，与谱图 PDF 判定同源）
   # the conflict-row candidates come from the paired report's candidates column
   # (the compacted list, aligned one-to-one with the score/metric tokens; the
   # conflict report's per-strategy X1..X5 columns have gaps that misalign the
-  # candidates with the scores - fixed again 2026-09-07, same source as the
+  # candidates with the scores - fixed again same source as the
   # spectrum-PDF judgment)
   xs <- NULL; xm <- NULL
   if (conflict_row[i] && !is.null(pr)) {
@@ -843,19 +841,19 @@ for (i in seq_len(n)) {
       all(table(mod_type(t1))[names(table(mod_type(t2)))] == table(mod_type(t2)))
     swap <- nchar(sm1[1]) == nchar(smr[1]) && !identical(sm1[1], smr[1]) &&
       identical(sort(unlist(strsplit(sm1[1], ""))), sort(unlist(strsplit(smr[1], ""))))
-    # 顺序互换（用户口径 2026-09-07）：序列长度相同、氨基酸组成与各自数量相同、
+    # 顺序互换序列长度相同、氨基酸组成与各自数量相同、
     # 仅顺序不同（sort 后多集相等即满足）
-    # AA order change (user's definition 2026-09-07): same length, same amino-acid
+    # AA order change same length, same amino-acid
     # composition with the same counts, differing only in order (equal sorted
     # multisets)
-    # N 端非特异性酶切（用户口径 2026-09-05）：corrected 肽段前一位氨基酸非 K/R
+    # N 端非特异性酶切corrected 肽段前一位氨基酸非 K/R
     # 且不在蛋白 N 端（corrected_location 首字符 ∉ {K,R,_,-}）。
-    # v1.0（2026-09-26）：判据按酶切类型参数化——C 端酶看前一残基是否 cut 残基
+    # v1.0判据按酶切类型参数化——C 端酶看前一残基是否 cut 残基
     # （Trypsin 即 K/R，与历史口径一致）；N 端酶（LysN/AspN/LysargiNase）看肽段
     # 首残基；无酶切恒特异。
     # N-terminal non-specific cleavage (user's definition): the residue before
     # the corrected peptide is neither K nor R and not at the protein N-terminus
-    # (first char of corrected_location not in {K,R,_,-}). v1.0 (2026-09-26):
+    # (first char of corrected_location not in {K,R,_,-}). v1.0 
     # parameterized by enzyme - C-terminal enzymes check the previous residue
     # against the cut set (trypsin = K/R, historical parity); N-terminal enzymes
     # (LysN/AspN/LysargiNase) check the peptide's first residue; no enzyme is
@@ -864,11 +862,11 @@ for (i in seq_len(n)) {
                        error = function(e) "")
     nterm <- nzchar(loc_pre) &&
       !enzyme_nterm_ok(iso_enzyme(), loc_pre, substr(smr[1], 1, 1))
-    # 真 SAP 判据（用户口径 2026-09-10，2026-09-10 晚修正）：看 "->" 目标是否为标准
+    # 真 SAP 判据看 "->" 目标是否为标准
     # 氨基酸名（单字母或三字母，如 Pro->Xle、Ala->Ser——其 [P]/[A] 是残基标记，非修饰
     # 证据）；目标是修饰名（如 pyro-Glu）则是修饰转换（N 端谷氨酰胺环化），归修饰类。
     # 注意不能用"有无方括号"区分：真 SAP 记法 7,Pro->Xle[P] 同样带方括号。
-    # Real-SAP test (user ruling 2026-09-10, refined same evening): the target
+    # Real-SAP test the target
     # after "->" must be a standard amino-acid name (one- or three-letter, e.g.
     # Pro->Xle, Ala->Ser - their [P]/[A] tags mark the residue, not a
     # modification); a modification name as target (e.g. pyro-Glu) is an N-
@@ -887,22 +885,22 @@ for (i in seq_len(n)) {
         "chimera_different_charge" else "chimera_same_charge"
     }
       else if (sap) "sap"
-      # 优先级（用户口径 2026-09-10）：修饰差异高于 N 端非特异性酶切——
+      # 优先级修饰差异高于 N 端非特异性酶切——
       # 既带修饰差异又 N 端非特的行归修饰类，不挪入 N 端类
-      # Priority (user ruling 2026-09-10): modification difference outranks
+      # Priority modification difference outranks
       # N-terminal non-specificity - rows with both stay in the modification
       # class and are NOT moved to the N-terminal class
       else if (!types_same) "different_modification"
       else if (nterm) "n_terminal_non_specific_cleavage"
       else if (nchar(smr[1]) < 7) "peptide_length_less_than_7aa"
-      # 修饰位置改变（用户口径 2026-09-07）：序列相同、修饰类型一致（前支
+      # 修饰位置改变序列相同、修饰类型一致（前支
       # !types_same 已拦截类型差异），仅修饰位置存在差异
-      # Modification location changed (user's definition 2026-09-07): identical
+      # Modification location changed identical
       # sequence with the same modification types (type differences are caught
       # by the !types_same branch above), differing only in the positions
       else if (identical(sm1[1], smr[1]) && !identical(sm1[2], smr[2])) "modification_location_changed"
       else if (swap) "aa_order_change"
-      else "same_weight_aa_pairs"      # 序列不同的替换（等重/非等重合并，2026-09-05）
+      else "same_weight_aa_pairs"      # 序列不同的替换
     r$diff_type <- dt
     mc <- mod_cancel(t1, t2); ac <- aa_cancel(sm1[1], smr[1])
     mcs <- function(v) if (length(v) == 0) "" else paste0(paste0(v, ";"), collapse = "")
@@ -923,8 +921,8 @@ for (i in seq_len(n)) {
     toks <- toks[nzchar(toks)]
     r$mod_type_changed <- paste(toks[grepl("\\[", toks)], collapse = ";")
   }
-  # 分道竞争列（2026-09-19 用户口径）：仅混合谱行填结论，其余留空
-  # split-lane columns (user ruling 2026-09-19): filled only for chimeric rows
+  # 分道竞争列仅混合谱行填结论，其余留空
+  # split-lane columns filled only for chimeric rows
   if (chim_flag[i] && conflict_row[i]) {
     # 冲突行候选以 pr$candidates（xs/xm）为准（与主装配同口径）；阶段 A 的
     # cand_sm 可能比冲突候选短（越界来源），仅在无 xs 时回退
@@ -995,7 +993,7 @@ ord <- c("File_Name", "cand1_protein", "cand1_location",
 ord <- ord[ord %in% names(mt)]
 mt <- mt[, ord]
 # ---- Excel 防公式误判：定位列占位横线改成下划线 ----
-# 定位列已是 pFind 原生格式 "pos,prev,next/"（2026-09-17 用户口径）；此步把
+# 定位列已是 pFind 原生格式 "pos,prev,next/"；此步把
 # 历史遗留的 "-"/U+2212 占位统一归并为 "_" 作保险丝（新产出不再含 "-"，除非
 # 整列缺失占位 "-"），并保持 Excel 公式安全。只作用于 _location 结尾的列。
 # ---- Excel-safe export: in the location columns (format pre[pos]post) the
@@ -1009,7 +1007,7 @@ for (j in which(loc_cols)) {
   mt[[j]] <- gsub("-", "_", mt[[j]], fixed = TRUE)
 }
 
-# ---- 新肽段五列证据/状态（用户口径 2026-09-11：主表直接携带）----
+# ---- 新肽段五列证据/状态----
 # 对原始鉴定蛋白不在用户 FASTA 内的行（新肽段部分）计算并随主表写出：
 #   n_frag＝新肽段匹配子离子数（b/y 位点 1..n-1 中有命中的位数）；
 #   closest_annotated_competitor＝ΔScore 最大（最强）的已注释竞争
@@ -1019,7 +1017,7 @@ for (j in which(loc_cols)) {
 #   ions_identical / close_annotated / consecutive_missing）；
 #   credible_novel＝无存疑即 TRUE。已注释行这五列留空。
 # ---- five novel-peptide evidence/status columns in the master itself
-# (user ruling 2026-09-11) ----
+# ----
 # computed for rows whose original-identification protein is NOT in the user
 # FASTA and written WITH the master:
 #   n_frag = matched fragment-ion count (b/y positions 1..n-1 with any hit);
@@ -1039,19 +1037,19 @@ if (!is.null(base_cfg$fasta) && length(base_cfg$fasta) > 0 && base_cfg$fasta[1] 
 # 构造等价目录（原 dirname(out_f) 会在 out_f 赋值前引用——两流程均在此崩溃）
 out_dir2 <- file.path(result_dir, "2.labeled_result")
 if (!is.null(fa_path2) && file.exists(fa_path2)) {
-  # N-5（2026-09-25）：FASTA 真·只读一次（旧实现此处与下方再各读一次；
+  # N-5FASTA 真·只读一次（旧实现此处与下方再各读一次；
   # 大库解析两遍纯浪费且两次之间文件改动会产生不一致）
-  # N-5 (2026-09-25): the FASTA is genuinely read once (the old code read it
+  # N-5 the FASTA is genuinely read once (the old code read it
   # here AND again below; parsing a large library twice is pure waste and a
   # file change in between creates inconsistency)
   fa_obj <- tryCatch(read_fasta(fa_path2), error = function(e) character(0))
   fa_acc <- if (length(fa_obj) > 0) names(fa_obj) else character(0)
   cp2 <- as.character(mt$cand1_protein)
-  # 用户口径 2026-09-17：两分法以"输入原始鉴定"（a 槽蛋白）定侧——Part2
+  # 设计约定：两分法以"输入原始鉴定"（a 槽蛋白）定侧——Part2
   # 必须包含全部新肽段输入行（如理论注入的 novel-kind 全 2,000 张），投票把
   # 个别行带向已注释候选不改变侧别；Part2 是在 Part1 行集上补充成对标记
   # 数值的报告，不是另做筛选
-  # user ruling 2026-09-17: the two-part split follows the ORIGINAL input
+  # user ruling: the two-part split follows the ORIGINAL input
   # identification (a-slot protein) - Part2 must contain every novel input
   # row (e.g. all 2,000 novel-kind injections); a vote pointing some row at an
   # annotated candidate does not change its side. Part2 supplements the Part1
@@ -1085,10 +1083,10 @@ if (!is.null(fa_path2) && file.exists(fa_path2)) {
   doubt <- character(nrow(mt))
   maxrun <- integer(nrow(mt))
   # 已注释序列空间＝用户 FASTA 全部序列拼接（子串匹配判定；I/L 归一）
-  # P2-2/N-7（2026-09-25）：分隔符 "|"→"\n"（蛋白序列不含换行，杜绝跨分隔符
+  # P2-2/N-7分隔符 "|"→"\n"（蛋白序列不含换行，杜绝跨分隔符
   # 巧合命中）；fa_obj 已于块首读入（N-5）；annotated_seq 加环境缓存（同一肽段
   # 在数万张谱中反复出现，去重后判定次数下降一个量级）。
-  # P2-2/N-7 (2026-09-25): separator "|" -> "\n" (protein sequences never
+  # P2-2/N-7 separator "|" -> "\n" (protein sequences never
   # contain newlines, removing coincidental cross-boundary hits); fa_obj was
   # already read at the top of this block (N-5); annotated_seq gains an
   # environment cache (the same peptide recurs across tens of thousands of
@@ -1123,7 +1121,7 @@ if (!is.null(fa_path2) && file.exists(fa_path2)) {
       raw <- unname(title_raw_scan(fn)["raw"])
       objs <- lu2$objs[[raw]]
       if (!is.null(objs)) {
-        # v1.0（性能第二轮）：O(1) 命名向量索引，旧 match 线性扫保留为回退
+        # （性能第二轮）：O(1) 命名向量索引，旧 match 线性扫保留为回退
         li <- if (!is.null(lu2$ix) && !is.null(lu2$ix[[raw]])) {
           unname(lu2$ix[[raw]][fn])
         } else {
@@ -1186,7 +1184,7 @@ if (!is.null(fa_path2) && file.exists(fa_path2)) {
     }
     if (nzchar(doubt[k])) next
     # 规则 3：连续 ≥2 个位点无子离子命中（≈ 连续 ≥3 个残基无子离子证据；
-    # 2026-09-11 用户口径收紧：GDGELDEELAK 类中间缺段的谱也应排除）
+    # 设计约定收紧：GDGELDEELAK 类中间缺段的谱也应排除）
     npos <- nchar(s1) - 1L
     if (npos >= 2 && length(pos_hit) < npos) {
       missing <- setdiff(seq_len(npos), pos_hit)
@@ -1200,7 +1198,7 @@ if (!is.null(fa_path2) && file.exists(fa_path2)) {
       if (ml >= 2L) doubt[k] <- sprintf("consecutive_missing:%d", ml)
     }
     if (nzchar(doubt[k])) next
-    # 规则 4：低质量谱卡值（2026-09-11 用户口径：ASLSALAGR 类低分谱标注/排除）
+    # 规则 4：低质量谱卡值
     # cand1_score < 0.2 → low_score（谱图级，与该肽段鉴定到几张谱无关）
     sc_k <- suppressWarnings(as.numeric(as.character(mt$cand1_score[k])))
     if (!is.na(sc_k) && sc_k < 0.2) doubt[k] <- sprintf("low_score:%.4f", sc_k)
@@ -1211,12 +1209,12 @@ if (!is.null(fa_path2) && file.exists(fa_path2)) {
   mt$novel_status <- vapply(doubt, function(d) if (!nzchar(d)) "" else sub(":.*$", "", d),
                             character(1))
   mt$credible_novel <- ifelse(doubt == "" & !in_fasta, "TRUE", "")
-  # 补充参数列（用户口径 2026-09-11：报告文件自足，Excel 逐步筛选）：
+  # 补充参数列
   #   paired_evidence＝成对证据一键筛选（paired 且余弦>0.7 → "1"）；
   #   max_missing_run＝最大连续缺失位点数（数值列，卡值 ≥2）；
   #   rank_in_peptide / n_spectra_total＝同肽段内按分数降序、子离子数降序
   #   的排名与该肽段总谱数（取子离子缺失最少/分数最高的报告）。
-  # extra parameter columns (user ruling 2026-09-11: the report file is
+  # extra parameter columns (user ruling: the report file is
   # self-sufficient for step-by-step Excel filtering):
   #   paired_evidence = one-click paired-evidence filter (paired AND cos>0.7 -> "1");
   #   max_missing_run = the longest run of consecutive positions without any
@@ -1250,16 +1248,16 @@ cat(sprintf("[master table] master_table.tsv: %d rows x %d columns (conflict %d;
             nrow(mt), ncol(mt), sum(conflict_row), sum(!conflict_row),
             ifelse(labeled_run, "labeled: paired columns filled", "unlabeled: labeled columns blank")))
 
-# ---- 判校正行的成对标记证据统计（用户口径 2026-09-10：出总表须同时给出）----
+# ---- 判校正行的成对标记证据统计----
 # 校正后保留序列＝cand1；统计其谱图有成对标记对应体（paired_state）及余弦>0.7 的数量，
 # 按合并五类（混合谱/序列替换/修饰改变/SAP/N 端非特异）分列，写入同名 summary 文件。
 # ---- Paired-label evidence among judged-corrected rows (user ruling
-# 2026-09-10: the master-table export must always report this alongside):
+#: the master-table export must always report this alongside):
 # the post-correction retained sequence is cand1; count spectra with a paired
 # labeled counterpart (paired_state) and with paired cosine > 0.7, broken down
 # by the merged five error categories; written next to the master table.
 if (labeled_run && "diff_type" %in% names(mt)) {
-  cd <- mt[!is.na(mt$diff_type) & nzchar(as.character(mt$diff_type)), , drop = FALSE]
+  cd <- mt[!is.na(mt$diff_type) & nzchar(as.character(mt$diff_type)),, drop = FALSE]
   if (nrow(cd) > 0) {
     st <- as.character(cd$cand1_paired_state)
     pc <- suppressWarnings(as.numeric(cd$cand1_pcos))
@@ -1294,7 +1292,7 @@ if (labeled_run && "diff_type" %in% names(mt)) {
   }
 }
 
-# ---- 两分法结果呈现（用户口径 2026-09-12 初版＋2026-09-11 文件命名修订）----
+# ---- 两分法结果呈现----
 # 第 1 部分 1.annotation_correction_report.tsv ＝ 注释校正报告：原始鉴定蛋白在
 #   用户 FASTA 内的行——判校正行（diff_type 非空）即错误匹配清单，判保留/存疑行
 #   附全部证据列；
@@ -1303,7 +1301,7 @@ if (labeled_run && "diff_type" %in% names(mt)) {
 #   即新肽候选），证据列 n_frag / closest_annotated_competitor / novel_doubt /
 #   novel_status / credible_novel 已随主表计算；
 # 两分法摘要 two_part_report_summary.txt 供网页报告呈现两个面板。
-# ---- two-part result presentation (user rulings 2026-09-12 + 2026-09-11) ----
+# ---- two-part result presentation ----
 # Part 1 1.annotation_correction_report.tsv = the annotation-correction report:
 #   rows whose original-identification protein is IN the user FASTA -
 #   judged-corrected rows (non-empty diff_type) form the misidentification list;
@@ -1317,16 +1315,16 @@ if (labeled_run && "diff_type" %in% names(mt)) {
 # two_part_report_summary.txt feeds the two web-report panels.
 if (!is.null(fa_path2) && file.exists(fa_path2)) {
   # 第 1 部分：注释校正报告
-  p1 <- mt[in_fasta, , drop = FALSE]
+  p1 <- mt[in_fasta,, drop = FALSE]
   out1 <- file.path(out_dir2, "1.annotation_correction_report.tsv")
   write.table(p1, out1, sep = "	", row.names = FALSE, quote = FALSE,
               fileEncoding = "UTF-8", na = "")
   n1_err <- sum(nzchar(as.character(p1$diff_type)), na.rm = TRUE)
   # 第 2 部分：新肽段竞争报告
-  p2 <- mt[!in_fasta, , drop = FALSE]
-  # 用户口径 2026-09-17：嵌合谱图判定为新肽段谱图中的错误谱图，加标注列
+  p2 <- mt[!in_fasta,, drop = FALSE]
+  # 设计约定：嵌合谱图判定为新肽段谱图中的错误谱图，加标注列
   # （结果不修改——行归属与可信判定不变，仅显式标注错误谱图性质）
-  # user ruling 2026-09-17: chimeric spectra are judged WRONG spectra among
+  # user ruling: chimeric spectra are judged WRONG spectra among
   # the novel-peptide spectra - add an annotation column (the results are
   # unchanged: row assignment and credibility stay as-is, the wrong-spectrum
   # nature is just labelled explicitly)
@@ -1344,15 +1342,15 @@ if (!is.null(fa_path2) && file.exists(fa_path2)) {
               n2_wrong_sp))
   cat(sprintf("[two-part report] Part2 chimeric wrong-spectrum annotation: %d rows (mixture ruling, results unchanged)\n",
               n2_wrong_sp))
-  # ---- pBuild 谱图清单（用户口径 2026-09-15）：可信新肽段的无标记行（pFind
+  # ---- pBuild 谱图清单可信新肽段的无标记行（pFind
   # 格式字段取自原始搜库结果）＋成对标记行（Label=2、标题/电荷/前体质量换成
   # 标记对应体），供 pBuild 画谱。无标记行按 psm_file 的 File_Name 回查原行。----
-  # pBuild spectrum list (user ruling 2026-09-15): the credible novel peptides'
+  # pBuild spectrum list the credible novel peptides'
   # unlabeled rows (pFind-format fields from the original search result) plus the
   # paired labeled rows (Label=2, title/charge/precursor swapped to the labeled
   # counterpart) for pBuild spectrum rendering. Unlabeled rows are looked up in
   # psm_file by File_Name.
-  p2_cred <- p2[p2$credible_novel == "TRUE", , drop = FALSE]
+  p2_cred <- p2[p2$credible_novel == "TRUE",, drop = FALSE]
   psm_src <- if (!is.null(base_cfg$psm_file) && length(base_cfg$psm_file) > 0 &&
                  base_cfg$psm_file[1] != "") {
     tryCatch(resolve_cfg_paths(base_cfg, "psm_file")[1], error = function(e) "")
@@ -1363,7 +1361,7 @@ if (!is.null(fa_path2) && file.exists(fa_path2)) {
                                     quote = "", comment.char = ""), error = function(e) NULL)
     if (!is.null(orig_psm) && "File_Name" %in% colnames(orig_psm)) {
       om <- orig_psm[match(as.character(p2_cred$File_Name),
-                           as.character(orig_psm$File_Name)), , drop = FALSE]
+                           as.character(orig_psm$File_Name)),, drop = FALSE]
       lab_t <- character(nrow(p2_cred))
       if (exists("pr", inherits = FALSE) && !is.null(pr) &&
           "label_File_names" %in% colnames(pr) && exists("pr_i", inherits = FALSE)) {
@@ -1385,12 +1383,12 @@ if (!is.null(fa_path2) && file.exists(fa_path2)) {
       }
       rows_out <- om
       n_lab <- 0L
-      # v1.0（性能第二轮）：标记行预分配列表、循环后一次 rbind（原逐行
+      # （性能第二轮）：标记行预分配列表、循环后一次 rbind（原逐行
       # rbind 增长 O(n²)）
       lab_rows <- vector("list", nrow(p2_cred))
       for (j in seq_len(nrow(p2_cred))) {
         if (!isTRUE(nzchar(lab_t[j]))) next
-        lr <- om[j, , drop = FALSE]
+        lr <- om[j,, drop = FALSE]
         lr$File_Name <- lab_t[j]
         if ("Label" %in% colnames(lr)) lr$Label <- sub("^1", "2", as.character(lr$Label))
         ch <- sub("^.*\\.(\\d)\\.\\d\\.dta$", "\\1", lab_t[j])
@@ -1399,7 +1397,7 @@ if (!is.null(fa_path2) && file.exists(fa_path2)) {
           raw2 <- unname(title_raw_scan(lab_t[j])["raw"])
           objs2 <- lu2$objs[[raw2]]
           if (!is.null(objs2)) {
-            # v1.0（性能第二轮）：O(1) 命名向量索引
+            # （性能第二轮）：O(1) 命名向量索引
             li2 <- if (!is.null(lu2$ix) && !is.null(lu2$ix[[raw2]])) {
               unname(lu2$ix[[raw2]][lab_t[j]])
             } else {
@@ -1450,8 +1448,8 @@ if (!is.null(fa_path2) && file.exists(fa_path2)) {
 ")
   cat("[two-part report] user FASTA missing (config3 fasta empty or absent); two-part report skipped
 ")
-  # 自查整改（2026-09-26）：跳过时清掉上一轮遗留的两分法三件套，防止后续
-  # 谱图 PDF 模块读到旧一轮的 credible_novel 集（与无标记侧 P2 顺序修复同族）
+  # 自查整改跳过时清掉上一轮遗留的两分法三件套，防止后续
+  # 谱图 PDF 模块读到旧一轮的 credible_novel 集
   for (stale in c(file.path(out_dir2, "1.annotation_correction_report.tsv"),
                   file.path(out_dir2, "2.novel_peptide_competition_report.tsv"),
                   file.path(out_dir2, "two_part_report_summary.txt"))) {

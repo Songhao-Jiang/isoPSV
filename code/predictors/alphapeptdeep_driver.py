@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """alphapeptdeep_driver.py — isoPSV 的 AlphaPeptDeep(peptdeep) 调用桥
-（工作站自写，2026-10-05；契约同 pdeep3_driver.py）。
+。
 
 用法：
   python alphapeptdeep_driver.py --in <spec_id/peptide/modinfo/charge TSV> \
@@ -54,7 +54,7 @@ def pfind_mods_to_peptdeep(modinfo):
             continue
         pos, name_site = tok.split(",", 1)
         name = name_site[: name_site.find("[")] if "[" in name_site else name_site
-        site = name_site[name_site.find("[") + 1 : name_site.rfind("]")] if "[" in name_site else ""
+        site = name_site[name_site.find("[") + 1: name_site.rfind("]")] if "[" in name_site else ""
         if name not in MOD_MAP:
             sys.stderr.write("[alphapeptdeep_driver] 未知修饰（跳过）: %s\n" % tok)
             continue
@@ -104,7 +104,7 @@ def main():
     frag = mgr.predict_ms2(precursor_df, batch_size=int(args.batch))
 
     # predict_ms2 会按肽长/序列重排 precursor_df——一律以 spec_id 列对齐，
-    # 绝不按行序对齐（2026-10-05 实测：重排曾致切片错位＋强度错标）
+    # 绝不按行序对齐
     pep_len = {r["spec_id"]: len(r["peptide"]) for r in rows}
     out_rows, skip = [], 0
     for _, prow in precursor_df.iterrows():

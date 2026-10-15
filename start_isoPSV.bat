@@ -37,7 +37,7 @@ if not defined PY (
   exit /b 1
 )
 
-rem v1.0 (2026-10-03, live): kill the stale server still holding port 8780
+rem v1.0 kill the stale server still holding port 8780
 rem after an upgrade - otherwise the new server fails to bind and the browser
 rem keeps talking to the OLD process ("page looks new but buttons dead").
 powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 8780 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Write-Host ('[isoPSV] stopping stale server PID ' + $_.OwningProcess); Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"

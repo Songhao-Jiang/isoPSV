@@ -1,4 +1,4 @@
-/* spectrum.js - isoPSV 网页版谱图浏览器（结果报告页挂载，2026-09-03）
+/* spectrum.js - isoPSV 网页版谱图浏览器
  * spectrum.js - web spectrum viewer for the results report (canvas 2D, no deps).
  *
  * 双面板：上＝候选 1（原始），下＝下拉选择的竞争/校正候选。
@@ -45,8 +45,8 @@
         }
       }
       var name = body.replace(/\[.*$/, "");   // 去 [M] 定位后缀
-      var mass = MOD.mods.hasOwnProperty(name) ? MOD.mods[name] :
-                 (MOD.mods.hasOwnProperty(body) ? MOD.mods[body] : 0);
+      var mass = MOD.mods.hasOwnProperty(name) ? MOD.mods[name]:
+                 (MOD.mods.hasOwnProperty(body) ? MOD.mods[body]: 0);
       out.push({ pos: pos, mass: mass || 0 });
     });
     return out;
@@ -130,7 +130,7 @@
       if (items[i].x - items[i - 1].x <= 50) {
         var j = i, k = i - 1;
         if (items[j].int < items[k].int) { var tt = j; j = k; k = tt; }  // 高丰度抬高
-        var floorY = items[k].y0 !== undefined ? items[k].y0 : items[k].y;
+        var floorY = items[k].y0 !== undefined ? items[k].y0: items[k].y;
         floorY = floorY - (items[k].lab.length * CH_H + 3);
         if (items[j].y > floorY) items[j].y0 = floorY;
       }
@@ -138,7 +138,7 @@
     return items;
   }
   function drawPanel(ctx, W, H, peaks, seq, mod, head) {
-    var xmax = peaks.length ? Math.max.apply(null, peaks.map(function (p) { return p.mz; })) : 1;
+    var xmax = peaks.length ? Math.max.apply(null, peaks.map(function (p) { return p.mz; })): 1;
     xmax *= 1.03;
     var imax = Math.max.apply(null, peaks.map(function (p) { return p.int; }));
     var L = 52, R = 8, T = 30, B = 26;
@@ -149,7 +149,7 @@
     ctx.strokeRect(L, T, W - L - R, H - T - B);
     ctx.fillStyle = "#666"; ctx.font = "10px sans-serif"; ctx.textAlign = "right";
     for (var g = 0; g <= 1.0001; g += 0.25) {
-      var yy = toY(g * imax <= imax ? g * imax : imax);
+      var yy = toY(g * imax <= imax ? g * imax: imax);
       ctx.fillText((100 * g).toFixed(0) + "%", L - 4, toY(g * imax) + 3);
     }
     ctx.textAlign = "center";
@@ -168,7 +168,7 @@
       ctx.strokeStyle = it.col; ctx.lineWidth = 1.6;
       ctx.beginPath(); ctx.moveTo(it.x, H - B); ctx.lineTo(it.x, it.y); ctx.stroke();
       ctx.fillStyle = it.col;
-      var yStart = it.y0 !== undefined ? it.y0 : it.y - 4;
+      var yStart = it.y0 !== undefined ? it.y0: it.y - 4;
       ctx.save(); ctx.translate(it.x, yStart); ctx.rotate(-Math.PI / 2);
       ctx.textAlign = "left"; ctx.fillText(it.lab, 0, -3); ctx.restore();
     });
@@ -179,7 +179,7 @@
     if (!CUR || !MOD) return;
     var c1 = CUR.candidates[0] || ["", ""];
     var sel = document.getElementById("ispsv_cand_sel");
-    var ci = sel ? parseInt(sel.value, 10) : 1;
+    var ci = sel ? parseInt(sel.value, 10): 1;
     if (!(ci >= 0 && ci < CUR.candidates.length)) ci = 0;
     var c2 = CUR.candidates[ci] || c1;
     var cv = document.getElementById("ispsv_canvas");
@@ -187,9 +187,9 @@
     var ctx = cv.getContext("2d");
     ctx.clearRect(0, 0, W, H);
     var head2 = "bottom cand" + (ci + 1) + ": | " + (CUR.protein2 || "NA") + " | " + c2[0] +
-                (c2[1] ? " (" + c2[1] + ")" : "") + " |";
+                (c2[1] ? " (" + c2[1] + ")": "") + " |";
     var head1 = "top cand1: | " + (CUR.protein1 || "NA") + " | " + c1[0] +
-                (c1[1] ? " (" + c1[1] + ")" : "") + " |";
+                (c1[1] ? " (" + c1[1] + ")": "") + " |";
     drawPanel(ctx, W, H / 2, CUR.peaks, c1[0], c1[1], head1);
     ctx.save(); ctx.translate(0, H / 2);
     drawPanel(ctx, W, H / 2, CUR.peaks, c2[0], c2[1], head2);
@@ -206,7 +206,7 @@
         sel.innerHTML = "";
         j.candidates.forEach(function (c, i) {
           var o = document.createElement("option");
-          o.value = String(i); o.textContent = "cand" + (i + 1) + ": " + c[0] + (c[1] ? " (" + c[1] + ")" : "");
+          o.value = String(i); o.textContent = "cand" + (i + 1) + ": " + c[0] + (c[1] ? " (" + c[1] + ")": "");
           sel.appendChild(o);
         });
         if (j.winner_index != null && j.winner_index >= 0 && j.winner_index < j.candidates.length)
@@ -218,7 +218,7 @@
   }
   /* 谱图 PDF 卡片：扫描清单＋点击窗口内嵌（iframe 自带打印工具条） */
   function loadPdfList(dir) {
-    var u = "/api/pdfs" + (dir ? "?dir=" + encodeURIComponent(dir) : "");
+    var u = "/api/pdfs" + (dir ? "?dir=" + encodeURIComponent(dir): "");
     fetch(u).then(function (r) { return r.json(); }).then(function (j) {
       var box = document.getElementById("ispsv_pdf_list");
       if (!box) return;
@@ -253,7 +253,7 @@
     var pb = document.getElementById("ispsv_pdf_scan");
     var pi = document.getElementById("ispsv_pdf_dir");
     if (pb) {
-      pb.onclick = function () { loadPdfList(pi ? pi.value.trim() : ""); };
+      pb.onclick = function () { loadPdfList(pi ? pi.value.trim(): ""); };
       loadPdfList("");
     }
     fetch("/api/modmass").then(function (r) { return r.json(); }).then(function (m) {

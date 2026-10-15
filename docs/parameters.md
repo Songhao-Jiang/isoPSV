@@ -16,7 +16,7 @@ isoPSV 全部配置键、取值、默认值与作用。参数文件为制表符 
 | 键 | 取值 | 默认 | 作用 |
 |---|---|---|---|
 | result_dir | 绝对路径 | 必填 | 项目总目录；一切产出落此处。建议本地硬盘，勿用 U 盘 |
-| search_engine | pfind / maxquant / msfragger / sage / comet | pfind | 第一步原始结果 psm_file 来自哪个引擎——决定读取口径与非 pFind 引擎的自动适配（maxquant 走两参适配器自动转换；sage/comet/msfragger 结果建议经 STEP2 槽位） |
+| search_engine | pfind / maxquant / msfragger / sage / comet | pfind | 第一步原始结果 psm_file 来自哪个引擎——决定读取口径与非 pFind 引擎的自动适配|
 | psm_file | 绝对路径 | 必填 | 原始搜库结果表；任何带 File_Name 列的制表符表可直接用；X!Tandem XML/Mascot/PEAKS CSV 自动识别转换 |
 | fasta | 绝对路径 | 必填 | 参考蛋白质组数据库（FASTA） |
 | label_type | 多行键：N15 / C13 / 自定义行 | unlabeled | 标记类型。自定义行语法 `名称\|位置\|氨基酸\|组成`，位置 ANY/PEP_N/PEP_C/PRO_N/PRO_C；如 `NeuCode8\|ANY\|K\|C(-6)13C(6)N(-2)15N(2)` |
@@ -42,7 +42,7 @@ isoPSV 全部配置键、取值、默认值与作用。参数文件为制表符 
 |---|---|---|
 | search_file | 多行：文件/文件夹/`(auto:引擎名)` | 各策略结果来源；auto 标记由自动搜库段处理 |
 | search_file_type | 与 search_file 平行 | 策略槽位类型（maxquant/comet/msfragger/sage/…）；缺省按命名推断 |
-| search_file_raw | raw 列表（; 连接） | MaxQuant 自动搜库的 raw 输入（MaxQuant 不能读 MGF） |
+| search_file_raw | raw 列表（连接） | MaxQuant 自动搜库的 raw 输入（MaxQuant 不能读 MGF） |
 | `<engine>_exe` | 路径 | 外部引擎可执行文件；多版本共存时检测自动选版本号最新 |
 | `<engine>_mode` | 1 | 自动运行标记 |
 | msconvert_exe | 路径 | ProteoWizard msconvert（Sage/MSFragger 的 MGF→mzML） |

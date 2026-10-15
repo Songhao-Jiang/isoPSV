@@ -26,9 +26,9 @@
 
 # 加载通用工具函数（配置解析、fasta 读取、报告扩充核心等）
 # Load the shared utility functions (config parsing, fasta reader, report-extension core, etc.)
-# 核心库统一入口（N-1，2026-09-25）：按 --file= 定位代码目录、绝对路径加载
+# 核心库统一入口按 --file= 定位代码目录、绝对路径加载
 # （boot.R），替代裸相对 source——此前仅当启动 cwd 恰为 code/ 时成立。
-# core-library entry (N-1, 2026-09-25): locate the code dir via --file= and
+# core-library entry locate the code dir via --file= and
 # load by absolute path (boot.R), replacing the bare relative source().
 sd0 <- dirname(tryCatch(normalizePath(sub("^--file=", "",
     grep("^--file=", commandArgs(FALSE), value = TRUE)[1]), winslash = "/"),

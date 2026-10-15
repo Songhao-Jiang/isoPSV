@@ -1,6 +1,6 @@
 # =============================================================================
 # pred_alphapeptdeep.R —— AlphaPeptDeep(peptdeep) 理论谱图预测器 L1 适配器
-# （工作站自写 2026-10-05；结构同 pred_pdeep3.R，契约同 pred_ms2pip.R）
+# （工作站自写；结构同 pred_pdeep3.R，契约同 pred_ms2pip.R）
 #
 # 把 isoPSV 的 merge/peptide.txt（peptide / modification / charge 三列）转成
 # driver 输入，经 alphapeptdeep_driver.py 调用 peptdeep（MannLabs，
@@ -14,9 +14,9 @@
 #          --python <python-with-peptdeep> --params <instrument,ce，如 Lumos,30>
 #   Rscript pred_alphapeptdeep.R --self-test   # 无需 peptdeep，只测适配层
 # 退出码：0 成功；非 0 失败（user_run 据此把该预测列标缺失并继续）。
-# 依赖：仅 base R；peptdeep 运行于用户提供的 python 环境（本机
+# 依赖：仅 base R；peptdeep 运行于用户提供的 python 环境（本地
 # C:\software\miniconda3\envs\alphapeptdeep）。
-# 行序口径（2026-10-05 实测定标）：peptdeep 碎片表 b 行＝正序 b1..b_{n-1}，
+# 行序口径peptdeep 碎片表 b 行＝正序 b1..b_{n-1}，
 # y 行＝位点序 y_{n-1}..y1——driver 已翻转为 y 正序，本适配器组块时再翻回。
 # =============================================================================
 

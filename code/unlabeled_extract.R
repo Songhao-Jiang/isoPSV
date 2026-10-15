@@ -26,9 +26,9 @@
 
 # 载入库文件（兼容层 + MGF 读取模块）
 # Load the library files (compatibility layer + MGF reader)
-# 核心库统一入口（N-1，2026-09-25）：按 --file= 定位代码目录、绝对路径加载
+# 核心库统一入口按 --file= 定位代码目录、绝对路径加载
 # （boot.R），替代裸相对 source——此前仅当启动 cwd 恰为 code/ 时成立。
-# core-library entry (N-1, 2026-09-25): locate the code dir via --file= and
+# core-library entry locate the code dir via --file= and
 # load by absolute path (boot.R), replacing the bare relative source().
 sd0 <- dirname(tryCatch(normalizePath(sub("^--file=", "",
     grep("^--file=", commandArgs(FALSE), value = TRUE)[1]), winslash = "/"),
@@ -41,7 +41,7 @@ source(file.path(sd0, "boot.R"))
 cfg_path <- Sys.getenv("CONFIG")
 if (!nzchar(cfg_path)) stop("set CONFIG to the parameter file path")
 cfg <- read_param_file(cfg_path)
-# candidate_scope=top5（2026-09-27 用户口径）：第一步 psm_file 若为需转换的
+# candidate_scope=top5第一步 psm_file 若为需转换的
 # 非表格格式（X!Tandem XML / Mascot CSV / PEAKS CSV），转换适配器经
 # ISOPSV_CAND_ALL 环境变量输出全部候选（第二步合并步封顶 5）
 cs1 <- if (!is.null(cfg$candidate_scope) && length(cfg$candidate_scope) > 0) tail(cfg$candidate_scope, 1) else "filtered"
@@ -52,7 +52,33 @@ if (identical(cs1, "top5")) {
 # 解析 psm_file 与 MGF 列表；常规搜库结果缺失时立即报错
 # Resolve the psm_file and the MGF list; stop immediately if the regular search result is missing
 psm_file <- resolve_cfg_paths(cfg, "psm_file")[1]
-mgf_files <- resolve_mgf_list(resolve_cfg_paths(cfg, "mgf"))
+# 全场景谱图入口检测（detect_spectra.R）
+# 文件夹/文件列表 × raw/mgf/混合 × MaxQuant raw 警告＋自动传递
+source(file.path(getwd(), "detect_spectra.R"))
+mgf_entries <- resolve_cfg_paths(cfg, "mgf")
+if (length(mgf_entries) && any(nzchar(trimws(mgf_entries)))) {
+  ds <- detect_spectra_entries(mgf_entries, cfg)
+  mgf_files <- ds$mgf_files
+} else {
+  d0 <- dirname(psm_file)
+  mgs <- gsub("\\\\", "/", list.files(d0, pattern = "\\.mgf$",
+                ignore.case = TRUE, recursive = TRUE, full.names = TRUE))
+  cat("[第一步] mgf 键为空：按 psm_file 所在文件夹自动查找 ", d0,
+      "（mgf ", length(mgs), " 个）
+", sep = "")
+  if (length(mgs)) {
+    mgf_files <- sort(mgs)
+  } else {
+    raws0 <- gsub("\\\\", "/", list.files(d0, pattern = "\\.raw$",
+                  ignore.case = TRUE, recursive = TRUE, full.names = TRUE))
+    mgf_files <- if (length(raws0)) detect_spectra_entries(raws0, cfg)$mgf_files else character(0)
+  }
+  if (!length(mgf_files))
+    stop("[第一步] mgf 键为空，且 psm_file 所在文件夹内未找到 .mgf 或 .raw：", d0,
+         "
+请在 mgf 键填写质谱 raw/MGF 文件或文件夹。
+")
+}
 if (!file.exists(psm_file)) stop("psm_file not found: ", psm_file)
 cat("==== [用户第一步] 无标记谱图提取：常规搜库结果 -> unlabeled 谱图 ====\n")
 cat("==== [User Step 1] unlabeled-spectrum extraction: regular search result -> unlabeled spectra ====\n")
@@ -106,7 +132,7 @@ pt_mark <- function(tag, tag_en = tag) {
 tmp_dir <- file.path(cfg$config_dir, "unlabeled_tmp")
 if (dir.exists(tmp_dir)) unlink(tmp_dir, recursive = TRUE)
 dir.create(tmp_dir, recursive = TRUE, showWarnings = FALSE)
-# v1.0：目录创建失败不再静默——G 盘不存在等场景此前 showWarnings=FALSE
+#：目录创建失败不再静默——G 盘不存在等场景此前 showWarnings=FALSE
 # 吞掉真因，写文件时才报 cannot open the connection（用户无法定位）
 if (!dir.exists(tmp_dir))
   stop("无法创建结果目录：", tmp_dir,
@@ -115,13 +141,13 @@ if (!dir.exists(tmp_dir))
        "cannot create result directory: ", tmp_dir,
        " (check that result_dir exists and is writable)", call. = FALSE)
 # 非表格格式（X!Tandem XML 等）自动经对应适配器转换为交换格式后再提取
-# （2026-09-26 修订二：可转换的一律自动转换，不拒收）
-# P1-3（2026-09-26，工作站 v1.0 复测）：转换产物落在本临时目录内——此调用
+# 
+# P1-3转换产物落在本临时目录内——此调用
 # 必须放在 unlink+dir.create 之后、读取之前（此前放在清目录之前，刚转好的
 # 文件被随后 unlink 删掉，xtandem/mascot/peaks 三条可转路径全废，报错
 # cannot open the connection 且不指向真因）
 psm_file <- psm_prepare_input(psm_file, cfg, sd0)
-# v1.0（无标记通道=0）：不按 Label 过滤，输入结果文件的全部鉴定谱都提取
+# （无标记通道=0）：不按 Label 过滤，输入结果文件的全部鉴定谱都提取
 ul_ch <- if (!is.null(cfg$unlabeled_channel) && length(cfg$unlabeled_channel) > 0)
   tail(cfg$unlabeled_channel, 1) else "1"
 summ <- extract_unlabeled_per_mgf(psm_file, mgf_files, tmp_dir, max_cores,

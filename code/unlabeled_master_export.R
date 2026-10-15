@@ -1,8 +1,8 @@
 # =============================================================================
-# unlabeled_master_export.R —— 无标记流程全谱主表（v1.0，2026-10-05）
+# unlabeled_master_export.R —— 无标记流程全谱主表
 #
 # 背景：94/96 列 master_table.tsv 历来仅标记样本（依赖成对报告 unlabel_
-# ions_match.* 列）；无标记样本按 2026-09-06 口径跳过。用户口径 2026-10-05：
+# ions_match.* 列）；无标记样本按 口径跳过。设计约定：
 # 无标记也要主表。本脚本从阶段 A 的 scan_details_A.tsv（逐谱×逐候选长表，
 # 14 列）透视出与标记主表同风格的宽表：
 #   - 每谱一行；cand1..cand5 装按 is_best/顺序排定的候选（sequence/
@@ -108,7 +108,7 @@ sd$File_Name <- as.character(sd$File_Name)
 sd$is_best <- as.character(sd$is_best)
 
 # classification_A 并入（有则取判定列）
-# v1.0：report_A 的 candidate_predict_cosine 覆盖 cand1 的 predict 列
+#：report_A 的 candidate_predict_cosine 覆盖 cand1 的 predict 列
 # （patch_predict_cols.R 只重算 report_A/classification_A，不动 scan_details）
 ra_path <- file.path(unl_dir, "report_A.tsv")
 ra_pred <- NULL
@@ -157,7 +157,7 @@ for (i in seq_along(by_spec)) {
   charge  <- as.character(g$Charge[1]) %||% ""
   # 候选排序：is_best==1 优先，其余按原序
   ord <- order(!(g$is_best == "1"), seq_len(nrow(g)))
-  g <- g[ord, , drop = FALSE]
+  g <- g[ord,, drop = FALSE]
   row <- c(fn, scan_no, charge)
   for (k in 1:5) {
     if (k <= nrow(g)) {
@@ -174,7 +174,7 @@ for (i in seq_along(by_spec)) {
   }
   cr <- NULL
   if (!is.null(cls_idx) && fn %in% names(cls_idx) && !is.na(cls_idx[[fn]])) {
-    cr <- cls[cls_idx[[fn]], , drop = FALSE]
+    cr <- cls[cls_idx[[fn]],, drop = FALSE]
   }
   for (wc in want_cols)
     row <- c(row, if (!is.null(cr) && wc %in% names(cr) &&
@@ -184,7 +184,7 @@ for (i in seq_along(by_spec)) {
 out <- as.data.frame(do.call(rbind, rows), stringsAsFactors = FALSE)
 names(out) <- out_cols
 
-# ---- v1.0（李治反馈）：多预测器分列——从 merge/predictors/<type>/ 读取
+# ---- 多预测器分列——从 merge/predictors/<type>/ 读取
 # 各预测器产物，为 cand1 加 predict 可用性列（后续版本可扩展为各自余弦值）
 # ⚠ v1.0 修复：不能用 result_dir（此脚本未定义该变量，同类 bug 第 5 次）；
 # unl_dir = <结果根>/1.unlabeled_result，merge 在结果根下

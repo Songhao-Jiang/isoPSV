@@ -27,7 +27,7 @@
 #          converter_py, puni_py)                 # 返回 c(rescore_spectra=路径)
 #
 # 依赖：仅 base R（Windows；用 powershell 仅做可选的 GPU 探测）。
-# 版本：2026-09-26（deepseek-flash 适配；对应 isoPSV v1.0 现状）
+# 版本：（deepseek-flash 适配；对应 isoPSV v1.0 现状）
 # =============================================================================
 
 # ---- 子进程环境（离线适配的关键：用官方开关替代源码补丁） -------------------
@@ -42,7 +42,7 @@ pf_env_vars <- function(num_workers = NULL, distributed = FALSE,
     USE_LIBUV = "0",
     # 权重加载：torch>=2.6 的 torch.load 默认 weights_only=True，官方 checkpoint
     # 内含 argparse.Namespace 会 UnpicklingError。torch 提供该环境变量把默认值
-    # 强制回 False（实测在本机 torch 2.7.1+cu128 生效并带明确 UserWarning）。
+    # 强制回 False（实测在本地 torch 2.7.1+cu128 生效并带明确 UserWarning）。
     TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD = "1"
   )
   if (!is.null(num_workers)) v <- c(v, PUNIFIND_NUM_WORKERS = as.character(num_workers))
@@ -55,7 +55,7 @@ pf_env_vars <- function(num_workers = NULL, distributed = FALSE,
 
 # ---- 解释器/入口选择：优先 python + 仓库 .py（见下"启动器"说明），回退 exe ----
 # ---- pick the entry point: python + repo .py first, fall back to the exe -------
-# 实测（2026-09-26）：仓库自带的 official_*.exe 是**小启动器**，它会把命令行
+# 实测仓库自带的 official_*.exe 是**小启动器**，它会把命令行
 # 重新组装后再交给内嵌脚本——重组过程会让位置参数 data 变成 "0"（即使调用方
 # 把数据目录放在第一位、且不含任何未知 flag），导致 AssertionError:
 # 0\test.parquet。直接用 `python official_*_workflow.py` 调用同一套参数则完全
@@ -74,13 +74,13 @@ pf_entry <- function(kind, punifind_dir, python_exe = NULL) {
 
 # ---- 探测构建支持的 flag 面 ------------------------------------------------
 # ---- probe the flag surface supported by this build ------------------------
-# N-15（2026-09-26）：timeout 参数真正生效——旧实现 system2 无超时，--help
+# N-15timeout 参数真正生效——旧实现 system2 无超时，--help
 # 挂起时 R 无限阻塞。改为后台起探针（wait=FALSE 返回 PID）、轮询进程存活，
 # 超时按 PID 杀进程树（铁律：只按 PID 杀）并返回 NULL。
-# v1.0（2026-09-29，工作站 P1）：抽出"起进程→轮询→超时杀→读日志"公共件
+# v1.0抽出"起进程→轮询→超时杀→读日志"公共件
 # pf_spawn_collect，--help 探测与 denovo 三参数定向探测共用（行为不变）。
 # cmd = 可执行文件；args = 额外参数向量（python 直调路线传 workflow.py 路径）。
-#' v1.0（2026-09-30，工作站 C 项）：探针日志双编码读取。探针不走 .bat
+#' v1.0探针日志双编码读取。探针不走 .bat
 #' （无 chcp 65001），中文 Windows 下 python 子进程 stdout 按 locale（GBK）
 #' 写出，readLines 默认按 UTF-8 读到非 ASCII 字节即 invalid multibyte string
 #' → 探针恒 NULL（"无法读取 --help"）。先按 UTF-8 读、失败按 native.enc 再读；
@@ -94,15 +94,15 @@ pf_read_log_lines <- function(logf) {
 
 pf_spawn_collect <- function(exe, args, timeout = 120) {
   if (!file.exists(exe)) return(NULL)
-  # v1.0（2026-10-01，本机实弹 P3）：stdout 与 stderr 分开落盘再拼接。
-  # 实测 R/Windows 上 system2 把两个流转到同一文件时会双双丢失（本机
+  # v1.0stdout 与 stderr 分开落盘再拼接。
+  # 实测 R/Windows 上 system2 把两个流转到同一文件时会双双丢失（本地
   # denovo exe 参数错误写 stderr，同文件方案捕获 0 行 → 探针恒 NA）。
   logf  <- tempfile("pfh_", fileext = ".log")
   loge  <- tempfile("pfe_", fileext = ".log")
   pid <- suppressWarnings(system2(exe, args, stdout = logf, stderr = loge,
                                   wait = FALSE, invisible = TRUE))
-  # v1.0（本机实弹 P3b）：R/Windows 上 system2(wait=FALSE) 可能返回 0 而
-  # 非子进程 PID（本机实测 pid=0），alive 探测随之失效、会在 exe 尚未写盘时
+  # v1.0R/Windows 上 system2(wait=FALSE) 可能返回 0 而
+  # 非子进程 PID（实测 pid=0），alive 探测随之失效、会在 exe 尚未写盘时
   # 就去读日志。改为 PID 探测＋"输出文件大小连续 3 次不变且非零"双条件，
   # 任一满足即认为进程已产出并退出（探针命令都是参数级错误，输出即终态）。
   have_pid <- is.numeric(pid) && !is.na(pid) && pid > 0
@@ -149,13 +149,13 @@ pf_spawn_collect <- function(exe, args, timeout = 120) {
 }
 
 pf_help_flags <- function(exe, args = "--help", timeout = 120) {
-  # v1.0（2026-10-01，本机实弹 P4）：老构建（piUniMS 冻结版）的 --help
-  # flag 面不完整（截断/子解析器差异），按它过滤会误删必需参数——本机实测
+  # v1.0老构建（piUniMS 冻结版）的 --help
+  # flag 面不完整（截断/子解析器差异），按它过滤会误删必需参数——实测
   # --check/--fdr-thread 等被滤掉后 argparse 报 invalid int value: ''（其内
   # 部默认值为空串，必须显式全传）。PUNIFIND_NO_FLAGS_PROBE=1 时禁用 flag
   # 探测、返回 NULL 走全参数盲传（老构建实测唯一可行口径；新构建不受影响，
   # 工作站无需设置）。
-  # v1.0（2026-10-01，用户需求：全自动版本判定）：环境变量改为可选覆盖。
+  # v1.0环境变量改为可选覆盖。
   # 默认行为改为自动判定——flag 面如果少于 30 个已知参数（老构建 help 截断/
   # 子解析器不完整的特征），自动降级为全参数盲传。env 变量=1 仍可强制禁用；
   # env 变量=0 可强制启用 flag 过滤。
@@ -188,17 +188,17 @@ pf_help_flags <- function(exe, args = "--help", timeout = 120) {
   fl
 }
 
-#' v1.0（2026-09-29，工作站 P1）：--help 探测失败（flags=NULL）时的 denovo
+#' v1.0--help 探测失败（flags=NULL）时的 denovo
 #' 三参数（--min-length/--max-length/--range-pred）定向能力探针。
 #' 背景：新构建内部默认为 None，缺参必 TypeError；老构建则不认识这三参
 #' （unrecognized arguments）。--help 读不出来时无法靠 flag 面判断，改用
 #' "已知参数＋非法值"判别：跑 `--min-length notanint --help`——
 #' 新构建认识该参数，argparse 在 --help 之前立即报 invalid int value（实证
-#' 2026-09-29：未知 flag 会被 --help 压过直接打印帮助退出 0，故不能用未知
+#'：未知 flag 会被 --help 压过直接打印帮助退出 0，故不能用未知
 #' flag 探测）；老构建不认识，--help 照常打印帮助。两种结局都不进入真实
 #' 推理。返回 TRUE（新构建，参数须带）/ FALSE（老构建，不带）/ NA（超时或
 #' 日志不可读——按官方 cli.py:264-269 恒接受的口径放行）。
-#' v1.0（2026-10-01，本机实弹 P2/P3）：本机曾恒 NA 的根因在捕获而非判据
+#' v1.0本地曾恒 NA 的根因在捕获而非判据
 #' ——system2 双流同文件丢输出＋wait=FALSE 返回 pid=0 提前判死（见
 #' pf_spawn_collect v1.0 修复）。判据保持 --help 版不变；超时上调 180 s
 #' （PyInstaller 冷启动＋杀毒扫描）。
@@ -216,7 +216,7 @@ pf_probe_denovo_len_ok <- function(exe, args0 = NULL, timeout = 180) {
 # ---- install integrity + environment probe --------------------------------
 pf_probe <- function(punifind_dir, python_exe = NULL) {
   r <- list(dir = punifind_dir, ok = TRUE, notes = character(0))
-  # N-15（2026-09-26）：兼容纯 .py 发行版——python 直调路线可用（python 存在
+  # N-15兼容纯 .py 发行版——python 直调路线可用（python 存在
   # 且两个 workflow.py 在）时不再硬性要求两个 exe；exe 只在无 python 路线时
   # 必需。
   py_route_ok <- !is.null(python_exe) && nzchar(python_exe) && file.exists(python_exe) &&
@@ -385,10 +385,10 @@ pf_build_args <- function(kind, punifind_dir, qry_res_dir, mgf_dir, out_dir,
   # forward_faster_denovo 里 `min_length <= num_seq_pred` 抛 TypeError
   # （NoneType 与 Tensor 比较）**——这是 isoPSV 现版本 denovo 从不传这两个参数、
   # 因此必然失败的原因。
-  # v1.0（2026-09-27 凌晨，本机实弹）：本机老构建的 denovo CLI 没有这三个
+  # v1.0本地老构建的 denovo CLI 没有这三个
   # 参数，探测失败（flags=NULL）时旧代码仍全带 → unrecognized arguments。
   # 收紧为"仅当探测到该 flag 才带"（工作站新构建 --help 含这三个参数，不受影响）。
-  # v1.0（2026-09-29，工作站 P1 实弹）：工作站 --help 探测恒失败（flags=NULL）
+  # v1.0工作站 --help 探测恒失败（flags=NULL）
   # ⇒ 三参永不带上 ⇒ 新构建 forward_faster_denovo TypeError（ms_pep.py:747）。
   # 补定向探针结果 denovo_len_ok（pf_probe_denovo_len_ok）：TRUE/NA 时带上
   # （官方 cli.py:264-269 恒接受；NA＝探针不可判，按官方口径放行），
@@ -416,7 +416,7 @@ pf_build_args <- function(kind, punifind_dir, qry_res_dir, mgf_dir, out_dir,
   a
 }
 
-# ---- 可测纯函数（N-21，2026-09-26，GLM：pf_run 产物发现此前零覆盖，
+# ---- 可测纯函数（N-21，GLM：pf_run 产物发现此前零覆盖，
 # 抽成纯函数后可用临时目录夹具直接测） ----------------------------------------
 
 #' P0-E 缓存清除判定：qry.res 最新 mtime 晚于 pUniFind 内部缓存（parquet/lmdb/pkl，
@@ -430,7 +430,7 @@ pf_clear_stale_cache <- function(qry_res_dir, data_tmp, res_dir, verbose = TRUE)
   qry_newest_time <- if (length(qry_input_files)) max(file.info(qry_input_files)$mtime) else NA
   stale_cache_files <- c(list.files(data_tmp, pattern = "\\.parquet$", full.names = TRUE),
                          list.files(data_tmp, pattern = "\\.lmdb$", full.names = TRUE),
-                         # P0-2（2026-09-26，deepseek v1.0 审查更正）：推理检查点
+                         # P0-2推理检查点
                          # pkl 名为 {subset}_{subset}_{rank}.pkl（isoPSV 侧 subset=test
                          # → test_test_0.pkl），与 data_tmp 的打分 pkl pscore_res_*.pkl
                          # 是两种不同产物；v1.0 的 P3-1 收窄会漏掉推理 pkl、使
@@ -456,7 +456,7 @@ pf_fresh_own_spectra <- function(res_dir, run_start_time) {
   own[own_mtime >= run_start_time - 1]
 }
 
-#' N-4（2026-09-26，GLM）：qry_res_dir 内最终 rescore 产物回查——工作流新构建
+#' N-4qry_res_dir 内最终 rescore 产物回查——工作流新构建
 #' 自写 fdr0.01（两写皆认：fdr0.01_ / fdr.01_）。返回命中的路径向量。
 pf_match_final_spectra <- function(qry_res_dir) {
   list.files(qry_res_dir, pattern = "fdr0?\\.01_pUniFind\\.spectra$", full.names = TRUE)
@@ -480,25 +480,25 @@ pf_run_one <- function(kind, punifind_dir, qry_res_dir, mgf_dir, out_dir,
   dir.create(data_tmp, recursive = TRUE, showWarnings = FALSE)
   dir.create(res_dir, recursive = TRUE, showWarnings = FALSE)
 
-  # P0-A（2026-09-26，deepseek 复核）：先做 name#0 消毒（公共函数在
+  # P0-A先做 name#0 消毒（公共函数在
   # ReadMGF_script.R；本模块被单独 source 时以 exists 守卫跳过——此时调用方
   # 须自行保证 qry.res 已消毒）
   if (exists("pf_sanitize_qryres", mode = "function")) pf_sanitize_qryres(qry_res_dir)
   # 1) qry.res 序号压实（幂等；新版已内置 compact_spec 时也不冲突）
   rn <- if (isTRUE(renumber)) pf_qryres_renumber(qry_res_dir, verbose = verbose) else NULL
-  # P0-E（2026-09-26，deepseek v1.0）：pUniFind 的推理 pkl 复用不看输入指纹——
+  # P0-EpUniFind 的推理 pkl 复用不看输入指纹——
   # 消毒/重搜改写 qry.res 后，工作流"看到旧 pkl 就跳过推理"、却按新 qry.res 重建
   # parquet，两边候选数不一致 → AssertionError。判定与删除在纯函数
   # pf_clear_stale_cache 内（N-21 可测）：qry.res 新于内部缓存即清空强制重推理。
   pf_clear_stale_cache(qry_res_dir, data_tmp, res_dir, verbose)
-  # P0-B（2026-09-26）：记录本次运行开始时间，产物发现只接受不早于它的候选
+  # P0-B记录本次运行开始时间，产物发现只接受不早于它的候选
   # （防"工作流失败却复用陈旧产物报成功"）
   run_start_time <- Sys.time()
 
   # 2) 调用工作流（优先 python + 仓库 .py；见 pf_entry 的启动器说明）
   en  <- pf_entry(kind, punifind_dir, python_exe)
   if (!file.exists(en$cmd)) stop("pUniFind 入口缺失：", en$cmd)
-  # v1.0（工作站 P1）：--help 探测失败（flags=NULL）且本次是 denovo 时，对
+  # v1.0--help 探测失败（flags=NULL）且本次是 denovo 时，对
   # 三参数做定向能力探测（只在需要时跑，一次 python 启动级的成本）；
   # rescore 或探测成功时不跑（flags 本身已可判定）
   denovo_len_ok <- NA
@@ -522,14 +522,14 @@ pf_run_one <- function(kind, punifind_dir, qry_res_dir, mgf_dir, out_dir,
                     collapse = " ")
   wd <- if (is.null(en$wd)) getwd() else en$wd
   side <- file.path(out_dir, paste0("pUniFind_cli_", kind, ".cmdline.txt"))
-  # N-15（2026-09-26）：MASTER_PORT 固定 29517 被占用即失败无重试——把
+  # N-15MASTER_PORT 固定 29517 被占用即失败无重试——把
   # 环境构建+写 bat+执行包成一次尝试，端口可换；失败且日志含 bind/地址占用
   # 特征时换随机端口重试（最多 3 次，铁律：只按 PID 杀不适用——直接换端口）。
   run_attempt <- function(master_port) {
     envv <- pf_env_vars(num_workers, distributed = identical(en$route, "python"),
                         master_port = master_port)
     env_lines <- paste0("set ", names(envv), "=", envv)
-    # N-5（2026-09-26，GLM）：writeLines(useBytes=TRUE) 写出的 UTF-8 字节在 cmd.exe
+    # N-5writeLines(useBytes=TRUE) 写出的 UTF-8 字节在 cmd.exe
     # 按 ANSI(GBK) 解析 → 中文路径乱码。首行 chcp 65001 让 cmd 按 UTF-8 读本文件。
     writeLines(c("@echo off", "chcp 65001 >nul", env_lines, paste0("cd /d ", shQuote(wd)),
                  cmd_line, "exit /b %ERRORLEVEL%"), bat, useBytes = TRUE)
@@ -540,11 +540,11 @@ pf_run_one <- function(kind, punifind_dir, qry_res_dir, mgf_dir, out_dir,
                  paste0("# cmd: ", en$cmd),
                  cmd_line),
                side, useBytes = TRUE)
-    # v1.0 fix（2026-10-02 DAG 实弹）：system2 对同一文件双开 stdout/stderr
+    # v1.0 fixsystem2 对同一文件双开 stdout/stderr
     # 偶发"cannot open the connection"（stdout 已建、stderr 二开失败的竞态，
     # 隔离复现 30/30 正常＝环境偶发；泄漏句柄还会让错误处理读日志 Permission
     # denied）。错误只发生在连接建立期（进程未起），2 秒后原样重试一次安全。
-    # v1.0 fix (live DAG test 2026-10-02): system2 with stdout and stderr
+    # v1.0 fix system2 with stdout and stderr
     # on the SAME file can sporadically fail with "cannot open the connection"
     # (stdout opened, second open of stderr loses a race; isolation loop was
     # 30/30 ok, so it is an environmental flake; the leaked handle also makes
@@ -580,7 +580,7 @@ pf_run_one <- function(kind, punifind_dir, qry_res_dir, mgf_dir, out_dir,
   }
   st <- rr$st
   logtxt <- rr$logtxt
-  # N-6（2026-09-26，GLM）：工作流失败时即便 out_dir 残留上一轮 .spectra/.csv
+  # N-6工作流失败时即便 out_dir 残留上一轮 .spectra/.csv
   # 也不得冒充成功——st != 0 前置 stop，不进入产物发现
   if (st != 0) {
     log_tail <- if (nzchar(logtxt)) substr(logtxt, max(1, nchar(logtxt) - 2000), nchar(logtxt)) else ""
@@ -591,7 +591,7 @@ pf_run_one <- function(kind, punifind_dir, qry_res_dir, mgf_dir, out_dir,
   if (identical(kind, "rescore")) {
     # 3a) 新构建自己会写 <results-path>/<project>fdr0.01_pUniFind.spectra；isoPSV
     #     的下游从 qry_res_dir 取，故此处复制过去（无需 Python 转换器）。
-    #     新鲜度门槛在纯函数 pf_fresh_own_spectra 内（P0-B，N-21 可测）
+    #     新鲜度门槛在纯函数 pf_fresh_own_spectra 内
     own <- pf_fresh_own_spectra(res_dir, run_start_time)
     if (length(own)) {
       own <- own[which.max(file.info(own)$mtime)]
@@ -606,7 +606,7 @@ pf_run_one <- function(kind, punifind_dir, qry_res_dir, mgf_dir, out_dir,
         if (verbose) cat("[pUniFind 适配] 已取工作流自写的 .spectra →", dst, "\n")
       }
     }
-    # N-4（2026-09-26，GLM）：此处回查正则与 3a 的 fdr0\.01_ 少个 0，复制成功后
+    # N-4此处回查正则与 3a 的 fdr0\.01_ 少个 0，复制成功后
     # 查不到 → 误入 pkl 转换分支空轮询 120s 并误报失败。补 0? 两写都认；
     # 纯函数 pf_match_final_spectra（N-21 可测）
     sp <- pf_match_final_spectra(qry_res_dir)
@@ -641,15 +641,15 @@ pf_run_one <- function(kind, punifind_dir, qry_res_dir, mgf_dir, out_dir,
   }
 }
 
-# ---- v1.0（2026-09-29 用户口径＋工作站缺陷报告台账 195）：单 MGF 分片 ------
+# ---- v1.0单 MGF 分片 ------
 # ---- per-MGF chunking for both pUniFind workflows ----------------------------
 # 工作流以 multiprocessing spawn 把整个数据集 pickle 给子进程，143 万谱规模
 # 父端 dump／子端 load 双双 MemoryError（SJH 5.7 万谱无影响）。用户裁定
 # "pFind 系列的都拆成单 mgf 的分别进行计算"：mgf 目录超过 1 个文件时逐 raw
 # 分片——每片独占 chunk 目录（qry.res 全量＋单 mgf），片级完成标记支持失败
 # 续跑；rescore 谱表合并去重表头，denovo CSV 无表头直接拼接，合并产物落回
-# 原接口位置，下游无感。单 mgf（≤1 文件）直通 pf_run_one，行为与旧版一致。
-# v1.0（2026-09-29，工作站代码检查 P2/P3）：① qry.res 由硬链接改 copy——
+# 原接口位置，下游无感。单 mgf（≤1 文件）直通 pf_run_one，行为与早期实现一致。
+# v1.0① qry.res 由硬链接改 copy——
 # 片内消毒/压实会就地覆写，硬链接同 inode 会穿透到项目真件、打破 #18 后处理
 # 指纹（下次 step2 重付 ~5.6 h）；mgf 只读、仍硬链接保 mtime。② done 标记
 # 升级为"完成＋输入指纹"（qry.res 全集＋本片 mgf 的 mtime|size）：重跑时指纹
@@ -669,7 +669,7 @@ pf_marker_fingerprint <- function(marker) {
   substr(m[1], 14L, nchar(m[1]))
 }
 
-#' v1.0（2026-09-30，工作站 A③/B/D）：片级并行（chunk_parallel 旋钮，
+#' v1.0片级并行（chunk_parallel 旋钮，
 #' 默认 1＝顺序；每片独立 python 进程，单模型 ~3 GB 显存，16 GB 卡可容 2–3
 #' 路，worker 各配独立 MASTER_PORT 基值防占用冲突）、chunk 失败时把子日志尾
 #' 直接附进错误消息（工作站 B 项：invalid multibyte 文案已四次误导，真实
@@ -710,8 +710,8 @@ pf_run <- function(kind, punifind_dir, qry_res_dir, mgf_dir, out_dir, ...,
       stop("[pUniFind 分片] qry.res 拷贝失败：", src, " → ", dst)
     invisible(TRUE)
   }
-  # v1.0（2026-10-01，本机实弹 P1）：片内 qry.res 按本片 raw 过滤。
-  # 本机 pUniFind 构建（piUniMS 冻结版）对 qry 目录逐 qry.res 建任务，块内
+  # v1.0片内 qry.res 按本片 raw 过滤。
+  # 本地 pUniFind 构建（piUniMS 冻结版）对 qry 目录逐 qry.res 建任务，块内
   # dta 属他片 raw 时会去本片 mgf 目录枚举 `<raw>_HCDFT/_CIDTOF/_HCDAST.mgf`
   # → FileNotFoundError（工作站的容缺构建无此问题）。全量拷贝改为拷贝后
   # 内容级过滤（按 dta 前缀 = 片名），过滤后 0 块的文件删除；两侧行为等价
@@ -790,7 +790,7 @@ pf_run <- function(kind, punifind_dir, qry_res_dir, mgf_dir, out_dir, ...,
     runner_fn <- runner
     # 闭包跨集群边界前物化其环境绑定：clusterExport 序列化不落地未强制的
     # promise，工厂函数形参未 force 即在 worker 上报 object not found
-    # （2026-09-30 实测）；get() 逐个强制求值后绑定随闭包序列化
+    #；get() 逐个强制求值后绑定随闭包序列化
     if (!is.null(environment(runner_fn))) {
       renv <- environment(runner_fn)
       invisible(lapply(ls(envir = renv), function(n) get(n, envir = renv)))
@@ -920,7 +920,7 @@ pf_self_test <- function(punifind_dir = NULL, python_exe = NULL, qry_res_dir = N
                       flags = c("--user-dir", "--task", "--num-proc"), num_workers = 4)
   say(any(grepl("^--task=score_inference$", a2)) && !any(grepl("^--batch-size", a2)),
       "只保留探测到的 flag（过滤生效）", paste(length(a2), "个参数"))
-  # v1.0（工作站 P1）：denovo 三参数门控——flags=NULL 时按定向探针结果
+  # v1.0denovo 三参数门控——flags=NULL 时按定向探针结果
   d1 <- pf_build_args("denovo", "P", "Q", "M", "O", flags = NULL, denovo_len_ok = TRUE)
   say(all(c("--min-length=6", "--max-length=40") %in% d1),
       "denovo flags=NULL＋探针TRUE → 三参带上")
@@ -951,7 +951,7 @@ pf_self_test <- function(punifind_dir = NULL, python_exe = NULL, qry_res_dir = N
     en <- pf_entry("rescore", punifind_dir, python_exe)
     say(TRUE, "入口路线", paste0(en$route, " -> ", en$cmd))
     if (identical(en$route, "exe"))
-      cat("       注意：走 exe 启动器时实测 argv 会被重组（data 变 '0'）；" ,
+      cat("       注意：走 exe 启动器时实测 argv 会被重组（data 变 '0'）；",
           "建议提供 punifind_python 以走 python 直调路线\n")
     say(length(pr$score_flags) > 0 || TRUE, "flag 面探测",
         if (is.null(pr$score_flags)) "未取到（将用保守集）" else

@@ -2,7 +2,7 @@
 # search_adapter_sage.R - Sage results.sage.tsv + scan 映射表 -> isoPSV 交换格式
 # search_adapter_sage.R - Sage TSV + scan map -> isoPSV interchange format
 #
-# 多引擎版（2026-09-09）：把 Sage（0.15.x）的 results.sage.tsv 转换为 isoPSV
+# 多引擎版把 Sage（0.15.x）的 results.sage.tsv 转换为 isoPSV
 # 补充策略文件（File_Name/Sequence/Modification/Proteins/Charge）。
 #   - Sage 只读 mzML：先用 msconvert（或内置转换器）把重编号 MGF 转 mzML；
 #     scannr 列为 "index=N"（Sage 0.15.0-beta.2 实测为 "scan=N"，裸整数亦可），
@@ -10,7 +10,7 @@
 #   - peptide 列内联修饰 "M[+15.9949]"（质量位移）；静态修饰（CAM C）不标注——
 #     适配器为序列中每个 C 注入 Carbamidomethyl[C]；
 #   - label 列 -1 为诱饵（Sage 内产 REV_ 蛋白），默认过滤。
-# multi-engine edition (2026-09-09): converts the Sage (0.15.x) results.sage.tsv
+# multi-engine edition converts the Sage (0.15.x) results.sage.tsv
 # into an isoPSV supplementary-strategy file.
 #   - Sage reads mzML only: convert the renumbered MGF with msconvert (or the
 #     built-in converter) first; the scannr column is "index=N" where N is the
@@ -93,9 +93,9 @@ sage_mod_string <- function(pep) {
 }
 
 
-# 文件夹解析（用户 2026-09-11）：输入填文件夹时按目标模式递归（<=4 层）发现
+# 文件夹解析输入填文件夹时按目标模式递归（<=4 层）发现
 # 结果文件、多个候选取最新、找不到报错；文件路径原样通过。
-# folder resolution (user 2026-09-11): a directory input is resolved by the
+# folder resolution a directory input is resolved by the
 # target pattern (recursive depth <= 4, newest wins, clear error otherwise);
 # a file path passes through unchanged.
 
@@ -104,7 +104,7 @@ convert_sage_tsv <- function(tsv_file, map_file, out_file, keep_decoy = FALSE) {
   d <- read.delim(tsv_file, sep = "\t", stringsAsFactors = FALSE,
                   check.names = FALSE, na.strings = character(0), quote = "",
                   colClasses = "character")
-  # P3（2026-09-26，工作站反馈：sage 适配器产物 0 行无诊断）——缺列时列出
+  # P3——缺列时列出
   # 实际列名，Sage 版本差异（列改名）一眼可辨
   need_cols <- c("peptide", "proteins", "scannr", "charge", "label", "rank")
   miss <- setdiff(need_cols, colnames(d))
@@ -121,24 +121,24 @@ convert_sage_tsv <- function(tsv_file, map_file, out_file, keep_decoy = FALSE) {
   # 全候选模式（ISOPSV_CAND_ALL=1）：保留全部候选（引擎自身排序，文件序）；
   # 常规模式：每谱 top-1（rank==1 + 首行去重）
   if (!identical(Sys.getenv("ISOPSV_CAND_ALL"), "1")) {
-    d <- d[d$rank == "1", , drop = FALSE]                       # 每谱 top-1
+    d <- d[d$rank == "1",, drop = FALSE]                       # 每谱 top-1
   }
   n_rank <- nrow(d)
-  if (!keep_decoy) d <- d[d$label != "-1", , drop = FALSE]   # 过滤诱饵
+  if (!keep_decoy) d <- d[d$label != "-1",, drop = FALSE]   # 过滤诱饵
   n_dec <- nrow(d)
-  # v1.0（工作站根因定位）：Sage 0.15.0-beta.2 的 scannr 写 "scan=N"，
+  # （工作站根因定位）：Sage 0.15.0-beta.2 的 scannr 写 "scan=N"，
   # 老版本写 "index=N"——只剥 index= 会导致 map 命中恒 0。剥任意 ^[^=]*=
   # 前缀再取整数（裸数字不受影响）；v1.0 自查整改：剥后 trimws 与
   # "scan = 123" 这类等号带空格的形式对齐，map 键同样 trimws 归一
   d$scan_num <- trimws(sub("^[^=]*=\\s*", "", d$scannr))
   if (!identical(Sys.getenv("ISOPSV_CAND_ALL"), "1")) {
-    d <- d[!duplicated(d$scan_num), , drop = FALSE]
+    d <- d[!duplicated(d$scan_num),, drop = FALSE]
   }
   fn <- mp$original_title[match(d$scan_num, mp$new_scan)]
   n_map <- sum(!is.na(fn))
   seqs <- gsub("\\[[^]]*\\]", "", d$peptide)
   keep <- !is.na(fn) & nzchar(seqs)
-  d <- d[keep, , drop = FALSE]; fn <- fn[keep]; seqs <- seqs[keep]
+  d <- d[keep,, drop = FALSE]; fn <- fn[keep]; seqs <- seqs[keep]
   mods <- vapply(d$peptide, sage_mod_string, character(1), USE.NAMES = FALSE)
   prot <- vapply(strsplit(d$proteins, ";", fixed = TRUE), function(ps) {
     acc <- sub("\\s.*$", "", trimws(ps))

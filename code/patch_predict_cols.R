@@ -1,7 +1,7 @@
-# 补丁脚本 v2（2026-09-18）：predict 谱图相似性列全量重算。
-# Patch script v2 (2026-09-18): recompute ALL predict similarity columns.
+# 补丁脚本 v2predict 谱图相似性列全量重算。
+# Patch script v2 recompute ALL predict similarity columns.
 #
-# v2 变更（用户口径"576 两文件夹所有行的理论谱图相似性都重新计算"）：
+# v2 变更（设计约定"576 两文件夹所有行的理论谱图相似性都重新计算"）：
 #   不再只处理 predict_missing=1 的行，而是对 report_A/classification_A/
 #   conflict 的全部行重算 candidates 列中各候选的 pDeep2 余弦；对
 #   master 与两分法报告的 cand1..cand5_predict 按各自候选序列与修饰直接
@@ -57,7 +57,7 @@ aa <- read.delim(aa_path, sep = "\t",
 aa_tab <- amino_acid_table
 
 # predict 文件：第三参数显式指定（576 流 predict_file 在项目外），缺省按
-# v100-7 新布局 merge/predictors/pdeep2/predict.txt → 旧布局 merge/predict.txt
+#  新布局 merge/predictors/pdeep2/predict.txt → 旧布局 merge/predict.txt
 # 两级回退（旧项目仍可用）
 predict_path <- if (length(args) >= 3 && nzchar(args[3])) {
   args[3]
@@ -75,7 +75,7 @@ cat("predict entries:", length(pred_int), "\n")
 # ---- 谱图一次性加载（本项目涉及的全部 raw）------------------------------
 # ---- load every spectrum once (all raws touched by this project) ---------
 fns <- character(0)
-mt_first <- list()   # v1.0：首遍读入的三大报告暂存，第二遍重算复用
+mt_first <- list()   #：首遍读入的三大报告暂存，第二遍重算复用
 ra_path <- file.path(rd, "1.unlabeled_result", "report_A.tsv")
 if (file.exists(ra_path)) {
   ra0 <- read.delim(ra_path, sep = "\t", check.names = FALSE,
@@ -91,7 +91,7 @@ for (f in c("master_table.tsv", "1.annotation_correction_report.tsv",
                       stringsAsFactors = FALSE, quote = "", comment.char = "",
                       na.strings = character(0))
     fns <- c(fns, as.character(mt0$File_Name))
-    mt_first[[f]] <- mt0   # v1.0：第二遍全量重算直接复用，不再二次读
+    mt_first[[f]] <- mt0   #：第二遍全量重算直接复用，不再二次读
   }
 }
 fns <- unique(fns[!is.na(fns) & nzchar(fns)])
@@ -232,7 +232,7 @@ for (f in c("master_table.tsv", "1.annotation_correction_report.tsv",
             "2.novel_peptide_competition_report.tsv")) {
   p <- file.path(rd, "2.labeled_result", f)
   if (!file.exists(p)) next
-  mt <- mt_first[[f]]   # v1.0：复用首遍读入（文件在本段之前未被改动）
+  mt <- mt_first[[f]]   #：复用首遍读入（文件在本段之前未被改动）
   if (is.null(mt)) next
   filled <- 0L
   for (k in 1:5) {

@@ -2,16 +2,16 @@
 # search_adapter_msfragger.R - MSFragger TSV + scan 映射表 -> isoPSV 交换格式
 # search_adapter_msfragger.R - MSFragger TSV + scan map -> isoPSV interchange format
 #
-# 多引擎版（2026-09-09）：把 MSFragger（4.4.1）的 TSV 输出转换为 isoPSV 补充
+# 多引擎版把 MSFragger（4.4.1）的 TSV 输出转换为 isoPSV 补充
 # 策略文件（File_Name/Sequence/Modification/Proteins/Charge）。
 #   - MSFragger 可直接搜 MGF，但 pParse 标题（scan.scan.charge.fraction.dta）
 #     的同 scan 多价态/拆分触发 "duplicated scan numbers"——先用 _renumber_mgf.py
 #     把 MGF 重编号为唯一顺序 scan 并产出 map.tsv（new_scan→原始标题），本适配器
 #     按 scannum 列回查原始标题（pFind File_Name 口径，阶段 B 有 raw+scan 兜底）；
 #   - modification_info 编码 "20M(15.9949), 6M(15.9949)"（pos+残基+质量位移，
-#     固定修饰也在内），按质量位移映射表转 pFind 修饰串（pos,Name[site];）；
+#     固定修饰也在内），按质量位移映射表转 pFind 修饰串（pos,Name[site]）；
 #   - 蛋白列 ";" 分隔且带描述，取首个空格前的 accession，"ACC1/ACC2/" 拼接。
-# multi-engine edition (2026-09-09): converts the MSFragger (4.4.1) TSV output
+# multi-engine edition converts the MSFragger (4.4.1) TSV output
 # into an isoPSV supplementary-strategy file.
 #   - MSFragger searches MGF directly, but pParse titles (scan.scan.charge.
 #     fraction.dta) carry duplicate scan numbers across charges/splits and trip
@@ -83,13 +83,13 @@ MSF_AA3 <- c(Ala = "A", Arg = "R", Asn = "N", Asp = "D", Cys = "C", Gln = "Q",
              Met = "M", Phe = "F", Pro = "P", Ser = "S", Thr = "T", Trp = "W",
              Tyr = "Y", Val = "V")
 
-# 未知位移 → 残基替换 X->Y 解释（g 槽开放搜索 delta 口径，2026-09-12 定稿）：
+# 未知位移 → 残基替换 X->Y 解释
 # 位移 delta 在位置残基 X 上若满足 mass(X) + delta ∈ 某标准氨基酸质量 ±0.05 Da，
 # 视为序列替换并输出三字母 "pos,X->Y"（I/L 同质量不可区分时按 pFind SAP 惯例
 # 记 Xle）——与 isoPSV 的 pep_mh_mod 质量计算和 SAP 判定（目标 ∈ AA_names）
 # 完全兼容；不满足时返回 ""（调用方按"未知修饰"丢弃，诚实放弃判定）。
 # unknown shift -> residue substitution X->Y (g-slot open-search delta
-# convention, settled 2026-09-12): when mass(X) + delta hits a standard AA
+# convention, settled ): when mass(X) + delta hits a standard AA
 # mass within 0.05 Da the token becomes "pos,X->Y" in three-letter names
 # (I/L both 113.08406 -> "Xle" per the pFind SAP convention), compatible with
 # isoPSV's pep_mh_mod mass math and the SAP test (target in AA_names);
@@ -166,9 +166,9 @@ msf_mod_string <- function(minfo, seq) {
 }
 
 
-# 文件夹解析（用户 2026-09-11）：输入填文件夹时按目标模式递归（<=4 层）发现
+# 文件夹解析输入填文件夹时按目标模式递归（<=4 层）发现
 # 结果文件、多个候选取最新、找不到报错；文件路径原样通过。
-# folder resolution (user 2026-09-11): a directory input is resolved by the
+# folder resolution a directory input is resolved by the
 # target pattern (recursive depth <= 4, newest wins, clear error otherwise);
 # a file path passes through unchanged.
 
@@ -192,12 +192,12 @@ convert_msfragger_tsv <- function(tsv_file, map_file, out_file) {
             all(c("new_scan", "original_title") %in% colnames(mp)))
   # 全候选模式（ISOPSV_CAND_ALL=1）：保留全部候选（文件序＝引擎 rank 序）
   if (!identical(Sys.getenv("ISOPSV_CAND_ALL"), "1")) {
-    d <- d[is.na(d$hit_rank) | d$hit_rank == "1", , drop = FALSE]   # 每谱 top-1
-    d <- d[!duplicated(d$scannum), , drop = FALSE]
+    d <- d[is.na(d$hit_rank) | d$hit_rank == "1",, drop = FALSE]   # 每谱 top-1
+    d <- d[!duplicated(d$scannum),, drop = FALSE]
   }
   fn <- mp$original_title[match(d$scannum, mp$new_scan)]
   keep <- !is.na(fn) & nzchar(d$peptide)
-  d <- d[keep, , drop = FALSE]; fn <- fn[keep]
+  d <- d[keep,, drop = FALSE]; fn <- fn[keep]
   mods <- mapply(msf_mod_string, d$modification_info, d$peptide,
                  USE.NAMES = FALSE)
   prot <- vapply(strsplit(d$proteins, ";", fixed = TRUE), function(ps) {

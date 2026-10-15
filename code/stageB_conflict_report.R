@@ -24,9 +24,9 @@
 #
 # Environment variables: EXT_REPORT, PAIRED, OUT.
 # =============================================================================
-# 核心库统一入口（N-1，2026-09-25）：按 --file= 定位代码目录、绝对路径加载
+# 核心库统一入口按 --file= 定位代码目录、绝对路径加载
 # （boot.R），替代裸相对 source——此前仅当启动 cwd 恰为 code/ 时成立。
-# core-library entry (N-1, 2026-09-25): locate the code dir via --file= and
+# core-library entry locate the code dir via --file= and
 # load by absolute path (boot.R), replacing the bare relative source().
 sd0 <- dirname(tryCatch(normalizePath(sub("^--file=", "",
     grep("^--file=", commandArgs(FALSE), value = TRUE)[1]), winslash = "/"),
@@ -109,13 +109,13 @@ pr <- read.delim(paired_f, sep = "\t", stringsAsFactors = FALSE,
                  check.names = FALSE, na.strings = character(0))
 pr[] <- lapply(pr, function(x) if (is.logical(x)) rep("", length(x)) else x)
 
-conf <- ext[ext$Peptide_state != "Same" | ext$Modification_state != "Same", ,
+conf <- ext[ext$Peptide_state != "Same" | ext$Modification_state != "Same",,
             drop = FALSE]
 # 终端丢失规范化（全部槽列 a.Sequence 等）：起始 M 丢失/C 端 R 丢失转为序列变化，
-# 终端类位置 1 归 0——内容判定与输出列统一用规范化形式（2026-09-02 增）
+# 终端类位置 1 归 0——内容判定与输出列统一用规范化形式
 # Terminal-loss normalization across the slot columns a.Sequence etc. so both
 # the content-based calls and the output columns use the canonical form
-# (added 2026-09-02)
+# 
 slot_seq_cols <- grep("^[a-z]\\.Sequence$", names(conf), value = TRUE)
 slot_mod_cols <- grep("^[a-z]\\.Modification$", names(conf), value = TRUE)
 for (j in seq_along(slot_seq_cols)) {
@@ -139,7 +139,7 @@ ip <- match(conf$File_Name, pr$File_Name)
 cat("report_A rows:", nrow(ext), "| conflict rows:", nrow(conf),
     "| with paired result:", sum(!is.na(ip)), "\n")
 
-# v1.0（2026-10-01）：冲突报告并行化（逐冲突谱独立）
+# v1.0冲突报告并行化（逐冲突谱独立）
 # 冲突谱数 >10K 且多核时自动启用 parLapplyLB；否则走原顺序循环
 conflict_workers_val <- 1L
 cw <- Sys.getenv("CONFLICT_WORKERS", unset = "")
@@ -163,12 +163,12 @@ if (conflict_workers_val > 1 && nrow(conf) > 10000 && requireNamespace("parallel
   cl <- parallel::makeCluster(conflict_workers_val)
   on.exit(parallel::stopCluster(cl), add = TRUE)
 
-  # v1.0（2026-10-02，随 stageA 重建一并修）：显式清单漏 chimeric_check
+  # v1.0显式清单漏 chimeric_check
   # 的传递依赖（title_raw_scan / title_scan_key / matched_peak_set /
   # cached_by_ions_position / by_ions_position 一整条链，均经 boot.R 载入）。
   # 大表触发并行时会整体失败并静默回退顺序（Macaca 规模＝白丢并行收益）。
   # 改导出全环境（排除集群对象），与 stageA 同口径。
-  # v1.0 (2026-10-02, fixed alongside the stageA rebuild): the explicit
+  # (fixed alongside the stageA rebuild): the explicit
   # list missed chimeric_check's transitive deps (title_raw_scan /
   # title_scan_key / matched_peak_set / cached_by_ions_position /
   # by_ions_position, all loaded via boot.R). On a large table the parallel
@@ -383,11 +383,11 @@ if (conflict_workers_val > 1 && nrow(conf) > 10000 && requireNamespace("parallel
     # strategy groups may propose the same content - a mere index difference is
     # not an error)
     vote_wrong <- as.integer(!(ws == x1s && wm == x1m))
-    # 混合谱：不同序列两两"各自特异子离子比例的最小值 > 10%"（用户口径，
-    # m/z 口径：特异峰数 ÷ 两候选命中峰并集；2026-09-06 修订）
+    # 混合谱：不同序列两两"各自特异子离子比例的最小值 > 10%"（设计约定，
+    # m/z 口径：特异峰数 ÷ 两候选命中峰并集；修订）
     # chimeric: any pair of distinct sequences with min of the two
     # specific-ion ratios > 10% (the user's definition; m/z basis: specific
-    # peaks over the union of both candidates' matched peaks; revised 2026-09-06)
+    # peaks over the union of both candidates' matched peaks; revised )
     if (!is.null(lu)) {
       chimeric <- chimeric_check(cand_sqs, cand_mds, lu,
                                  as.character(fn), aa, aa_tab)

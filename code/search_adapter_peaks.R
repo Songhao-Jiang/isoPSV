@@ -92,7 +92,7 @@ peaks_mod_string <- function(pep) {
 
 convert_peaks_csv <- function(csv_file, out_file) {
   csv_file <- resolve_adapter_input(csv_file, "\\.csv$")
-  # P3-5（2026-09-25）：编码容错读取（UTF-8 BOM/UTF-8/本地编码）
+  # P3-5编码容错读取（UTF-8 BOM/UTF-8/本地编码）
   d <- read_csv_tolerant(csv_file, stringsAsFactors = FALSE, check.names = FALSE,
                          quote = "\"", comment.char = "", fill = TRUE,
                          na.strings = character(0), colClasses = "character")
@@ -102,18 +102,18 @@ convert_peaks_csv <- function(csv_file, out_file) {
          "\n请从 PEAKS DB search 结果导出肽段 CSV（含 Peptide/Scan/Source File/z）\n",
          "missing columns; export the PEAKS DB-search peptide CSV including Peptide/Scan/Source File/z")
   }
-  d <- d[nzchar(d[["Peptide"]]), , drop = FALSE]
+  d <- d[nzchar(d[["Peptide"]]),, drop = FALSE]
   fn <- paste0(d[["Source File"]], ".", d[["Scan"]], ".", d[["Scan"]],
                ".", d[["z"]], ".0.dta")
   # 每谱取 -10lgP 最高一行（全候选模式 ISOPSV_CAND_ALL=1 时保留全部候选）
   sc <- if ("-10lgP" %in% names(d)) {
     s <- suppressWarnings(as.numeric(d[["-10lgP"]])); s[is.na(s)] <- -Inf; s
   } else rep(0, nrow(d))
-  d <- d[order(sc, decreasing = TRUE), , drop = FALSE]
+  d <- d[order(sc, decreasing = TRUE),, drop = FALSE]
   fn <- fn[order(sc, decreasing = TRUE)]
   if (!identical(Sys.getenv("ISOPSV_CAND_ALL"), "1")) {
     keep <- !duplicated(fn)
-    d <- d[keep, , drop = FALSE]; fn <- fn[keep]
+    d <- d[keep,, drop = FALSE]; fn <- fn[keep]
   }
   seqs <- gsub("\\([^)]*\\)", "", d[["Peptide"]])
   mods <- vapply(d[["Peptide"]], peaks_mod_string, character(1))

@@ -2,7 +2,7 @@
 # search_adapter_comet.R - Comet pepXML/txt + scan 映射表 -> isoPSV 交换格式
 # search_adapter_comet.R - Comet txt + scan map -> isoPSV interchange format
 #
-# 多引擎版（2026-09-09）：把 Comet（2026.02 rev.2）的 tab 分隔 txt 输出转换为
+# 多引擎版把 Comet（2026.02 rev.2）的 tab 分隔 txt 输出转换为
 # isoPSV 补充策略文件（File_Name/Sequence/Modification/Proteins/Charge）。
 #   - Comet 原生支持 MGF，但输出只有 scan 号；pParse 标题同 scan 多价态/拆分，
 #     故与 MSFragger 相同先用 _renumber_mgf.py 重编号并留 map.tsv，本适配器按
@@ -11,7 +11,7 @@
 #     侧翼 "R.PEPTIDE.K"，可变修饰内联 "[15.9949]"、N 端记 "n[42.0106]"；
 #     静态修饰（CAM C）不标注——适配器为序列中每个 C 注入 Carbamidomethyl[C]；
 #   - 质量位移→pFind 名与 MSFragger 适配器同一张表。
-# multi-engine edition (2026-09-09): converts the Comet (2026.02 rev.2)
+# multi-engine edition converts the Comet (2026.02 rev.2)
 # tab-delimited txt output into an isoPSV supplementary-strategy file.
 #   - Comet reads MGF natively but reports only scan numbers; pParse titles carry
 #     duplicate scans across charges/splits, so renumber the MGF first with
@@ -119,9 +119,9 @@ comet_mod_string <- function(flanged, seq) {
 }
 
 
-# 文件夹解析（用户 2026-09-11）：输入填文件夹时按目标模式递归（<=4 层）发现
+# 文件夹解析输入填文件夹时按目标模式递归（<=4 层）发现
 # 结果文件、多个候选取最新、找不到报错；文件路径原样通过。
-# folder resolution (user 2026-09-11): a directory input is resolved by the
+# folder resolution a directory input is resolved by the
 # target pattern (recursive depth <= 4, newest wins, clear error otherwise);
 # a file path passes through unchanged.
 
@@ -140,12 +140,12 @@ convert_comet_txt <- function(txt_file, map_file, out_file) {
   stopifnot(all(c("new_scan", "original_title") %in% colnames(mp)))
   # 全候选模式（ISOPSV_CAND_ALL=1）：保留全部候选（文件序＝引擎 rank 序）
   if (!identical(Sys.getenv("ISOPSV_CAND_ALL"), "1")) {
-    d <- d[!duplicated(d$scan), , drop = FALSE]                 # 每谱 top-1
+    d <- d[!duplicated(d$scan),, drop = FALSE]                 # 每谱 top-1
   }
   seqs <- d$seq
   fn <- mp$original_title[match(d$scan, mp$new_scan)]
   keep <- !is.na(fn) & nzchar(seqs)
-  d <- d[keep, , drop = FALSE]; fn <- fn[keep]; seqs <- seqs[keep]
+  d <- d[keep,, drop = FALSE]; fn <- fn[keep]; seqs <- seqs[keep]
   mods <- mapply(comet_mod_string, d$peptide, seqs, USE.NAMES = FALSE)
   prot <- vapply(strsplit(d$proteins, ";", fixed = TRUE), function(ps) {
     acc <- sub("\\s.*$", "", trimws(ps))

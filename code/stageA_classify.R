@@ -20,9 +20,9 @@
 #
 # Environment variables: EXT_REPORT, OUT.
 # =============================================================================
-# 核心库统一入口（N-1，2026-09-25）：按 --file= 定位代码目录、绝对路径加载
+# 核心库统一入口按 --file= 定位代码目录、绝对路径加载
 # （boot.R），替代裸相对 source——此前仅当启动 cwd 恰为 code/ 时成立。
-# core-library entry (N-1, 2026-09-25): locate the code dir via --file= and
+# core-library entry locate the code dir via --file= and
 # load by absolute path (boot.R), replacing the bare relative source().
 sd0 <- dirname(tryCatch(normalizePath(sub("^--file=", "",
     grep("^--file=", commandArgs(FALSE), value = TRUE)[1]), winslash = "/"),
@@ -86,7 +86,7 @@ same_composition <- function(s1, s2) {
   identical(comp(s1), comp(s2))
 }
 
-# 理论离子缓存（v1.0 优化，2026-09-26）：by_ions_position 是纯函数，同
+# 理论离子缓存by_ions_position 是纯函数，同
 # (seq|mod|label) 的候选在 5.7 万谱中大量重复（identical_ion_sets 每次两调）。
 # 进程内哈希缓存命中直接复用返回值——语义不变（缓存只存成功结果，错误仍走
 # try 路径）。ion_cache：哈希环境；key：seq|mod|label 拼接键。
@@ -116,7 +116,7 @@ n <- nrow(ext)
 slot_seq_cols <- grep("^[a-z]\\.Sequence$", colnames(ext), value = TRUE)
 slot_mod_cols <- grep("^[a-z]\\.Modification$", colnames(ext), value = TRUE)
 
-# ---- v1.0 优化（2026-09-26）：原实现每行 5 次 strsplit + 每行 data.frame
+# ---- v1.0 优化原实现每行 5 次 strsplit + 每行 data.frame
 # 再 5.7 万个 rbind（实测 65–109s 的主因）。改为：
 # ① 循环外一次性向量化 strsplit（cand/sr/cov/by 四个列表）；② 槽位两矩阵
 #    sq_mat/md_mat 一次性 as.character；③ 7 个结论列预分配，末次一次 cbind。
@@ -135,7 +135,7 @@ cov_lists <- num_lists("candidate_coverage")
 by_lists <- num_lists("candidate_PSM_score_by")
 wins <- suppressWarnings(as.integer(ext$best_group))
 # 注意：sqs 继承槽列名、x1s 因此带名（v1.0 对拍保留的旧语义）——P2-1
-# 修复（v1.0，用户拍板 2026-09-26）后，判定处用 identical(unname(x1s),
+# 修复后，判定处用 identical(unname(x1s),
 # ws) 只比值，同序列仅修饰不同的行正确进入 modification_change 分支
 # （modification_diff 列自此生效）。矩阵仍 setNames 保留行名（供槽位取值）。
 sq_mat <- if (length(slot_seq_cols)) do.call(rbind, setNames(
@@ -151,16 +151,16 @@ vote_says_wrong <- integer(n); error_reason <- character(n)
 modification_diff <- character(n); chimeric <- integer(n)
 identical_ions <- integer(n); quality_low <- integer(n)
 
-# ---- v1.0（2026-10-01）分类循环并行化 ＋ 2026-10-02 重建 ----
+# ---- v1.0分类循环并行化 ＋ 重建 ----
 # 事故：v1.0 重写版把数据前导（env 读取 / read.delim / n <- nrow(ext) /
 # cand_lists 等构建）整体丢失，独立运行时自动判定行立即引用未定义的 n，
-# Stage A 秒崩（v1.0 全量测试 06:47 实弹，Error: object 'n' not found）；
+# Stage A 秒崩（v1.0 全量测试 06:47 实测，Error: object 'n' not found）；
 # 其"顺序回退"还 source 了不存在的 stageA_classify_sequential.R。
 # 本次重建＝v1.0 原版前导（含 boot.R 加载与全部辅助函数）＋ v1.0
 # 并行分支 ＋ v1.0 原版顺序循环 ＋ v1.0 的 X/U 标记输出尾。
 # 并行 worker 体与原版循环体经规范化 diff 逐语句等价（仅 cl→cl_i 重命名
 # 避免遮蔽集群对象）。
-# ---- v1.0 (2026-10-01) parallel classify loop; rebuilt 2026-10-02 ----
+# ---- v1.0 parallel classify loop; rebuilt ----
 # The v1.0 rewrite accidentally dropped the whole data-prep prologue, so
 # the standalone run crashed instantly on an undefined `n` (live at 06:47 in
 # the v1.0 full test) and its sequential fallback sourced a nonexistent
@@ -182,11 +182,11 @@ if (stageA_workers_val == 1L && n > 10000) {
   cat("[Stage A parallel] large table (", n, " rows), auto-enabling ", stageA_workers_val, " workers\n", sep = "")
 }
 # results 初始化必须在并行 if 之前——小表（≤10K 行）不进并行分支，
-# 若无此初始化，下方 is.null(results) 直接 object not found（2026-10-02
-# run_all 实弹：12 行夹具秒崩；大表因并行分支赋值而掩盖）
+# 若无此初始化，下方 is.null(results) 直接 object not found（
+# run_all 实测：12 行夹具秒崩；大表因并行分支赋值而掩盖）
 # initialize results BEFORE the parallel branch — a small table (≤10K rows)
 # never enters it, and without the init the is.null(results) gate below dies
-# with object not found (live in run_all 2026-10-02: a 12-row fixture crashed
+# with object not found (live in run_all: a 12-row fixture crashed
 # instantly; large tables masked it because the parallel branch assigns)
 results <- NULL
 if (stageA_workers_val > 1 && n > 10000 && requireNamespace("parallel", quietly = TRUE)) {
@@ -199,7 +199,7 @@ if (stageA_workers_val > 1 && n > 10000 && requireNamespace("parallel", quietly 
   on.exit(parallel::stopCluster(cl), add = TRUE)
 
   # 导出共享只读数据＋全部辅助函数（一次性序列化）。
-  # v1.0 重建修正（2026-10-02 实弹）：原显式清单漏传递依赖——worker 内
+  # v1.0 重建修正原显式清单漏传递依赖——worker 内
   # chimeric_check → title_raw_scan / title_scan_key（boot.R 经 ReadMGF_script.R
   # 载入）→ matched_peak_set → cached_by_ions_position → by_ions_position 一整条
   # 链不在清单里，parLapplyLB 10/20 chunk 报 "could not find function
@@ -207,7 +207,7 @@ if (stageA_workers_val > 1 && n > 10000 && requireNamespace("parallel", quietly 
   # 改为导出全环境（仅排除集群对象自身）。附带好处：每个 worker 得到独立
   # 的 ion_cache 环境，免共享竞争。
   # export the shared read-only data + ALL helper functions in one shot.
-  # v1.0 rebuild fix (live 2026-10-02): the explicit list missed transitive
+  # v1.0 rebuild fix the explicit list missed transitive
   # deps — inside the worker chimeric_check needs title_raw_scan /
   # title_scan_key (loaded via boot.R from ReadMGF_script.R), then
   # matched_peak_set -> cached_by_ions_position -> by_ions_position; 10/20
@@ -337,7 +337,7 @@ for (i in seq_len(n)) {
   # 多策略候选（候选列表＝非空策略槽按字母序排列；候选 1＝策略 a 的原始结果）
   sqs <- if (length(slot_seq_cols)) sq_mat[, i] else character(0)
   mds <- if (length(slot_mod_cols)) md_mat[, i] else character(0)
-  # 2026-09-22 审查修正：best_group 是"去重候选列表"的下标（含 I/L 归一与同
+  # 审查修正：best_group 是"去重候选列表"的下标（含 I/L 归一与同
   # 内容槽合并），槽位列表与它不同序不同长——候选一律取 candidates 列（与
   # best_group 同源同序）；a 槽内容仅作原始结果参照
   # best_group indexes the DEDUPED candidate list; slots are a different list.
@@ -364,11 +364,11 @@ for (i in seq_len(n)) {
     wm <- cand_mds[win]
     # 内容口径：胜选候选与原始结果序列＋修饰一致即视为正确
     vote_wrong <- as.integer(!(ws == x1s && wm == x1m))
-    # 混合谱：不同序列两两"各自特异子离子比例的最小值 > 10%"（用户口径，
-    # m/z 口径：特异峰数 ÷ 两候选命中峰并集；2026-09-06 修订）
+    # 混合谱：不同序列两两"各自特异子离子比例的最小值 > 10%"（设计约定，
+    # m/z 口径：特异峰数 ÷ 两候选命中峰并集；修订）
     # chimeric: any pair of distinct sequences with min of the two
     # specific-ion ratios > 10% (the user's definition; m/z basis: specific
-    # peaks over the union of both candidates' matched peaks; revised 2026-09-06)
+    # peaks over the union of both candidates' matched peaks; revised )
     if (!is.null(lu)) {
       chimeric_i <- chimeric_check(cand_sqs, cand_mds, lu,
                                  as.character(ext$File_Name[i]), aa, aa_tab)
@@ -408,7 +408,7 @@ for (i in seq_len(n)) {
       if (!is.null(err_reasons) && nzchar(err_reasons[i])) {
         err_reason <- err_reasons[i]
       }
-      # P2-1 修复（2026-09-26，deepseek v1.0 审查 + 用户拍板）：x1s 取自
+      # P2-1 修复x1s 取自
       # 槽位矩阵带列名属性，identical() 默认比属性 → 恒 FALSE，同序列仅修饰
       # 不同的行永远掉进 same_composition 分支被误标"Same-weight AA
       # replacement"、modification_diff 死列。unname 后只比值——同序列命中
@@ -450,7 +450,7 @@ out$chimeric <- chimeric
 out$identical_ions <- identical_ions
 out$quality_low <- quality_low
 
-# v1.0（2026-10-01，X/U 报告§五-2）：零质量/歧义残基标记列
+# v1.0零质量/歧义残基标记列
 # 含 X（Xle，I/L 歧义）或 U（Sec，此前 pFind 赋零质量）的肽段行加标记
 # mark rows containing X (Xle) or U (Sec) residues
 has_XU <- grepl("X", ext$candidates %||% "") | grepl("U", ext$candidates %||% "")

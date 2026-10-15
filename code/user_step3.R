@@ -19,9 +19,9 @@
 
 # 加载通用工具与核心计算模块（ACS 核心、成对参数、MGF 读取等）
 # Load the shared utilities and the core computation modules (ACS core, paired params, MGF reader, etc.)
-# 核心库统一入口（N-1，2026-09-25）：按 --file= 定位代码目录、绝对路径加载
+# 核心库统一入口按 --file= 定位代码目录、绝对路径加载
 # （boot.R），替代裸相对 source——此前仅当启动 cwd 恰为 code/ 时成立。
-# core-library entry (N-1, 2026-09-25): locate the code dir via --file= and
+# core-library entry locate the code dir via --file= and
 # load by absolute path (boot.R), replacing the bare relative source().
 sd0 <- dirname(tryCatch(normalizePath(sub("^--file=", "",
     grep("^--file=", commandArgs(FALSE), value = TRUE)[1]), winslash = "/"),
@@ -35,7 +35,7 @@ cfg3_path <- Sys.getenv("CONFIG3")
 if (!nzchar(cfg3_path)) stop("set CONFIG3 to the step-3 parameter file path")
 cfg3 <- read_param_file(cfg3_path)
 cfg_dir <- cfg3$config_dir
-if (is.null(cfg_dir) || length(cfg_dir) == 0 || !nzchar(cfg_dir[1]))   # 2026-09-26 审查 P0-3/P3-6：config_dir 缺失/为空时给可读报错
+if (is.null(cfg_dir) || length(cfg_dir) == 0 || !nzchar(cfg_dir[1]))   # 审查 P0-3/P3-6：config_dir 缺失/为空时给可读报错
   stop("config_step3 的 config_dir 缺失或为空，请检查配置（或删除 result_* 后重跑）
 config_dir missing/empty in config_step3")
 # 结果文件夹（RESULT_DIR 由总程序注入；独立运行按时间戳定位/新建）
@@ -49,7 +49,7 @@ merged_file <- resolve_cfg_paths(cfg3, "merge_result")[1]
 # 口径）——因此这里的 base_cfg 就是 config_step1（含 proteogenomics_mode、
 # fasta 等第一步键），门控取值循环 base_cfg+cfg3 已覆盖第一步。
 base_cfg <- read_param_file(resolve_cfg_paths(cfg3, "base_config")[1])
-# 工作流程门控（proteogenomics_mode，2026-09-27 用户口径）：0=全量模式
+# 工作流程门控0=全量模式
 # （默认，所有谱竞争验证）；1=纯蛋白质基因组学模式——只对含非参考库候选的
 # 谱做竞争验证，已注释谱标记 annotated_skipped 并跳过错误校正；2=已注释
 # 肽段矫正模式——只矫正已注释谱，新肽候选谱标记 novel_skipped 并跳过。
@@ -83,7 +83,7 @@ if (pg_mode %in% c("1", "2")) {
   prot_col <- if ("Proteins" %in% colnames(mrg)) mrg$Proteins else {
     if ("a.Proteins" %in% colnames(mrg)) mrg$a.Proteins else rep("", nrow(mrg))
   }
-  # v1.0（工作站反馈缺陷2/4）：分侧改 fa_annotated_proteins 三口径
+  # 分侧改 fa_annotated_proteins 三口径
   # （accession / 序列级 I-L 归一 / CON_ 污染库）
   seq_col <- if ("a.Sequence" %in% colnames(mrg)) as.character(mrg$a.Sequence)
              else if ("Sequence" %in% colnames(mrg)) as.character(mrg$Sequence)
@@ -97,7 +97,7 @@ if (pg_mode %in% c("1", "2")) {
   dir.create(file.path(result_dir, "1.unlabeled_result"), showWarnings = FALSE)
   writeLines(unique(as.character(mrg$File_Name[!keep])), skip_f, useBytes = TRUE)
   pg_file <- file.path(result_dir, "merge", "merged_pg_target.spectra")
-  write.table(mrg[keep, , drop = FALSE], pg_file, sep = "\t",
+  write.table(mrg[keep,, drop = FALSE], pg_file, sep = "\t",
               row.names = FALSE, col.names = TRUE, quote = FALSE)
   merged_file <- pg_file
   cat("[流程门控] 目标侧合并件：", pg_file, "（", sum(keep), " 行）\n", sep = "")
@@ -147,7 +147,7 @@ wci <- suppressWarnings(as.integer(wc))
 worker_cores <- if (nzchar(wc) && !is.na(wci) && wci >= 1L) wci else NULL
 # 调用阶段 A 评估：对无标记谱按多引擎候选计算 ACS、打分判定并写出 stageA 报告
 # Call the stage A evaluation: score and judge the five-strategy candidates on the unlabeled spectra via ACS, then write the stageA report
-# v1.0（无标记通道=0）：NeuCode 等全标记样本——阶段 A 把配置的标记作为
+# （无标记通道=0）：NeuCode 等全标记样本——阶段 A 把配置的标记作为
 # 额外固定修饰搜库（理论离子带标记），predict 键去标记、余弦按子离子顺序
 # 0 补齐；含无标记通道（默认）行为不变（label_tag=Unlabel、label_mods=NULL）。
 ul_ch <- if (!is.null(base_cfg$unlabeled_channel) && length(base_cfg$unlabeled_channel) > 0)

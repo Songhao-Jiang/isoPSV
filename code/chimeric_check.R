@@ -1,5 +1,5 @@
 # =============================================================================
-# chimeric_check.R - 混合谱判定（用户口径，2026-09-06 m/z 口径修订）
+# chimeric_check.R - 混合谱判定
 # "两个序列的各自特异性子离子比例的最小值 > 10%" 判为混合谱：
 # 对每个竞争序列，其特异子离子比例 = 只被该序列命中的观测峰数 ÷
 # 两个序列命中观测峰的并集数（按观测峰 m/z 判断，不看肽段坐标位点——
@@ -7,7 +7,7 @@
 # 该比例都 > 10%（即最小值 > 10%）才算混合谱。
 #
 # Chimeric detection (the user's definition, revised to the m/z basis on
-# 2026-09-06): a spectrum is chimeric when the MINIMUM of the two competing
+# ): a spectrum is chimeric when the MINIMUM of the two competing
 # sequences' own specific-ion ratios is > 10%. Each sequence's specific-ion
 # ratio = the observed peaks matched ONLY by it divided by the UNION of the
 # observed peaks matched by the two sequences (judged by observed peak m/z,
@@ -27,14 +27,14 @@
 # excluded); returns list(objs, titles), or NULL when the folder is empty.
 load_unlabeled_spectra <- function(unlabeled_dir, only = NULL) {
   # only：可选 raw 茎向量——只加载需要的 raw（主表导出仅需嵌合谱所在 raw；
-  # 全文件夹 7 组分全量加载实测 4-5 分钟、内存 6GB+，2026-09-11 提效）
+  # 全文件夹 7 组分全量加载实测 4-5 分钟、内存 6GB+，提效）
   # only: optional raw-stem vector - load just the needed raws (the master
   # export needs only the raws of chimeric spectra; loading the whole folder
-  # measured 4-5 min and 6 GB+ RSS, optimized 2026-09-11)
+  # measured 4-5 min and 6 GB+ RSS, optimized )
   files <- sort(list.files(unlabeled_dir, pattern = "\\.mgf$", full.names = TRUE))
   files <- files[basename(files) != "unlabeled.mgf"]
   # 统一排除 pFind 残留 *_check.mgf（无 RTINSECONDS；全量检测报告附带发现，
-  # 2026-09-26——与 pFind 模板改写路径、denovo 调用前移出同口径）
+  # ——与 pFind 模板改写路径、denovo 调用前移出同口径）
   files <- files[!grepl("_check\\.mgf$", basename(files))]
   if (!is.null(only) && length(files) > 0) {
     stems <- sub("_HCDFT$", "", sub("\\.mgf$", "", basename(files)))
@@ -56,7 +56,7 @@ load_unlabeled_spectra <- function(unlabeled_dir, only = NULL) {
   names(loaded) <- sub("_HCDFT$", "", sub("\\.mgf$", "", basename(files)))
   titles <- lapply(loaded, function(objs)
     vapply(objs, function(o) o@title, character(1)))
-  # 标题索引（v1.0 优化，2026-09-26）：chimeric_check 逐冲突行
+  # 标题索引chimeric_check 逐冲突行
   # match(fn, titles[[raw]]) 是 O(谱数) 线性扫——每 raw 预建命名向量索引，
   # 查谱 O(1)；ix 与 titles 同构（list[raw] = named int vector）。
   ix <- lapply(titles, function(t) setNames(seq_along(t), t))
@@ -81,11 +81,11 @@ matched_positions_of <- function(seq, mod, sp, aa, aa_tab, tol_ppm = 20) {
     mz <- mz[ord]; ints <- ints[ord]
     cum2 <- c(0, cumsum(ints))
     mz_all <- c(t$b_1_charge, t$b_2_charge, t$y_1_charge, t$y_2_charge)
-    # 键位口径（2026-09-15 修复）：b_j = 键 j；y_j = 键 n-j（n=肽长）。
-    # 旧版对 y 系列复用离子序号 j，把 y2/y3/y4 误标为键 2/3/4、与 b2/b3/b4
+    # 键位口径b_j = 键 j；y_j = 键 n-j（n=肽长）。
+    # 早期实现对 y 系列复用离子序号 j，把 y2/y3/y4 误标为键 2/3/4、与 b2/b3/b4
     # 混为一谈——C 端连续缺口（如 y1 与 y5 之间的 4 残基）被 N 端 b 离子
     # 错误补位，consecutive_missing 规则系统性漏判。
-    # bond-wise positions (fixed 2026-09-15): b_j is bond j; y_j is bond n-j
+    # bond-wise positions b_j is bond j; y_j is bond n-j
     # (n = peptide length). The old code reused the ion number j for the y
     # series, mislabeling y2/y3/y4 as bonds 2/3/4 and confusing them with
     # b2/b3/b4 - C-terminal consecutive gaps (e.g. the four residues between

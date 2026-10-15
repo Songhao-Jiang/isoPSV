@@ -25,12 +25,26 @@
 # =============================================================================
 options(stringsAsFactors = FALSE)
 
+# Windows 下 source(file, encoding="UTF-8") 的
+# connection 层偶发 "invalid input found on input connection"（文件本体合法
+# UTF-8、iconv 逐行无坏字符仍复现），致 punifind_gpu_compat.R 的 pf_run 未定
+# 义、自动 rescore 假失败。改为 readLines+parse+eval，语义等同 source。
+#  source(file, encoding="UTF-8") sporadically fails at
+# the connection layer on Windows ("invalid input found on input connection"
+# even for valid UTF-8 with clean per-line iconv), leaving pf_run undefined and
+# faking an auto-rescore failure. Replaced with readLines+parse+eval.
+source_utf8 <- function(path) {
+  l <- readLines(path, warn = FALSE, encoding = "UTF-8")
+  eval(parse(text = paste(l, collapse = "
+")), envir = globalenv())
+}
+
 # %||% 兜底：R 4.4+ 原生；4.1–4.3 目标环境下给同语义定义
 # %||% fallback: native since R 4.4; provide identical semantics for 4.1-4.3
 `%||%` <- function(a, b) if (is.null(a)) b else a
 
 # PID 判活（跨平台）。v1.0 join 的 system2("tasklist", c("/FI","PID eq N")) 有
-# 实弹缺陷：system2 把 "PID eq N" 按空格拆成多参 → tasklist 报 Invalid argument
+# 实测缺陷：system2 把 "PID eq N" 按空格拆成多参 → tasklist 报 Invalid argument
 # 'eq'、恒判死（此前被"denovo 早死"掩盖）。改为整条命令经 shell/ps 执行。
 # PID liveness probe (cross-platform). The v1.0 join pattern
 # system2("tasklist", c("/FI", "PID eq N")) splits "PID eq N" at spaces into
@@ -106,7 +120,7 @@ steward_main <- function(cfg2_path, code_dir) {
   pf_cu <- identical(steward_kv(cfg2, "punifind_chunk_cleanup"), "1") ||
            identical(steward_kv(base_cfg, "punifind_chunk_cleanup"), "1")
 
-  source(file.path(code_dir, "punifind_gpu_compat.R"), encoding = "UTF-8")
+  source_utf8(file.path(code_dir, "punifind_gpu_compat.R"))
   unlab_dir <- file.path(cdir, "unlabeled")
   fasta_path <- resolve_cfg_paths(base_cfg, "fasta")[1]
 
@@ -219,7 +233,7 @@ steward_main <- function(cfg2_path, code_dir) {
 }
 
 # master 侧：管家启动（生成 ASCII 后台脚本＋PowerShell 启动器，全部沿用
-# v1.0 fix1-6 的 Windows 实弹口径：真 PID/无 BOM/\\u 转义/locale 清理/
+# v1.0 修订-6 的 Windows 实测口径：真 PID/无 BOM/\\u 转义/locale 清理/
 # out-err 分离/目录预建/WorkingDirectory 定 code 目录）
 # master side: launch the steward (ASCII bg script + PowerShell launcher reusing
 # all six v1.0 Windows launch fixes verbatim)
@@ -254,7 +268,7 @@ tq_launch_steward <- function(cfg2, cfg2_path, code_dir) {
   }
   script <- file.path(cdir, "_gpu_steward_bg.R")
   # 不能 source boot.R：boot 按 --file= 定位代码目录，而本入口脚本位于项目目
-  # 录（非 code/），boot 会错找 <项目>/../code（冒烟实弹）。改为按 code_dir
+  # 录（非 code/），boot 会错找 <项目>/../code（冒烟实测）。改为按 code_dir
   # 绝对路径镜像 boot 的五个加载（清单与 boot.R 保持一致）。
   # boot.R must NOT be sourced here: it locates the code dir from the --file=
   # path, and this entry script lives in the PROJECT dir (not code/), so boot

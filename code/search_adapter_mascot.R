@@ -109,7 +109,7 @@ mascot_mod_string <- function(seq0, var_mod, pos_str, summed_str = NULL, fixed_n
 
 convert_mascot_csv <- function(csv_file, out_file, fixed_name = "Carbamidomethyl (C)") {
   csv_file <- resolve_adapter_input(csv_file, "\\.csv$")
-  # P3-5（2026-09-25）：编码容错读取（UTF-8 BOM/UTF-8/本地编码）
+  # P3-5编码容错读取（UTF-8 BOM/UTF-8/本地编码）
   d <- read_csv_tolerant(csv_file, stringsAsFactors = FALSE, check.names = FALSE,
                          quote = "\"", comment.char = "", fill = TRUE,
                          na.strings = character(0), colClasses = "character")
@@ -125,17 +125,17 @@ convert_mascot_csv <- function(csv_file, out_file, fixed_name = "Carbamidomethyl
     if ("pep_rank" %in% names(d)) {
       rk <- suppressWarnings(as.integer(d[["pep_rank"]]))
       keep <- !is.na(rk) & rk == 1L
-      if (any(keep)) d <- d[keep, , drop = FALSE]
+      if (any(keep)) d <- d[keep,, drop = FALSE]
     }
   }
-  d <- d[nzchar(d[["pep_seq"]]) & nzchar(d[["pep_scan_title"]]), , drop = FALSE]
+  d <- d[nzchar(d[["pep_seq"]]) & nzchar(d[["pep_scan_title"]]),, drop = FALSE]
   if ("pep_score" %in% names(d)) {
     sc <- suppressWarnings(as.numeric(d[["pep_score"]]))
     sc[is.na(sc)] <- -Inf
-    d <- d[order(sc, decreasing = TRUE), , drop = FALSE]
+    d <- d[order(sc, decreasing = TRUE),, drop = FALSE]
   }
   if (!identical(Sys.getenv("ISOPSV_CAND_ALL"), "1")) {
-    d <- d[!duplicated(d[["pep_scan_title"]]), , drop = FALSE]
+    d <- d[!duplicated(d[["pep_scan_title"]]),, drop = FALSE]
   }
   seqs <- d[["pep_seq"]]
   vmod <- if ("pep_var_mod" %in% names(d)) d[["pep_var_mod"]] else rep("", nrow(d))

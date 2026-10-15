@@ -1,16 +1,25 @@
 
-# 文件夹解析（用户 2026-09-11）：输入填文件夹时按目标模式递归（<=4 层）发现
-# 结果文件、多个候选取最新、找不到报错；文件路径原样通过。
-# folder resolution (user 2026-09-11): a directory input is resolved by the
-# target pattern (recursive depth <= 4, newest wins, clear error otherwise);
-# a file path passes through unchanged.
-
 # search_adapter_metamorpheus.R - MetaMorpheus AllPeptides.psmtsv -> isoPSV interchange
 # 用法：Rscript search_adapter_metamorpheus.R <psmtsv 或文件夹> <输出.spectra> [qval] [map.tsv]
 # usage: Rscript search_adapter_metamorpheus.R <psmtsv or folder> <out.spectra> [qval] [map.tsv]
 # map.tsv（可选）：重编号映射（new_scan→original_title），MetaMorpheus 搜的是重编号
 # mzML，其 Scan Number 为顺序编号——有映射时 File_Name 还原为 pFind 原始标题
 # （与 MSFragger/Sage/Comet 适配器同口径）。
+# 补 compat.R source（resolve_adapter_input 在 compat.R
+# 定义，此前未加载——第九轮 TL "could not find function resolve_adapter_input"
+# 的直接根因；comet/sage 等 7 个适配器均有此探测块，唯独本文件漏装）。
+#  source compat.R - resolve_adapter_input lives there
+# but was never loaded (the direct root cause of round-9 TL's "could not find
+# function resolve_adapter_input"; the 7 sibling adapters all carry this probe
+# block, only this file was missing it).
+compat_src <- NULL
+for (d in c(dirname(grep("^--file=", commandArgs(FALSE), value = TRUE)[1] |> (\(x) if (is.na(x)) getwd() else x)()),
+            getwd())) {
+  p <- file.path(d, "compat.R")
+  if (file.exists(p)) { compat_src <- p; break }
+}
+if (is.null(compat_src)) stop("compat.R not found next to the adapter")
+source(compat_src)
 convert_metamorpheus_psm <- function(input_file, out_file, qval_cutoff = 0.01,
                                      map_file = NULL) {
   input_file <- resolve_adapter_input(input_file, "AllPeptides\\.psmtsv$")
@@ -35,12 +44,12 @@ seqs <- d[["Base Sequence"]]
 # Modification: parse Full Sequence for mod positions relative to Base.
 # 位点＝修饰 token 前已消费的 Base 残基数（1 起，前缀计数法）——旧实现的
 # 累计逻辑在连续 token 时会错位（33 肽写出 29/64 位点致 pDeep2 越界崩溃，
-# 2026-09-13 修复）。
+# 修复）。
 extract_mods <- function(full, base) {
   if (is.na(full) || !nzchar(full)) return("")
   if (!grepl("\\[", full)) return("")
   # perl=TRUE：R 4.5.1 UCRT 的 TRE 引擎对 "[^\]]" 否定转义类匹配失败
-  # （实测 FALSE），PCRE 正常——此处必须用 perl（2026-09-13 修复）
+  # （实测 FALSE），PCRE 正常——此处必须用 perl
   tok_pos <- gregexpr("\\[[^\\]]+\\]", full, perl = TRUE)[[1]]
   tokens <- regmatches(full, gregexpr("\\[[^\\]]+\\]", full, perl = TRUE))[[1]]
   if (length(tokens) == 0) return("")

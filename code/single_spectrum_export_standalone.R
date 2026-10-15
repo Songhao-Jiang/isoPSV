@@ -739,7 +739,7 @@ draw_single <- function(spec_obj, lines3, chg_v, ann, head_txt) {
       cols <- vapply(spl, function(d) ION_COL[[d$ion[1]]], "")
       pmz <- mz[pk_i]; pin <- ints_n[pk_i]
       segments(pmz, 0, pmz, pin, lwd = 0.8, col = cols)
-      # 标签不加额外迁移：峰顶上方原位标注（用户 2026-09-05：窜开导致标签"飞起"）
+      # 标签不加额外迁移：峰顶上方原位标注
       text(pmz, pin + 0.03, labs, cex = 8/12, srt = 90, col = cols, adj = 0)
     }
   }

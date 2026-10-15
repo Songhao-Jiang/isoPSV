@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""pdeep3_driver.py — isoPSV 的 pDeep3 调用桥（v1.0，2026-10-04；同日实弹核验修订）。
+"""pdeep3_driver.py — isoPSV 的 pDeep3 调用桥。
 
 用法：
   python pdeep3_driver.py --in <spec_id/peptide/modinfo/charge TSV> \
@@ -10,7 +10,7 @@
   b1/b2 ＝ b1..b_{n-1} 正序；y1/y2 ＝ y1..y_{n-1} 正序（R 侧组块时再翻回位
   点序）。由 R 侧 pred_pdeep3.R 组块。
 
-pDeep3 侧走 API（2026-10-04 本机实弹核验，D:\\Bioinformatics\\pDeep3 ＋
+pDeep3 侧走 API（实测核验，D:\\Bioinformatics\\pDeep3 ＋
 pDeep2 自带 py37/TF1.15 环境）：
   from pDeep.cmd.tune_and_predict import get_prediction
   pred = get_prediction(peptides, tune_psm=None, raw=None, instrument=..., ce=...)
@@ -45,9 +45,9 @@ def import_pdeep3():
     py_dir = os.path.dirname(os.path.abspath(sys.executable))
     cands.append(os.path.normpath(os.path.join(py_dir, "..", "..", "pDeep3")))
     cands.append(r"D:\Bioinformatics\pDeep3")
-    # v1.0：桌面克隆布局（客户端机 pDeep3 在 Desktop/pDeep3-master）
+    #：桌面克隆布局（客户端机 pDeep3 在 Desktop/pDeep3-master）
     cands.append(os.path.join(os.path.expanduser("~"), "Desktop", "pDeep3-master"))
-    # v1.0：官方附件包布局 <包根>/predictor_env/{python37,pDeep3}——
+    #：官方附件包布局 <包根>/predictor_env/{python37,pDeep3}——
     # python 在 predictor_env/python37 时其上一级即 pDeep3 兄弟目录
     cands.append(os.path.join(py_dir, "..", "pDeep3"))
     cands.append(os.path.join(py_dir, "..", "..", "pDeep3"))
@@ -70,8 +70,7 @@ def main():
     except ImportError as e:
         sys.stderr.write(
             "[pdeep3_driver] 无法导入 pDeep3（%s）——请确认 --python 指向装有 "
-            "pDeep 的环境（pFindStudio/pDeep3；或设环境变量 PDEEP3_ROOT 指向"
-            "其仓库根；TF1.13-1.15/Py<=3.7 或 TF2）。\n" % e)
+            "pDeep 的环境。\n" % e)
         return 2
 
     rows = []
@@ -82,10 +81,10 @@ def main():
         sys.stderr.write("[pdeep3_driver] 输入为空：%s\n" % args.inp)
         return 3
 
-    # v100-6（2026-10-06）：词表剔除——pDeep3 的 get_modification() 词表（与
+    # 词表剔除——pDeep3 的 get_modification() 词表（与
     # featurize.py mod_feature 同源同键）不含的 ModName[site] 位点修饰，送预测
     # 前剔除（该位点按无修饰预测）；否则 get_mod_x 对词表外键 KeyError、整批
-    # 中断（实弹：开放式搜索修饰 Carbamidomethyl[M]/HexNAc[T] 等命不中 1532
+    # 中断（实测：开放式搜索修饰 Carbamidomethyl[M]/HexNAc[T] 等命不中 1532
     # 条词表，2 条即崩掉 79,140 肽的全批）。
     # pDeep3 vocabulary filter: site-mods missing from get_modification() (the
     # exact key source of featurize.mod_feature) are dropped before prediction

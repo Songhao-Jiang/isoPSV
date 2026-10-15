@@ -1,5 +1,5 @@
 # =============================================================================
-# pred_ms2pip.R —— MS2PIP 理论谱图预测器 L1 适配器（v1.0，2026-09-26）
+# pred_ms2pip.R —— MS2PIP 理论谱图预测器 L1 适配器
 #
 # 多理论谱图预测器接入（deepseek 总体设计）的第一个外部适配器。把 isoPSV 的
 # merge/peptide.txt（peptide / modification / charge 三列）转成 MS2PIP peprec，
@@ -68,7 +68,7 @@ pfind_mods_to_peprec <- function(mod, warn = TRUE) {
 }
 
 #' peptide.txt → MS2PIP peprec 数据框（spec_id / modifications / peptide / charge /
-#' orig_mod）。N-2（2026-09-26，GLM）：orig_mod 保留 peptide.txt 修饰原串（尾分号
+#' orig_mod）。N-2orig_mod 保留 peptide.txt 修饰原串（尾分号
 #' 剥掉一层，与消费端 read_predict_txt 的 sub(";+$","",...) 完全同口径），预测块
 #' TITLE 键用它拼接——保证与下游键逐字节一致（写 peprec 文件时不含此列）。
 build_peprec <- function(pep_df) {
@@ -88,9 +88,9 @@ build_peprec <- function(pep_df) {
 #' y_ion, y_ion_mz, y_int；每个 ion 行按电荷 1..z 各一行，z=母离子电荷）。
 #' 返回 list(by_id=按 spec_id 分组的命名 list(seq, b1, b2, y1, y2),
 #' charge3plus_ids=含电荷 3+ 行的 spec_id 数)——y1/y2 为 y1..y_{n-1} 正序。
-#' N-12（2026-09-26，GLM）：原实现对每个 spec_id 全表扫描 O(ids×rows)，
+#' N-12原实现对每个 spec_id 全表扫描 O(ids×rows)，
 #' 改为一次 split()；分组顺序与 unique() 的首现顺序一致。
-#' P0-3（2026-09-26，MiniMax）：isoPSV 预测块只承载 b+1/b+2/y+1/y+2（与
+#' P0-3isoPSV 预测块只承载 b+1/b+2/y+1/y+2（与
 #' pDeep2 同口径），电荷 3+ 行的强度不进入预测表——但必须计数上报，不得静默。
 parse_ms2pip_csv <- function(csv_file) {
   raw_csv <- read.delim(csv_file, sep = ",", check.names = FALSE,
@@ -166,7 +166,7 @@ build_predict_txt <- function(peprec_table, parsed_by_id) {
   list(lines = predict_lines, skip_no_rows = skip_no_rows, skip_len = skip_len)
 }
 
-#' MS2PIP v4 现代契约的长表解析（工作站补丁 2026-10-05）。
+#' MS2PIP v4 现代契约的长表解析。
 #' v4.0+ 正式版 predict-batch -f tsv 输出：psm_index/ion_type/ion_number/
 #' mz/predicted（log2 强度、单电荷 b/y）。b2/y2 以 0 填充（v4 批量输出无
 #' 电荷维度）；psm_index 0 起按首现顺序对齐 peprec 的 p000001 起 spec_id。
@@ -183,11 +183,11 @@ parse_ms2pip_long <- function(tsv_file) {
   grp_order <- as.integer(unique(raw$psm_index))
   grp_order <- sort(grp_order)
   by_id <- lapply(grp_order, function(idx) {
-    g <- raw[raw$psm_index == idx, , drop = FALSE]
+    g <- raw[raw$psm_index == idx,, drop = FALSE]
     n_frag <- max(g$ion_number)
     mk <- function(ion) {
       v <- numeric(n_frag)
-      sub_g <- g[g$ion_type == ion, , drop = FALSE]
+      sub_g <- g[g$ion_type == ion,, drop = FALSE]
       v[sub_g$ion_number] <- sub_g$intensity
       v
     }
@@ -224,10 +224,10 @@ main <- function() {
     cat("dry-run: peprec 已写", peprec_file, "（", nrow(peprec_table), "行），未调用 ms2pip\n")
     return(0L)
   }
-  # N-11（2026-09-26，GLM）：CLI 契约按官方两代——4.x 用 predict-batch +
+  # N-11CLI 契约按官方两代——4.x 用 predict-batch +
   # --model-dir/-o；3.x 无 predict 子命令（-c 配置 + -n 并行）。--threads 两代
   # 都不存在。先试 4.x，失败自动回退 3.x；两代都不行则报错并留两份日志。
-  # P2-2（2026-09-26，deepseek v1.0 审查）：两代日志分开——此前共用一条
+  # P2-2两代日志分开——此前共用一条
   # 路径，3.x 运行覆盖 4.x 失败证据，恰好丢失最需要诊断的那半。
   # ms2pip_log_4x/3x：两代独立日志路径；cli_contract_used：实际生效的契约
   ms2pip_log_4x <- paste0(cli_args$`out`, ".ms2pip.log")
@@ -236,7 +236,7 @@ main <- function() {
     suppressWarnings(system2(cli_args$python, arg_list,
       stdout = log_path, stderr = log_path))
   }
-  # v4 现代契约（工作站补丁 2026-10-05）：位置参数 PSMS ＋ -t peprec ＋
+  # v4 现代契约位置参数 PSMS ＋ -t peprec ＋
   # --model <名>（params 非目录时作模型名，默认 HCD）＋ -f tsv；-o 为输出名
   # 前缀（实际写 <prefix>.tsv）。官方 4.0-4.2 无 --peprec 旗标（原 4.x 契约
   # 系预发布口径，保留于下方作回退）。
@@ -289,7 +289,7 @@ main <- function() {
   predict_lines <- predict_result$lines
   if (!length(predict_lines)) stop("MS2PIP 结果与 peptide.txt 无匹配（肽长/离子数不符）")
   writeLines(predict_lines, cli_args$`out`, useBytes = TRUE)
-  # P0-3（2026-09-26，MiniMax）：电荷 3+ 行的强度不进入预测表（表格式与 pDeep2
+  # P0-3电荷 3+ 行的强度不进入预测表（表格式与 pDeep2
   # 同口径只含 +1/+2）——计数上报，绝不静默；无产物/长度不符的跳过数同样上报
   if (parsed_result$charge3plus_ids > 0L || predict_result$skip_no_rows > 0L ||
       predict_result$skip_len > 0L) {

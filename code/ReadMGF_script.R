@@ -185,6 +185,18 @@ mgf_line_chunks <- function(filename, chunk_size = 500) {
   b <- which(all_lines == "BEGIN IONS")
   e <- which(all_lines == "END IONS")
   if (length(b) == 0) return(list())
+  # 用户工作站实测尾部 BEGIN 无 END（截断/损坏块）时 e 短于
+  # b，e[rng[2]] 取 NA → "NA/NaN argument" 崩第一步。截齐：丢弃无 END 的
+  # 尾部谱块并双语提示。
+  # live fire: a truncated tail (BEGIN without END) makes e shorter than b and
+  # e[rng[2]] NA, crashing step 1. Trim unmatched trailing blocks with a note.
+  if (length(e) < length(b)) {
+    cat("[MGF] ", basename(filename), "：尾部 ", length(b) - length(e),
+        " 个谱块缺 END IONS（截断/损坏），已跳过\n", sep = "")
+    cat("[MGF] ", basename(filename), ": ", length(b) - length(e),
+        " trailing block(s) lack END IONS (truncated/corrupt), skipped\n", sep = "")
+    b <- b[seq_len(length(e))]
+  }
   n <- length(b)
   grp <- ceiling(seq_len(n) / chunk_size)
   lapply(split(seq_len(n), grp), function(ix) {
@@ -242,7 +254,7 @@ parse_mgf_chunk <- function(payload) {
 #' @keywords internal
 load_unlabeled_mgfs <- function(files, cl, chunk_size = 500) {
   loaded <- load_mgf_shared(files, cl, chunk_size)
-  # v1.0 优化（2026-09-26）：三向量先按块谱数预分配、分块填入，避免
+  # v1.0 优化三向量先按块谱数预分配、分块填入，避免
   # c() 每次整向量复制（11.4s 载入里的 GC 损耗之一）
   n_spec <- sum(vapply(loaded, length, integer(1)))
   titles <- character(n_spec)
@@ -312,12 +324,12 @@ load_mgf_part_worker <- function(f, part, parts) {
 #' 探测 compat.R 所在代码目录（worker bootstrap 用）。
 #' Probe the code directory holding compat.R (for worker bootstrap).
 #'
-#' 2026-09-18 起用于 mgf_read_cluster；2026-09-25（P0-2）提为顶层函数，
+#' 起用于 mgf_read_cluster；提为顶层函数，
 #' 供全部集群 bootstrap 共用——worker 里 source 相对路径只当启动目录恰为
 #' code/ 时成立，从其他目录启动（tests/、上级目录 Rscript code/xxx.R）
 #' 会全体报 "cannot open the connection"。
-#' Used by mgf_read_cluster since 2026-09-18; promoted to top level on
-#' 2026-09-25 (P0-2) for every cluster bootstrap - relative source() inside
+#' Used by mgf_read_cluster since; promoted to top level on
+#' (P0-2) for every cluster bootstrap - relative source() inside
 #' workers only works when the process starts from code/; any other cwd
 #' (tests/, or Rscript code/xxx.R from above) fails every worker with
 #' "cannot open the connection".
@@ -340,10 +352,10 @@ probe_code_dir <- function() {
 #' Unified worker bootstrap: source all core libraries by absolute path plus
 #' a health check.
 #'
-#' 2026-09-25（P0-2）：旧实现三处集群裸用相对路径 source（依赖 cwd 恰为
+#' 旧实现三处集群裸用相对路径 source（依赖 cwd 恰为
 #' code/），全部替换为本函数；末尾断言 parse_lines_vectorized 已载入，
 #' 失败立即给出可读提示而非 "cannot open the connection"。
-#' 2026-09-25 (P0-2): three clusters used bare relative-path source() (only
+#' (P0-2): three clusters used bare relative-path source() (only
 #' correct when cwd happens to be code/); all replaced by this function. A
 #' final assertion checks parse_lines_vectorized is loaded, failing with a
 #' readable message instead of "cannot open the connection".
@@ -379,22 +391,22 @@ mgf_read_cluster <- local({
   cl <- NULL
   function() {
     if (!is.null(cl)) return(cl)
-    # 工作进程 bootstrap 用的代码目录（2026-09-18 加固；2026-09-25 提为顶层
+    # 工作进程 bootstrap 用的代码目录（加固；提为顶层
     # probe_code_dir，见上）。在创建集群前探测 compat.R 所在目录并改用绝对路径。
-    # code dir for the worker bootstrap (hardened 2026-09-18; promoted to the
-    # top-level probe_code_dir above on 2026-09-25). Probe for the directory
+    # code dir for the worker bootstrap (hardened; promoted to the
+    # top-level probe_code_dir above on ). Probe for the directory
     # holding compat.R and source by absolute path instead.
     ncores <- parallel::detectCores()
     if (is.na(ncores) || ncores < 2L) ncores <- 2L
     cl <<- parallel::makeCluster(max(1L, min(8L, ncores - 1L)))
-    # P3-9（2026-09-25 代码审查）：与其余三处集群统一走 ispsv_bootstrap_cluster
+    # P3-9与其余三处集群统一走 ispsv_bootstrap_cluster
     # （绝对路径 + 健康检查），消除最后一份自有 bootstrap 分支
     ispsv_bootstrap_cluster(cl)
     cl
   }
 })
-#' 核心代码指纹（B5，2026-09-12）：对决定结果口径的核心脚本取 md5 串接。
-#' Core code fingerprint (B5, 2026-09-12): concatenated md5 of the scripts
+#' 核心代码指纹对决定结果口径的核心脚本取 md5 串接。
+#' Core code fingerprint concatenated md5 of the scripts
 #' that determine the result schema.
 #'
 #' 断点续跑会复用旧结果文件夹；代码更新后旧结果仍被下游按新口径消费就会
@@ -414,13 +426,13 @@ mgf_read_cluster <- local({
 #'   The fingerprint string ("" when the core files are missing).
 #' @keywords internal
 code_fingerprint <- function(code_dir = getwd()) {
-  # F-5（2026-09-26）：纳入 boot.R（6 个驱动脚本的唯一加载入口，决定加载顺序）、
+  # F-5纳入 boot.R（6 个驱动脚本的唯一加载入口，决定加载顺序）、
   # master_table_export.R（结果列口径）与 stageB_paired_match.R（配对裁决口径）。
   core <- c("compat.R", "ReadMGF_script.R", "user_run.R", "user_step2.R",
             "boot.R", "master_table_export.R", "stageB_paired_match.R")
-  # G-3（2026-09-26）：适配器与引擎/模板目录同样决定结果口径（酶口径、修饰
+  # G-3适配器与引擎/模板目录同样决定结果口径（酶口径、修饰
   # 位点语义都在其中），纳入指纹。
-  # 附带发现修复（2026-09-26，deepseek v1.0 全量检测报告）：预测器适配器
+  # 附带发现修复预测器适配器
   # （code/predictors/*.R，如 pred_ms2pip.R）直接决定 stage A 的 predict 列
   # 口径——此前不在指纹内，换包续跑时预测器改动不会触发混合态告警
   extra <- c(sort(list.files(file.path(code_dir, "search_adapter_*.R"), full.names = TRUE)),
@@ -609,7 +621,7 @@ res_field_map <- function() {
 #' R 会话已用内存（MB），用 gc() 统计口径估算。
 #' Estimate the R session's used memory (MB) from gc() accounting.
 #'
-#' R >= 4.1 的 gc() 直接给出 "used (Mb)" 列；旧版本给出 cell 数
+#' R >= 4.1 的 gc() 直接给出 "used (Mb)" 列；早期实现本给出 cell 数
 #' （Ncells/Vcells，按 8 字节/单元估算）。只作预算守卫用，不求精确。
 #' gc() of R >= 4.1 reports a "used (Mb)" column directly; older R reports
 #' cell counts (Ncells/Vcells, estimated at 8 bytes per cell). Approximate -
@@ -632,11 +644,11 @@ iso_mem_mb <- function() {
 #'
 #' 工作站 1.4M 谱全量轮曾以 75GB+ 内存跑 14 小时零输出（合并段逐行
 #' rbind/cbind 拷贝反模式），本守卫把失控提前变成可定位的中止。
-#' 2026-09-25（P1-8）：阈值可经环境变量 ISOMEM_LIMIT_MB 覆盖；超过 70%
+#' 阈值可经环境变量 ISOMEM_LIMIT_MB 覆盖；超过 70%
 #' 阈值先打一次预警并触发 gc()，超过上限才中止。
 #' The 1.4M-spectrum workstation run once burned 75GB+ for 14h with zero
 #' output (per-row rbind/cbind copy anti-pattern); this guard turns runaway
-#' memory into a locatable abort. 2026-09-25 (P1-8): the limit is overridable
+#' memory into a locatable abort. (P1-8): the limit is overridable
 #' via the ISOMEM_LIMIT_MB environment variable; crossing 70% of the limit
 #' warns once and triggers gc(); crossing the limit aborts.
 #'
@@ -651,7 +663,7 @@ iso_mem_mb <- function() {
 #'   Character string, context printed on abort (e.g. current row/stage).
 #' @export
 iso_mem_guard <- function(limit_mb = NULL, ctx = "") {
-  # N-9（2026-09-25）：默认上限按物理内存 80% 自适应（小内存机器同样有保护）；
+  # N-9默认上限按物理内存 80% 自适应（小内存机器同样有保护）；
   # 显式传参（如 40000）仍按物理内存 80% 封顶——工作站 128GB 下 40GB 预算不变、
   # 16GB 机器下自动降到 ~13GB；ISOMEM_LIMIT_MB 为用户显式覆盖，不封顶。
   # 预警按 ctx 重置（换阶段可再提示一次）；预警用 message 不用 warning
@@ -659,7 +671,7 @@ iso_mem_guard <- function(limit_mb = NULL, ctx = "") {
   env_l <- suppressWarnings(as.numeric(trimws(Sys.getenv("ISOMEM_LIMIT_MB", unset = ""))))
   if (!is.na(env_l) && env_l > 0) {
     limit_mb <- env_l
-    # P3-2（2026-09-26）：显式覆盖超物理内存时守卫形同虚设——探测到物理总量
+    # P3-2显式覆盖超物理内存时守卫形同虚设——探测到物理总量
     # 且超限则只警告不拦截（用户显式覆盖，后果自负），但必须让用户看见。
     tm_env <- system_total_mb()
     if (!is.na(tm_env) && tm_env > 0 && limit_mb > tm_env) {
@@ -689,8 +701,8 @@ iso_mem_guard <- function(limit_mb = NULL, ctx = "") {
   }
   invisible(NULL)
 }
-#' 酶切类型定义表（v1.0，2026-09-26）。
-#' Enzyme definition table (v1.0, 2026-09-26).
+#' 酶切类型定义表。
+#' Enzyme definition table .
 #'
 #' cut 为酶切残基集合（""＝无酶切）；nocut 为酶切残基后禁止位点（如 Trypsin 的 P，
 #' 仅用于引擎配置行，不影响管线内部漏切计数——保持与历史口径一致）；sense 为
@@ -705,7 +717,7 @@ iso_mem_guard <- function(limit_mb = NULL, ctx = "") {
 #' label = the canonical name engines use.
 enzyme_defs <- list(
   trypsin      = list(label = "Trypsin",       cut = "KR",    nocut = "P", sense = "C"),
-  # 用户口径 2026-09-26：Trypsin 统一为 P 切不开（不再保留无 P 例外的 Trypsin/P
+  # 设计约定：Trypsin 统一为 P 切不开（不再保留无 P 例外的 Trypsin/P
   # 变体；旧配置里的 Trypsin/P 写法经别名归一为 trypsin）。LysargiNase 同 Trypsin，
   # K/R 后遇 P 不切。LysC/ArgC 同族（K/R C 端切）也带 P 阻断（与 Comet 内置表
   # 一致）。GluC 的缓冲液依赖（碳酸氢铵切 DE/磷酸缓冲只切 E）与 AspN 的 N 切点
@@ -734,8 +746,7 @@ enzyme_resolve <- function(x, default = "trypsin") {
   if (x == "无酶切") return("none")
   # 注意顺序：先 tolower 再去非字母数字（否则大写字母被当作非字母数字删掉）
   key <- gsub("[^a-z0-9]", "", tolower(x))
-  # G-1（2026-09-26）：Trypsin/P 写法已统一为带 P 阻断的 Trypsin（用户口径
-  # 2026-09-26），归一为 trypsin 时给一条 message 提示语义变化
+  # G-1Trypsin/P 写法已统一为带 P 阻断的 Trypsin归一为 trypsin 时给一条 message 提示语义变化
   if (key %in% c("trypsinp", "trypsin_p")) {
     message("Trypsin/P 已统一为 Trypsin（K/R 后遇 P 不切）
 Trypsin/P is normalized to Trypsin (no cleavage after K/R-P)")
@@ -798,7 +809,7 @@ enzyme_nterm_ok <- function(x = iso_enzyme(), prev_aa = "", first_aa = "") {
   prev_aa %in% c(strsplit(d$cut, "", fixed = TRUE)[[1]], prot_start)
 }
 #' 漏切位点计数（与历史 [KR] 口径同构的参数化）：C 端酶统计出现在非末位的 cut
-#' 残基（Trypsin 即"非 C 端的 K/R"，与旧版逐字节一致）；N 端酶统计出现在非首
+#' 残基（Trypsin 即"非 C 端的 K/R"，与早期实现逐字节一致）；N 端酶统计出现在非首
 #' 位的 cut 残基；无酶切为 0。nocut 不参与（保持历史口径）。
 #' Missed-cleavage count (the parameterization of the historical [KR] rule):
 #' C-terminal enzymes count cut residues NOT at the C-terminus (trypsin = K/R
@@ -808,18 +819,18 @@ enzyme_nterm_ok <- function(x = iso_enzyme(), prev_aa = "", first_aa = "") {
 enzyme_missed_cleavages <- function(x = iso_enzyme(), seq = "") {
   d <- enzyme_def(x)
   if (!nzchar(d$cut) || !nzchar(seq)) return(0L)
-  # G-6（2026-09-26）：非正则实现——避免将来扩酶表时 cut 含特殊字符
+  # G-6非正则实现——避免将来扩酶表时 cut 含特殊字符
   # （-、]、^）破坏字符类
   pos <- which(strsplit(seq, "", fixed = TRUE)[[1]] %in%
                  strsplit(d$cut, "", fixed = TRUE)[[1]])
   if (length(pos) == 0) return(0L)
   if (identical(d$sense, "N")) sum(pos != 1L) else sum(pos != nchar(seq))
 }
-#' 生成 pFind cfg 的 enzyme 行（v1.0，2026-09-26）。
-#' Build the pFind cfg enzyme line (v1.0, 2026-09-26).
+#' 生成 pFind cfg 的 enzyme 行。
+#' Build the pFind cfg enzyme line .
 #'
 #' pFind 行格式 enzyme=<名> <切点> <禁点> <C/N>；none 写 pFind 自带的无酶切条目
-#' NoEnzyme（pFind3 enzyme.ini EN16，deepseek 实测 rc=0）。
+#' NoEnzyme。
 #' The pFind line format is enzyme=<name> <cut> <nocut> <C/N>; none writes
 #' pFind's built-in no-enzyme entry NoEnzyme (pFind3 enzyme.ini EN16, verified
 #' rc=0 by the deepseek review).
@@ -831,12 +842,12 @@ pfind_enzyme_line <- function(x = "trypsin") {
          if (nzchar(d$cut)) d$cut else "_", " ",
          if (nzchar(d$nocut)) d$nocut else "_", " ", d$sense)
 }
-#' 从 Comet 参数文件的 [COMET_ENZYME_INFO] 酶表取酶编号（v1.0，2026-09-26）。
+#' 从 Comet 参数文件的 [COMET_ENZYME_INFO] 酶表取酶编号。
 #' Look up a Comet enzyme number from the [COMET_ENZYME_INFO] table of a
-#' params file (v1.0, 2026-09-26).
+#' params file .
 #'
 #' 按名称匹配（大小写不敏感）返回表中编号；未命中返回 NA（调用方自行追加）。
-#' 相比旧版硬编码编号（trypsin_p=2/lysc=3/…），本实现不依赖随包模板的编号布局，
+#' 相比早期实现硬编码编号（trypsin_p=2/lysc=3/…），本实现不依赖随包模板的编号布局，
 #' 用户自改酶表或换 Comet 版本都不会错配。
 #' Matches by name (case-insensitive) and returns the table's number; NA on
 #' miss (the caller appends). Unlike the old hardcoded numbers, this does not
@@ -863,8 +874,8 @@ comet_enzyme_number <- function(en = "trypsin", enzyme_table_lines = character(0
   }
   NA_integer_
 }
-#' 追加一条 Comet 酶表行（v1.0，2026-09-26）。
-#' Append one Comet enzyme-table entry (v1.0, 2026-09-26).
+#' 追加一条 Comet 酶表行。
+#' Append one Comet enzyme-table entry .
 #' @return 追加行文本。
 #'   The appended line text.
 comet_enzyme_append_line <- function(en = "trypsin", enzyme_table_lines = character(0)) {
@@ -876,24 +887,24 @@ comet_enzyme_append_line <- function(en = "trypsin", enzyme_table_lines = charac
           if (d$sense == "C") 1L else 0L, d$cut,
           if (nzchar(d$nocut)) d$nocut else "-")
 }
-#' 前体 m/z（P0-3，2026-09-26，GLM 审查）：pep_mass 为质子化单同位素质量
+#' 前体 m/zpep_mass 为质子化单同位素质量
 #' （M+H），前体 m/z = (M + z·H)/z = (pep_mass + (z-1)·H)/z。旧公式
 #' (pep_mass + H)/z 只在 z=2 时正确（z=1 偏高 1.0078 Da、z=3 偏高 0.336 Da）。
-#' Precursor m/z (P0-3, 2026-09-26, GLM review): pep_mass is the protonated
+#' Precursor m/z pep_mass is the protonated
 #' monoisotopic mass (M+H), so the precursor m/z = (M + z*H)/z =
 #' (pep_mass + (z-1)*H)/z. The old formula (pep_mass + H)/z was only right at
 #' z=2 (+1.0078 Da at z=1, +0.336 Da at z=3).
 precursor_mz <- function(pep_mass, charge, H = 1.007825) {
   z <- as.integer(charge)
-  if (is.na(z) || z < 1L) stop("precursor_mz：非法电荷 ", charge)   # B-12（2026-09-26）
+  if (is.na(z) || z < 1L) stop("precursor_mz：非法电荷 ", charge)   # B-12
   (pep_mass + (z - 1L) * H) / z
 }
-#' qry.res 消毒（P0-A，2026-09-26 公共化，单一真源）：pFind 开放式搜库对修饰表
+#' qry.res 消毒pFind 开放式搜库对修饰表
 #' 外的 delta 质量写出 ";name#0" 占位修饰名，pUniFind 预处理 multiprocessing
 #' 断言崩溃。处理：含 name#0 的候选整行删除；无幸存候选的谱块整块删除；
 #' 幸存候选的 rank 逐块重排为 1..M 连续（rank 级 FDR 语义不变）。幂等。
 #' 由 legacy run_punifind_cli 与 punifind_gpu_compat.R 的 pf_run 共用。
-#' Sanitize qry.res files in place (P0-A, 2026-09-26 shared single source):
+#' Sanitize qry.res files in place 
 #' pFind's open search writes a ";name#0" placeholder for delta masses outside
 #' the mod table, which trips pUniFind's preprocessing assertion. Candidate rows
 #' carrying name#0 are dropped; blocks with no surviving candidate are dropped
@@ -953,10 +964,9 @@ pf_sanitize_qryres <- function(qry_res_dir, verbose = TRUE) {
 #'   字符向量，qry.res 文件路径（一个或多个）。
 #'   Character vector of qry.res file paths (one or more).
 #' @param keep_spectra
-#'   可选的标题集合：仅保留这些谱的块（大表救援场景内存控制，
-#'   2026-09-24 R2 工作站 75GB 内存爆炸修复）。
+#'   可选的标题集合：仅保留这些谱的块。
 #'   Optional title set: only the blocks of these spectra are kept
-#'   (memory control for large-table rescue; 2026-09-24 R2 75GB fix).
+#'   (memory control for large-table rescue; R2 75GB fix).
 #' @param drop_decoy_candidates
 #'   逻辑，TRUE 时不构造诱饵候选列表项（救援只需要非诱饵候选）。
 #'   Logical; when TRUE decoy candidates are not built into the list
@@ -967,9 +977,9 @@ pf_sanitize_qryres <- function(qry_res_dir, verbose = TRUE) {
 #'   A list with one element per spectrum (keyed by title).
 #' @export
 pFind_res_read_one_file <- function(rf, keep_vec, drop, fmap) {
-  # 单文件解析核心（串行与 PSOCK 并行共用；2026-09-24 R3 P0 拆出）
+  # 单文件解析核心
   # per-file parsing core (shared by the serial and PSOCK paths; split out
-  # for the 2026-09-24 R3 P0 parallel reader)
+  # for the R3 P0 parallel reader)
   kset <- NULL
   if (!is.null(keep_vec)) {
     kset <- new.env(parent = emptyenv(), hash = TRUE)
@@ -1006,19 +1016,18 @@ pFind_res_read_one_file <- function(rf, keep_vec, drop, fmap) {
         invalid_delta_site <- FALSE
         off <- 8L                               # 修饰对起始（1-based：col7＝位点）
         if (nmods > 0L) {
-          # 修饰对是（位点,名称）顺序（官方 Filtered 逐谱对账确认，2026-09-16）
+          # 修饰对是（位点,名称）顺序
           # the modification pairs are (site, name) - verified spectrum by
-          # spectrum against the official Filtered table (2026-09-16)
+          # spectrum against the official Filtered table 
           sts <- p[seq.int(off, off + 2L * nmods - 1L, 2L)]
           raw_nms <- p[seq.int(off + 1L, off + 2L * nmods - 1L, 2L)]
           delta0 <- grepl("#[0-9]+$", raw_nms)
           nms <- sub("#[0-9]+$", "", raw_nms)
           mod_seg <- paste0(sts, ",", nms, ";")
-          # 用户口径 2026-09-16：开放搜库 delta 命名（#0）把 AnyN-term /
-          # AnyC-term 名分配到内部位点的候选剔除。pFind 位点惯例（实测
-          # restrict F1 全量）：0＝N 端槽、len+1＝C 端槽——C 端名在 len+1、
+          # 设计约定：开放搜库 delta 命名（#0）把 AnyN-term /
+          # AnyC-term 名分配到内部位点的候选剔除。pFind 位点惯例0＝N 端槽、len+1＝C 端槽——C 端名在 len+1、
           # N 端名在 0/1 均合法，不剔除
-          # user ruling 2026-09-16: a #0 delta-named terminal mod localized
+          # user ruling: a #0 delta-named terminal mod localized
           # at an internal site is invalid. pFind site convention (verified on
           # the full restrict F1): 0 = N-terminal slot, len+1 = C-terminal
           # slot - C-term names at len+1 and N-term names at 0/1 are legal
@@ -1076,18 +1085,18 @@ pFind_res_read_one_file <- function(rf, keep_vec, drop, fmap) {
     }
   out
 }
-#' PSOCK 工作函数（顶层定义：闭包不入参，避免整帧序列化；见 2026-09-24 注释）
-#' B7（2026-09-25 代码审查）：worker 结果落盘 RDS、只回传文件路径——百万级
+#' PSOCK 工作函数
+#' B7worker 结果落盘 RDS、只回传文件路径——百万级
 #' 嵌套列表经 PSOCK 回传时主进程单核反序列化 30+ 分钟；RDS 由 worker 本地写盘，
 #' 主进程按序 readRDS，反序列化与网络回传解耦。
 #' PSOCK worker function (top-level: closures are not passed around, avoiding
-#' whole-frame serialization). B7 (2026-09-25 review): the worker saves its
+#' whole-frame serialization). B7 the worker saves its
 #' result to an RDS file and returns only the path - million-element nested
 #' lists took 30+ min of single-core deserialization on the main process when
 #' returned through PSOCK; the RDS is written locally by the worker and the
 #' main process reads the files back in order.
 pFind_res_worker <- function(a) {
-  # v1.0（工作站反馈#19）：PSOCK 分支补逐文件进度（此前 2.5h 只打首尾两行）
+  # PSOCK 分支补逐文件进度（此前 2.5h 只打首尾两行）
   cat(sprintf("[pFind_res_reader] worker 开始：%s\n", basename(a$rf)))
   t_w <- proc.time()
   one <- pFind_res_read_one_file(a$rf, a$keep, a$drop, res_field_map())
@@ -1100,9 +1109,9 @@ pFind_res_worker <- function(a) {
 #' Fast reader of pFind qry.res files into a structured list (serial or
 #' per-file PSOCK parallel).
 #'
-#' 2026-09-24 R3 P0：多文件时 parallel=TRUE 按文件分派 PSOCK worker（文件间
+#' R3 P0：多文件时 parallel=TRUE 按文件分派 PSOCK worker（文件间
 #' 互不依赖），主进程按文件序合并——后文件同标题覆盖，与串行语义逐字节一致。
-#' 2026-09-24 R3 P0: with several files parallel=TRUE dispatches one PSOCK
+#' R3 P0: with several files parallel=TRUE dispatches one PSOCK
 #' worker per file (files are mutually independent); the main process merges
 #' in file order, so later files overwrite duplicate titles exactly as the
 #' serial path does.
@@ -1136,7 +1145,7 @@ pFind_res_reader <- function(res_files, keep_spectra = NULL,
   args_list <- lapply(seq_along(res_files), function(k)
     list(rf = res_files[[k]], keep = keep_spectra, drop = drop_decoy_candidates,
          rds = file.path(rds_dir, sprintf("%03d.rds", k))))
-  # v1.0（2026-09-28 工作站验收 P2）：outfile="" 把 worker stdout 接回主进程，
+  # v1.0outfile="" 把 worker stdout 接回主进程，
   # 否则 makePSOCKcluster 默认丢弃 worker 输出，逐文件进度（pFind_res_worker 的
   # cat）在日志里不可见——与 #19 要解决的"长阻塞无进度"同形
   cl <- parallel::makePSOCKcluster(nw, outfile = "")
@@ -1150,7 +1159,7 @@ pFind_res_reader <- function(res_files, keep_spectra = NULL,
   rds_paths <- parallel::parLapply(cl, args_list, pFind_res_worker)
   out <- list()
   for (rp in rds_paths) {
-    # deepseek §2.1（2026-09-25）：worker 结果缺失必须显式报错，不得静默少并
+    # deepseek §2.1worker 结果缺失必须显式报错，不得静默少并
     if (!file.exists(rp)) stop("worker 结果缺失（RDS 未落盘）：", rp,
                                "
 worker result missing (RDS not written): ", rp)
@@ -1166,14 +1175,14 @@ worker result missing (RDS not written): ", rp)
 #' Post-process pFind results: the unfiltered table replaces Filtered and decoy
 #' rows are rescued with the best non-decoy candidate from the res files.
 #'
-#' 步骤（用户口径 2026-09-16）：①读取 result 目录全部 *.qry.res；②以
+#' 步骤①读取 result 目录全部 *.qry.res；②以
 #' pFind.spectra（未过滤全量 PSM）为基表；③Target/Decoy＝decoy 的行，从该谱
 #' res 候选中取 Raw_Score 最高的非 decoy 候选替换（序列/修饰/特异性/蛋白/
 #' 位置/分数；蛋白名与位置经目标库序列回贴解析，不依赖 res 的蛋白 id 映射；
 #' res 无非 decoy 候选的行原样保留，交由下游诱饵去除步骤处理）；④结果写为
 #' pFind-Filtered.spectra（原官方 Filtered 备份为 pFind-Filtered.origin.spectra）
 #' 供结果合并、理论谱图生成与竞争打分使用。幂等：origin 备份存在时不重复备份。
-#' Steps (user ruling 2026-09-16): (1) read every *.qry.res in the result
+#' Steps (1) read every *.qry.res in the result
 #' folder; (2) start from the unfiltered pFind.spectra table; (3) for rows with
 #' Target/Decoy = decoy, replace with the highest Raw_Score non-decoy candidate
 #' of that spectrum (sequence/modification/specificity/proteins/position/
@@ -1197,7 +1206,7 @@ worker result missing (RDS not written): ", rp)
 #'   written=输出路径)。
 #'   Named vector c(rows, decoy, rescued, kept, written).
 #' @export
-# v1.0（2026-09-28 工作站反馈#18）：pFind 后处理复用判据。指纹＝
+# v1.0pFind 后处理复用判据。指纹＝
 # pFind.spectra＋全部 *.qry.res＋FASTA 的 mtime|size；与标记文件逐行一致即可
 # 跳过（单槽约省 3–3.4h）。pFind.spectra 与 FASTA 只读、pf_sanitize_qryres 只在
 # 内容变化时回写 qry.res——指纹自第二轮起稳定（首轮消毒后的 mtime 变化会多付
@@ -1230,10 +1239,9 @@ pfind_res_postprocess <- function(result_dir, fasta,
   sp <- read.delim(sp_path, sep = "\t", header = TRUE, stringsAsFactors = FALSE,
                    check.names = FALSE, quote = "", comment.char = "",
                    na.strings = character(0))
-  # 只加载诱饵行对应谱的块、并丢弃诱饵候选（2026-09-24 R2 工作站内存修复：
-  # 全量约 14M 候选列表曾把 RSS 推到 75GB+）
+  # 只加载诱饵行对应谱的块、并丢弃诱饵候选
   # load only the decoy spectra's blocks and drop decoy candidates
-  # (2026-09-24 R2 workstation memory fix: the full ~14M-candidate list
+  # (memory fix: the full ~14M-candidate list
   # once pushed RSS past 75GB)
   td_col <- grep("^Target/Decoy$", colnames(sp), value = TRUE)
   if (length(td_col) == 0) td_col <- "Target.Decoy"
@@ -1259,8 +1267,7 @@ pfind_res_postprocess <- function(result_dir, fasta,
     fa_seqs <- as.character(fa_seqs)
   }
   # 蛋白组拼接成单串＋各蛋白起始偏移：一条序列的全部命中由一次 C 级
-  # gregexpr 得到，替代旧版"逐救援行 vapply 扫描整蛋白组"（R2 14 小时
-  # 单核卡点的根因：约 30 万诱饵行 × 2-3 万蛋白 = 百亿次 grepl）
+  # gregexpr 得到，替代早期实现"逐救援行 vapply 扫描整蛋白组"
   # the proteome joined into one string plus per-protein start offsets: all
   # hits of one sequence come from a single C-level gregexpr, replacing the
   # old per-rescued-row whole-proteome vapply scan (the R2 14h single-core
@@ -1309,13 +1316,12 @@ pfind_res_postprocess <- function(result_dir, fasta,
   }
   dec_idx <- which(is_dec)
   n_dec <- length(dec_idx)
-  # 批量写入缓冲：救援值写入预分配向量（B6 真修 2026-09-25 deepseek 基准）——
-  # 旧版 13 个累加向量逐行 c() 追加，每次整份复制、单向量 O(n²)（实测 5 万行
+  # 批量写入缓冲：救援值写入预分配向量——
+  # 早期实现 13 个累加向量逐行 c() 追加，每次整份复制、单向量 O(n²)（实测 5 万行
   # 7.7s / 10 万行 30s，外推 45 万诱饵 ≈2.2h）；预分配后按 n_rescue 下标填写、
   # 末尾截断。res 查找改为循环外一次性 match()（逐行 match 每次重建哈希，
   # 实测比线性扫描还慢 1.8×，同样不可用）。
-  # batched write buffers into PREALLOCATED vectors (B6 real fix 2026-09-25,
-  # deepseek benchmark): the old 13 accumulating vectors grew with per-row
+  # batched write buffers into PREALLOCATED vectors the old 13 accumulating vectors grew with per-row
   # c(), copying the whole vector each time - O(n²) per vector (measured 7.7s
   # at 50k and 30s at 100k rows, ~2.2h extrapolated for 452k decoys);
   # preallocation writes by a rescue counter and trims at the end. The res
@@ -1328,7 +1334,7 @@ pfind_res_postprocess <- function(result_dir, fasta,
   r_miss <- character(n_dec)
   n_rescue <- 0L; n_keep <- 0L
   t_loop <- proc.time()
-  # B6（2026-09-25 代码审查）：res 是百万级命名列表，按名查找线性扫描；
+  # B6res 是百万级命名列表，按名查找线性扫描；
   # 名称向量与诱饵标题一次取出、循环外一次性 match（哈希，860×），循环内按下标取
   res_names <- names(res)
   dec_fns <- as.character(sp$File_Name[dec_idx])
@@ -1341,9 +1347,9 @@ pfind_res_postprocess <- function(result_dir, fasta,
     best <- NULL
     for (cd in blk$candidates) {
       if (isTRUE(cd$is_decoy)) next
-      # 末端限定名出现在非末端位点的 #0 delta 候选剔除（用户口径 2026-09-16）
+      # 末端限定名出现在非末端位点的 #0 delta 候选剔除
       # skip #0-delta candidates whose terminal-named mods sit at internal sites
-      # (user ruling 2026-09-16)
+      # 
       if (isTRUE(cd$invalid_delta_site)) next
       if (is.null(best) || (cd$raw_score > best$raw_score)) best <- cd
     }
@@ -1362,8 +1368,7 @@ pfind_res_postprocess <- function(result_dir, fasta,
     r_spec[n_rescue] <- as.character(best$specificity)
     r_shift[n_rescue] <- suppressWarnings(as.numeric(sp[["Exp.MH+"]][i]))
     if (length(fa_seqs) > 0) {
-      # 旧口径：fasta 存在时救援行一律写回蛋白注释——无命中也写 "/"（旧代码
-      # nzchar("/") 恒真的产物；保持逐字节等价，R2 修复不改口径）
+      # 旧口径：fasta 存在时救援行一律写回蛋白注释——无命中也写 "/"
       # old behavior: with a fasta present the rescued row always gets the
       # protein annotation rewritten - no-hit rows get "/" too (an artifact of
       # the old nzchar("/") check; kept for byte-exact equivalence)
@@ -1433,7 +1438,7 @@ pfind_res_postprocess <- function(result_dir, fasta,
 #' Calculate theoretical positions and masses of b and y ions for a peptide.
 #'
 #' 给定肽段序列（考虑修饰）计算 b、y 离子的理论位置与质量；允许对特定
-#' 氨基酸或末端加标记质量（Unlabel / N15 / C13 / 自定义 LetterMass 形式）。
+#' 氨基酸或末端加标记质量。
 #' Computes the theoretical positions and masses of the b and y ions for a
 #' given peptide sequence with modifications; supports residue/terminal labels
 #' (Unlabel / N15 / C13 / custom LetterMass forms).
@@ -1495,7 +1500,7 @@ by_ions_position<-function (peptide = "", modification = "", label = "Unlabel",
       }
     }
   }
-  # v1.0：自定义修饰行（label_type "|" 行）补进质量表——修饰串里
+  #：自定义修饰行（label_type "|" 行）补进质量表——修饰串里
   # Name[STY]/Name[AnyN-term] 等带标签名经此可查到组成式算出的 Δ质量
   AA_mass_dataframe <- augment_aa_mass_table(AA_mass_dataframe)
   H_atom_weight <- 1.007825
@@ -1523,10 +1528,10 @@ by_ions_position<-function (peptide = "", modification = "", label = "Unlabel",
                                            ",")[[1]]
       if(!temp_modification_split[2]%in%AA_mass_dataframe$AA &&
          !str_detect(temp_modification_split[2],"->")){
-        # 残基变体修饰名兜底（用户口径 2026-09-17）：如 Carbamidomethyl[E]
+        # 残基变体修饰名兜底如 Carbamidomethyl[E]
         # 表中只有 Carbamidomethyl[C] 等同族行——按基础名前缀取非末端变体行
         # 的同族质量（避免映射到 AnyN-term 行被误当末端修饰）
-        # residue-variant mod-name fallback (user ruling 2026-09-17): e.g.
+        # residue-variant mod-name fallback e.g.
         # Carbamidomethyl[E] has only Carbamidomethyl[C]-style family rows in
         # the table - take a NON-terminal variant of the same base name (so a
         # site-localised mod never maps to an AnyN-term row by accident)
@@ -1549,7 +1554,7 @@ by_ions_position<-function (peptide = "", modification = "", label = "Unlabel",
             return(NA)
           }
           mp <- suppressWarnings(as.integer(temp_modification_split[1]))
-          if (is.na(mp) || mp < 1L || mp > nchar(peptide)) {   # P0-4（2026-09-26）：位点越界守卫，防 NA 静默污染
+          if (is.na(mp) || mp < 1L || mp > nchar(peptide)) {   # P0-4位点越界守卫，防 NA 静默污染
             cat("修饰位点越界：", temp_modification_split[1], " / 肽长 ", nchar(peptide), "（", peptide, "）
 ", sep = "")
             return(NA)
@@ -1568,7 +1573,7 @@ by_ions_position<-function (peptide = "", modification = "", label = "Unlabel",
             C_terminal_weight <- C_terminal_weight + mass_shift
           }else{
           mp <- suppressWarnings(as.integer(temp_modification_split[1]))
-          if (is.na(mp) || mp < 1L || mp > nchar(peptide)) {   # P0-4（2026-09-26）：位点越界守卫，防 NA 静默污染
+          if (is.na(mp) || mp < 1L || mp > nchar(peptide)) {   # P0-4位点越界守卫，防 NA 静默污染
             cat("修饰位点越界：", temp_modification_split[1], " / 肽长 ", nchar(peptide), "（", peptide, "）
 ", sep = "")
             return(NA)
@@ -1629,13 +1634,13 @@ by_ions_position<-function (peptide = "", modification = "", label = "Unlabel",
 #' head(res$ions_table)
 #' @export
 # =============================================================================
-# 候选命中的观测峰集合（m/z 口径，2026-09-06 用户修订）
+# 候选命中的观测峰集合
 # 特异子离子比例必须按"观测峰 m/z"判断，不能按肽段坐标位点判断：两条肽段的
 # 同一碎片（如 L/I 等重或序列平移）落在不同位点，但谱图里命中的是同一个峰。
 # 本函数返回该候选的理论 b/y 离子（含 +1/+2 电荷）在观测谱中命中的峰下标
 # 集合（20 ppm 窗口）；修饰不被质量表识别时按无修饰重试一次。
 # The set of observed peaks a candidate matches (m/z basis; user revision of
-# 2026-09-06). Specific-ion ratios must be judged by the observed peak m/z,
+# ). Specific-ion ratios must be judged by the observed peak m/z,
 # not by the position coordinate on the peptide: the same fragment of two
 # peptides (e.g., an L/I swap or a sequence shift) sits at different positions
 # yet hits the SAME peak in the spectrum. Returns the indices of the observed
@@ -1655,10 +1660,10 @@ matched_peak_set <- function(seq, mod, sp, aa, aa_tab, tol_ppm = 20,
     theoretical_mz <- c(ion_table$b_1_charge, ion_table$b_2_charge,
                         ion_table$y_1_charge, ion_table$y_2_charge)
     if (length(observed_mz) == 0 || length(theoretical_mz) == 0) return(integer(0))
-    # 2026-09-26（MiniMax P1-1 整改）：O(n×m) 逐离子线性扫描改为 findInterval
+    # O(n×m) 逐离子线性扫描改为 findInterval
     # 二分范围查询——观测峰排序后每个理论窗口 O(log n)，整体 O((n+m) log n)；
     # 返回值为观测峰在原始 sp[[1]] 中的下标（与原实现语义一致）。
-    # v1.0（性能第二轮）：同谱多候选调用时排序可复用——调用方一次
+    # （性能第二轮）：同谱多候选调用时排序可复用——调用方一次
     # order() 后经 mz_sorted/mz_ord 传入（映射回原始下标，语义不变）。
     # observed_mz_order：排序位置 → 原始下标映射；window_lower/window_upper：
     # 各理论离子的匹配窗口边界；left_index/right_index：窗口在排序峰表上的
@@ -1672,12 +1677,12 @@ matched_peak_set <- function(seq, mod, sp, aa, aa_tab, tol_ppm = 20,
     }
     window_lower <- theoretical_mz * (1 - tol_ppm * 1e-6)
     window_upper <- theoretical_mz * (1 + tol_ppm * 1e-6)
-    # GLM v1.0 P1（2026-09-26）：findInterval 对等于下界的峰返回该峰下标，
+    # GLM v1.0 P1findInterval 对等于下界的峰返回该峰下标，
     # +1 后正好把它跳过——旧实现 which(mz >= lower) 含等值峰。left.open=TRUE
     # 返回严格小于 lower 的计数，+1 即第一个 >= lower 的位置（含等值峰）。
     left_index <- findInterval(window_lower, observed_mz_sorted, left.open = TRUE) + 1L
     right_index <- findInterval(window_upper, observed_mz_sorted)
-    # P0-D（2026-09-26，deepseek 实测）：理论离子 m/z 为 NA 时 findInterval 返回
+    # P0-D理论离子 m/z 为 NA 时 findInterval 返回
     # NA，if(NA<=NA) 抛 missing value——旧实现 which(NA 比较) 静默丢弃。这里
     # 逐窗口跳过 NA 边界，与旧行为逐字节同义。
     matched_indices <- unlist(lapply(seq_along(theoretical_mz), function(k) {
@@ -1721,7 +1726,7 @@ all_ions_position<-function (peptide = "", modification = "", label = "Unlabel",
       }
     }
   }
-  # v1.0：自定义修饰行（label_type "|" 行）补进质量表——修饰串里
+  #：自定义修饰行（label_type "|" 行）补进质量表——修饰串里
   # Name[STY]/Name[AnyN-term] 等带标签名经此可查到组成式算出的 Δ质量
   AA_mass_dataframe <- augment_aa_mass_table(AA_mass_dataframe)
   H_atom_weight <- 1.007825
@@ -1755,10 +1760,10 @@ all_ions_position<-function (peptide = "", modification = "", label = "Unlabel",
       temp_modification_split <- str_split(modification_split[modification_index],",")[[1]]
       if(!temp_modification_split[2]%in%AA_mass_dataframe$AA &&
          !str_detect(temp_modification_split[2],"->")){
-        # 残基变体修饰名兜底（用户口径 2026-09-17）：如 Carbamidomethyl[E]
+        # 残基变体修饰名兜底如 Carbamidomethyl[E]
         # 表中只有 Carbamidomethyl[C] 等同族行——按基础名前缀取非末端变体行
         # 的同族质量（避免映射到 AnyN-term 行被误当末端修饰）
-        # residue-variant mod-name fallback (user ruling 2026-09-17): e.g.
+        # residue-variant mod-name fallback e.g.
         # Carbamidomethyl[E] has only Carbamidomethyl[C]-style family rows in
         # the table - take a NON-terminal variant of the same base name (so a
         # site-localised mod never maps to an AnyN-term row by accident)
@@ -1781,7 +1786,7 @@ all_ions_position<-function (peptide = "", modification = "", label = "Unlabel",
             return(NA)
           }
           mp <- suppressWarnings(as.integer(temp_modification_split[1]))
-          if (is.na(mp) || mp < 1L || mp > nchar(peptide)) {   # P0-4（2026-09-26）：位点越界守卫，防 NA 静默污染
+          if (is.na(mp) || mp < 1L || mp > nchar(peptide)) {   # P0-4位点越界守卫，防 NA 静默污染
             cat("修饰位点越界：", temp_modification_split[1], " / 肽长 ", nchar(peptide), "（", peptide, "）
 ", sep = "")
             return(NA)
@@ -1800,7 +1805,7 @@ all_ions_position<-function (peptide = "", modification = "", label = "Unlabel",
             C_terminal_weight <- C_terminal_weight + mass_shift
           }else{
           mp <- suppressWarnings(as.integer(temp_modification_split[1]))
-          if (is.na(mp) || mp < 1L || mp > nchar(peptide)) {   # P0-4（2026-09-26）：位点越界守卫，防 NA 静默污染
+          if (is.na(mp) || mp < 1L || mp > nchar(peptide)) {   # P0-4位点越界守卫，防 NA 静默污染
             cat("修饰位点越界：", temp_modification_split[1], " / 肽长 ", nchar(peptide), "（", peptide, "）
 ", sep = "")
             return(NA)
@@ -1862,51 +1867,48 @@ all_ions_position<-function (peptide = "", modification = "", label = "Unlabel",
   
   # 内离子氨基酸表
   ##internal aa
-  internal_aa <- str_split(str_sub(peptide,2,ion_length),"")[[1]]
-  AA_weight <- AA_weight[2:ion_length]
-  names(AA_weight) <- internal_aa
-  
-  internal_aa_1 <- as.data.frame(matrix(NA,nrow = length(internal_aa) , ncol = 3))
-  colnames(internal_aa_1) <- c("Class","Charge","m_z")
-  internal_aa_1$Class <- internal_aa
-  internal_aa_1$Charge <- 1
-  internal_aa_1$m_z <- AA_weight + H_atom_weight
-  internal_aa_1_NH3 <- internal_aa_1
-  internal_aa_1_NH3$Class <- paste0(internal_aa_1_NH3$Class,"_NH3") 
-  internal_aa_1_NH3$m_z <- internal_aa_1_NH3$m_z - NH3_loss
-  internal_aa_1_H2O <- internal_aa_1
-  internal_aa_1_H2O$Class <- paste0(internal_aa_1_H2O$Class,"_H2O") 
-  internal_aa_1_H2O$m_z <- internal_aa_1_H2O$m_z - H2O_loss
-  internal_aa_1<-rbind(internal_aa_1,internal_aa_1_NH3,internal_aa_1_H2O)
-  
-  internal_aa_2 <- as.data.frame(matrix(NA,nrow = length(internal_aa) - 1 , ncol = 3))
-  colnames(internal_aa_2) <- c("Class","Charge","m_z")
-  internal_aa_2$Class <- paste(internal_aa[1:(ion_length-2)] , internal_aa[2:(ion_length-1)], sep = "_")
-  internal_aa_2$Charge <- 1
-  internal_aa_2$m_z <- AA_weight[1:(ion_length-2)] + AA_weight[2:(ion_length-1)] + H_atom_weight
-  internal_aa_2_NH3 <- internal_aa_2
-  internal_aa_2_NH3$Class <- paste0(internal_aa_2_NH3$Class,"_NH3") 
-  internal_aa_2_NH3$m_z <- internal_aa_2_NH3$m_z - NH3_loss
-  internal_aa_2_H2O <- internal_aa_2
-  internal_aa_2_H2O$Class <- paste0(internal_aa_2_H2O$Class,"_H2O") 
-  internal_aa_2_H2O$m_z <- internal_aa_2_H2O$m_z - H2O_loss
-  internal_aa_2<-rbind(internal_aa_2,internal_aa_2_NH3,internal_aa_2_H2O)
-  
-  internal_aa_3 <- as.data.frame(matrix(NA,nrow = length(internal_aa) - 2 , ncol = 3))
-  colnames(internal_aa_3) <- c("Class","Charge","m_z")
-  internal_aa_3$Class <- paste(internal_aa[1:(ion_length-3)] , internal_aa[2:(ion_length-2)] ,internal_aa[3:(ion_length-1)] , sep = "_")
-  internal_aa_3$Charge <- 1
-  internal_aa_3$m_z <- AA_weight[1:(ion_length-3)] + AA_weight[2:(ion_length-2)] + AA_weight[3:(ion_length-1)] + H_atom_weight
-  internal_aa_3_NH3 <- internal_aa_3
-  internal_aa_3_NH3$Class <- paste0(internal_aa_3_NH3$Class,"_NH3") 
-  internal_aa_3_NH3$m_z <- internal_aa_3_NH3$m_z - NH3_loss
-  internal_aa_3_H2O <- internal_aa_3
-  internal_aa_3_H2O$Class <- paste0(internal_aa_3_H2O$Class,"_H2O") 
-  internal_aa_3_H2O$m_z <- internal_aa_3_H2O$m_z - H2O_loss
-  internal_aa_3<-rbind(internal_aa_3,internal_aa_3_NH3,internal_aa_3_H2O)
-  
-  internal_aa_table<-rbind(internal_aa_1, internal_aa_2, internal_aa_3)
-  
+  #：短肽（≤4 残基）守卫——两个坑：① 1:(n-2) 在 n<2 时变成倒序
+  # 区间（如 2:1 取 2 个元素），paste 结果赋进 0 行 data.frame 报
+  # "replacement has N rows, data has 0"；② R 4.x 对 0 行 data.frame 做
+  # $col <- 标量 赋值同样报该错（denovo 短肽候选触发，整簇 worker 崩溃）。
+  # 统一走 mk_int_tab：0 行直接返回带列空表，不经过任何赋值。
+  #: short-peptide (<=4 residues) guards - two traps: (a) 1:(n-2)
+  # becomes a REVERSED index run when n < 2 (2:1 yields 2 elements) whose
+  # paste result is assigned into a 0-row frame; (b) R 4.x errors the same
+  # way on $col <- scalar into a 0-row frame. Triggered by short de-novo
+  # candidates, killing the whole worker cluster. mk_int_tab returns a
+  # fully-typed empty frame for 0 rows without any assignment.
+  mk_int_tab <- function(cls, mz) {
+    if (length(cls) == 0L)
+      return(data.frame(Class = character(0), Charge = integer(0),
+                        m_z = numeric(0), stringsAsFactors = FALSE))
+    d <- data.frame(Class = as.character(cls),
+                    Charge = rep(1L, length(cls)),
+                    m_z = as.numeric(mz), stringsAsFactors = FALSE)
+    d_NH3 <- d; d_NH3$Class <- paste0(d_NH3$Class, "_NH3")
+    d_NH3$m_z <- d_NH3$m_z - NH3_loss
+    d_H2O <- d; d_H2O$Class <- paste0(d_H2O$Class, "_H2O")
+    d_H2O$m_z <- d_H2O$m_z - H2O_loss
+    rbind(d, d_NH3, d_H2O)
+  }
+  internal_aa <- if (ion_length >= 2L)
+    str_split(str_sub(peptide, 2, ion_length), "")[[1]] else character(0)
+  AA_weight_int <- AA_weight[if (ion_length >= 2L) 2:ion_length else integer(0)]
+  names(AA_weight_int) <- internal_aa
+
+  k2 <- max(0L, ion_length - 2L)
+  i2 <- seq_len(k2)
+  k3 <- max(0L, ion_length - 3L)
+  i3 <- seq_len(k3)
+  internal_aa_table <- rbind(
+    mk_int_tab(internal_aa, AA_weight_int + H_atom_weight),
+    mk_int_tab(internal_aa[i2],
+               AA_weight_int[i2] + AA_weight_int[i2 + 1L] + H_atom_weight),
+    mk_int_tab(paste(internal_aa[i3], internal_aa[i3 + 1L],
+                     internal_aa[i3 + 2L], sep = "_"),
+               AA_weight_int[i3] + AA_weight_int[i3 + 1L] +
+                 AA_weight_int[i3 + 2L] + H_atom_weight))
+
   return(list(ions_table = ions_table, internal_aa_table = internal_aa_table, pep_mass = pep_mass))
 }
 #' 计算两向量间余弦相似度。
@@ -2065,14 +2067,14 @@ cover_count <- function(px, lo, hi) {
 #' ions_match(ions, spec, mass_shift_tolerence = 20, ppm_or_Da = c("ppm", "Da"))
 #' @export
 
-# ---- 进程级理论离子缓存（v1.0 性能第二轮，2026-09-26） ------------------
+# ---- 进程级理论离子缓存------------------
 # by_ions_position / all_ions_position 都是 (seq|mod|label) 纯函数（内部的
 # AA_mass_dataframe 改写是函数内局部复制，不影响调用方），阶段 A/B 的 57k 谱
 # 里 (seq|mod) 候选大量重复（SJH 实测 19k 唯一肽/57k 行）。哈希缓存跨候选、
 # 跨分块复用——每个 worker 进程各持一份（库 source 时创建）。R 写时复制保证
 # 调用方对返回对象后续修改（如加 match 列）不会污染缓存。容量上限防 worker
 # 内存膨胀：超限整体清空（纯函数，清空只是丢加速）。
-# Process-level theoretical-ion cache (v1.0 perf round 2, 2026-09-26): both
+# Process-level theoretical-ion cache both
 # functions are pure in (seq|mod|label) (their internal AA-mass rewrites are
 # function-local copies); (seq|mod) candidates repeat heavily across the 57k
 # spectra (SJH: 19k unique peptides / 57k rows). The hash cache reuses results
@@ -2085,7 +2087,7 @@ theo_cache_env <- new.env(hash = TRUE, parent = emptyenv())
 theo_cache_max <- 5000L
 cached_by_ions_position <- function(peptide, modification, label,
                                     AA_mass_dataframe, amino_acid_table) {
-  # P0-1（2026-09-26，deepseek v1.0 审查）：键加 "by\r" 命名空间前缀——与
+  # P0-1键加 "by\r" 命名空间前缀——与
   # cached_all_ions_position 共用环境但返回结构不同（宽表 vs 长表），键格式
   # 相同会互相覆盖：all 先入缓存时 by 取到 all 对象 → 读列全空 →
   # candidate_specific_ratio/spec_ratio_* 整列塌空、混合谱类归零
@@ -2101,7 +2103,7 @@ cached_by_ions_position <- function(peptide, modification, label,
 }
 cached_all_ions_position <- function(peptide, modification, label,
                                      AA_mass_dataframe, amino_acid_table) {
-  # P0-1（2026-09-26，deepseek v1.0 审查）：键加 "all\r" 命名空间前缀
+  # P0-1键加 "all\r" 命名空间前缀
   key <- paste0("all\r", peptide, "\r", modification, "\r", label)
   if (exists(key, envir = theo_cache_env, inherits = FALSE))
     return(get(key, envir = theo_cache_env, inherits = FALSE))
@@ -2115,7 +2117,7 @@ cached_all_ions_position <- function(peptide, modification, label,
 ions_match<-function(therotical_by_ions = by_ions_position(...), mgf_ions = NULL,
                      mass_shift_tolerence = 20, ppm_or_Da = c("ppm","Da"), 
                      N15_label_state = FALSE, C13_label_state = FALSE){
-  if (is.null(mgf_ions)) stop("mgf_ions required (the legacy read_large_mgf_auto default was removed 2026-09-12)")
+  if (is.null(mgf_ions)) stop("mgf_ions required (the legacy read_large_mgf_auto default was removed )")
   ions_table<-therotical_by_ions$ions_table
   by_ions_long<-suppressMessages(melt(ions_table[,2:ncol(ions_table)]))
   colnames(by_ions_long)<-c("Type","m_z")
@@ -2269,7 +2271,7 @@ ions_match<-function(therotical_by_ions = by_ions_position(...), mgf_ions = NULL
 ions_match_selected<-function(therotical_ions = all_ions_position(...)$ions_table$m_z,
                               mgf_ions = NULL,
                      mass_shift_tolerence = 20, ppm_or_Da = c("ppm","Da")){
-  if (is.null(mgf_ions)) stop("mgf_ions required (the legacy read_large_mgf_auto default was removed 2026-09-12)")
+  if (is.null(mgf_ions)) stop("mgf_ions required (the legacy read_large_mgf_auto default was removed )")
   if(!tolower(ppm_or_Da)%in%c("ppm","da")){cat("Error mass shift tolerence!");return(NA)}
   if(!is.numeric(mass_shift_tolerence)){cat("Error mass shift tolerence!");return(NA)}
   
@@ -2327,6 +2329,35 @@ title_raw_scan <- function(title) {
 #' @examples
 #' title_scan_key("RAW1.1234.1234.2.0.dta")
 #' @export
+# 同 scan 多 MS2（pParse 共洗脱/多电荷拆分）
+# 的回退选择——前体离子质量差 ppm 最小者优先；ppm 并列再取价态一致者；
+# 无质量信息时退回"价态一致优先，否则首个"（旧口径）。psm_mh 为 Exp.MH.
+# （单电荷 M+H+），按 psm 电荷折算 m/z 后比较。
+# Fallback selection among same-scan MS2 blocks: minimal precursor-ppm first,
+# tie-broken by matching charge; without mass info, same-charge-then-first.
+pick_best_src <- function(cands, chg, psm_mh = NA_real_) {
+  if (length(cands) == 1) return(cands[[1]])
+  chg_n <- suppressWarnings(as.numeric(chg))
+  if (is.na(chg_n)) chg_n <- 2
+  mz <- vapply(cands, function(x) suppressWarnings(as.numeric(x[["mz"]])), 0)
+  if (!is.na(psm_mh) && psm_mh > 0 && any(!is.na(mz) & mz > 0)) {
+    psm_mz <- (psm_mh + (chg_n - 1) * 1.007276) / chg_n
+    z <- vapply(cands, function(x) suppressWarnings(as.numeric(x[["charge"]])), 0)
+    z <- ifelse(is.na(z) | z < 1, 1, z)
+    ppm <- abs(mz - psm_mz) / psm_mz * 1e6
+    ppm[is.na(ppm)] <- Inf
+    same_z <- abs(z - chg_n) < 1e-9
+    # 1 ppm 内视为并列（设计约定"多个候选再比价态"）；并列集内价态一致优先、
+    # 再取更小 ppm
+    tie <- ppm <= min(ppm) + 1
+    idx <- which(tie)
+    ord2 <- idx[order(!same_z[idx], ppm[idx])]
+    return(cands[[ord2[1]]])
+  }
+  if (!is.na(chg_n))
+    for (x in cands) if (suppressWarnings(as.numeric(x[["charge"]])) == chg_n) return(x)
+  cands[[1]]
+}
 title_scan_key <- function(title) {
   p <- strsplit(title, ".", fixed = TRUE)[[1]]
   paste0(p[1], ".", p[2])
@@ -2383,6 +2414,106 @@ resolve_file_list <- function(entries, pattern) {
 #'   A sorted character vector of absolute MGF file paths.
 #' @keywords internal
 resolve_mgf_list <- function(entries) resolve_file_list(entries, "\\.mgf$")
+
+# gf 键可直接填 raw 文件/文件夹——第一步
+# 用 pParse（随 pFind 安装；pfind_exe 是本软件必装依赖，零额外安装）自动转
+# MGF；无 pFind 时回退 msconvert（msconvert_exe 键）；两者皆无则明确报错。
+# pParse 输出标题（raw.scan.scan.charge.fraction.dta）＝本管线原生 File_Name
+# 约定，与手工经 pParse 转 MGF 的既有口径完全一致（无新语义）。
+# 调用契约（实测）：pParse.exe <cfg路径>（位置参数；cfg 为 GBK＋CRLF；进程
+# 对失败也返回 0——以产物 MGF 是否落盘为成功判据）。
+#: the mgf key accepts raw files/folders directly - step 1 converts
+# them with pParse (ships with pFind, a required dependency; nothing extra to
+# install); falls back to msconvert (msconvert_exe key); a clear error when
+# neither exists. pParse titles follow this pipeline's native File_Name
+# convention, identical to the established manual-pParse workflow.
+# Contract (verified live): pParse.exe <cfg-path> (positional; GBK + CRLF;
+# the process returns 0 even on failure - success is judged by output MGfs).
+convert_raw_entries_to_mgf <- function(mgf_entries, cfg) {
+  ent <- mgf_entries[trimws(mgf_entries) != ""]
+  direct_raws <- ent[grepl("\\.raw$", ent, ignore.case = TRUE) & file.exists(ent)]
+  dirs <- ent[dir.exists(ent)]
+  dir_raws <- unlist(lapply(dirs, function(d)
+    list.files(d, pattern = "\\.raw$", ignore.case = TRUE,
+               recursive = TRUE, full.names = TRUE)), use.names = FALSE)
+  raws <- unique(gsub("\\\\", "/", normalizePath(c(direct_raws, dir_raws), winslash = "/")))
+  if (!length(raws)) return(resolve_mgf_list(ent))
+  out_dir <- file.path(cfg$config_dir, "pparse_mgf")
+  dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+  cat("[第一步] 检测到 ", length(raws), " 个 raw 文件，自动转换 MGF（pParse）\n", sep = "")
+  cat("[step 1] ", length(raws), " raw file(s) detected; converting to MGF (pParse)\n", sep = "")
+  # 定位 pParse：<pfind_exe>/bin/pParse.exe（pfind_exe 约定为安装根；兼容直指 bin）
+  pf_root <- if (!is.null(cfg$pfind_exe) && length(cfg$pfind_exe) > 0)
+    trimws(tail(cfg$pfind_exe, 1)) else ""
+  pparse <- ""
+  if (nzchar(pf_root)) {
+    cand <- file.path(gsub("\\\\", "/", pf_root), "bin", "pParse.exe")
+    cand2 <- if (grepl("/bin$", cand)) file.path(dirname(cand), "pParse.exe") else cand
+    pparse <- if (file.exists(cand)) cand else if (file.exists(cand2)) cand2 else ""
+  }
+  logf <- file.path(out_dir, "pparse_run.log")
+  if (nzchar(pparse)) {
+    cfg_lines <- c("# auto-generated by isoPSV (step-1 raw->MGF)",
+                   "[Basic Options]",
+                   paste0("datanum = ", length(raws)),
+                   paste0("datapath", seq_along(raws), " = ", raws),
+                   "[Advanced Options]",
+                   "input_format = raw",
+                   "output_mgf = 1",
+                   "output_pf = 0",
+                   "output_msb = 0",
+                   "delete_msn = 0",
+                   "co-elute = 1",
+                   paste0("outputpath = ", gsub("\\\\", "/", out_dir)),
+                   "rewrite_files = 0")
+    pcfg <- file.path(out_dir, "pparse_auto.cfg")
+    writeLines(cfg_lines, pcfg, useBytes = TRUE, sep = "\r\n")
+    # cfg 需 GBK（pParse 中文版读取约定）：UTF-8 键均为 ASCII，仅路径可能含
+    # 非 ASCII——统一转 GBK 写
+    iconv_lines <- iconv(cfg_lines, from = "UTF-8", to = "GBK")
+    if (any(is.na(iconv_lines))) iconv_lines <- cfg_lines
+    con <- file(pcfg, open = "wb"); writeLines(iconv_lines, con, sep = "\r\n"); close(con)
+    old_wd <- getwd(); on.exit(setwd(old_wd), add = TRUE)
+    setwd(dirname(pparse))
+    st <- suppressWarnings(system2(pparse, shQuote(pcfg), stdout = logf, stderr = logf))
+    setwd(old_wd)
+    mgs <- list.files(out_dir, pattern = "\\.mgf$", ignore.case = TRUE, full.names = TRUE)
+    if (!length(mgs))
+      stop("[第一步] pParse 转换失败（无 MGF 产出；exit ", st, "）：", basename(raws[1]),
+           "（日志：", logf, "）\n",
+           "[step 1] pParse conversion produced no MGF (exit ", st, "): ",
+           basename(raws[1]), " (log: ", logf, ")")
+    cat("[第一步] pParse 转换完成：", length(mgs), " 个 MGF -> ", out_dir, "\n", sep = "")
+    cat("[step 1] pParse conversion done: ", length(mgs), " MGF(s) -> ", out_dir, "\n", sep = "")
+    # 已有手工 MGF 条目与转换产物合并去重
+    manual <- resolve_mgf_list(ent[!grepl("\\.raw$", ent, ignore.case = TRUE) & !dir.exists(ent)])
+    return(sort(unique(c(manual, gsub("\\\\", "/", mgs)))))
+  }
+  # 回退：msconvert（检测键存在时逐个转换）
+  msc <- if (!is.null(cfg$msconvert_exe) && length(cfg$msconvert_exe) > 0)
+    trimws(tail(cfg$msconvert_exe, 1)) else ""
+  if (nzchar(msc) && file.exists(msc)) {
+    for (r in raws) {
+      suppressWarnings(system2(msc, c(shQuote(r), "--mgf", "-o", shQuote(out_dir)),
+                               stdout = logf, stderr = logf))
+    }
+    mgs <- list.files(out_dir, pattern = "\\.mgf$", ignore.case = TRUE, full.names = TRUE)
+    if (length(mgs)) {
+      cat("[第一步] msconvert 转换完成：", length(mgs), " 个 MGF\n", sep = "")
+      manual <- resolve_mgf_list(ent[!grepl("\\.raw$", ent, ignore.case = TRUE) & !dir.exists(ent)])
+      return(sort(unique(c(manual, gsub("\\\\", "/", mgs)))))
+    }
+  }
+  stop("[第一步] mgf 键填了 raw 文件但无法转换：未找到 pParse（pfind_exe/bin/pParse.exe）",
+       " 与 msconvert（msconvert_exe）\n",
+       "请安装 pFind Studio（http://www.pfind.net，软件本身需要它）或 ProteoWizard",
+       "（https://proteowizard.sourceforge.io），或先把 raw 转成 MGF 再填 mgf 键。\n",
+       "[step 1] raw files given in the mgf key but no converter found: neither",
+       " pParse (pfind_exe/bin/pParse.exe) nor msconvert (msconvert_exe)\n",
+       "Install pFind Studio (http://www.pfind.net - required by this software anyway)",
+       " or ProteoWizard (https://proteowizard.sourceforge.io), or convert the raw",
+       " files to MGF before filling the mgf key.")
+}
 #' 读 pFind.cfg 风格参数文件。
 #' Read a pFind.cfg-style parameter file.
 #'
@@ -2400,20 +2531,20 @@ resolve_mgf_list <- function(entries) resolve_file_list(entries, "\\.mgf$")
 #'   A list (one character vector per key) plus the config_dir element.
 #' @keywords internal
 read_param_file <- function(path) {
-  # N-17（2026-09-25）：先给可读的文件不存在提示（旧版 readBin(n=NA) 报含糊错误）
+  # N-17先给可读的文件不存在提示（早期实现 readBin(n=NA) 报含糊错误）
   if (!file.exists(path)) stop("参数文件不存在\nparameter file not found: ", path)
-  # P3-5（2026-09-25）：编码安全读入——UTF-8（含 BOM）按 UTF-8 解码并剥 BOM，
+  # P3-5编码安全读入——UTF-8（含 BOM）按 UTF-8 解码并剥 BOM，
   # 非 UTF-8 经 iconv(GBK→UTF-8) 转码，失败才退回本地编码 readLines；二者都会
-  # 正确保留中文。（2026-09-26 同步：注释此前仍写"非 UTF-8 退回本地编码"，
+  # 正确保留中文。（同步：注释此前仍写"非 UTF-8 退回本地编码"，
   # 与实际 iconv 分支不符。）
-  # P3-5 (2026-09-25): encoding-safe read - UTF-8 (with BOM) is decoded as
+  # P3-5 encoding-safe read - UTF-8 (with BOM) is decoded as
   # UTF-8 with the BOM stripped; non-UTF-8 goes through iconv(GBK->UTF-8),
   # falling back to native-encoding readLines only on failure; both preserve
-  # Chinese correctly. (2026-09-26 sync: the comment used to say non-UTF-8
+  # Chinese correctly. (sync: the comment used to say non-UTF-8
   # falls back to native readLines, which did not match the iconv branch.)
-  # N-4（2026-09-25）：rawToChar 结果无编码标记，必须 Encoding<-"UTF-8" 再
+  # N-4rawToChar 结果无编码标记，必须 Encoding<-"UTF-8" 再
   # enc2native，否则 GBK 代码页下 UTF-8 中文路径仍被按本地字节串解释。
-  # N-4 (2026-09-25): rawToChar results carry no encoding mark; mark UTF-8
+  # N-4 rawToChar results carry no encoding mark; mark UTF-8
   # then enc2native, or Chinese paths in UTF-8 configs are still interpreted
   # as native bytes under a GBK codepage.
   raw <- readBin(path, "raw", n = file.info(path)$size)
@@ -2430,7 +2561,7 @@ read_param_file <- function(path) {
     txt <- enc2native(txt)
     lines <- strsplit(txt, "\n", fixed = TRUE)[[1]]
   } else {
-    # P0-B（2026-09-25 代码审查实测修复）：UTF-8 原生构建的 R（如工作站
+    # P0-BUTF-8 原生构建的 R（如工作站
     # R 4.6.1）里 readLines 读 GBK 文件返回非法 UTF-8 串，随后的 trimws 直接
     # 报 "input string 1 is invalid UTF-8"；改为对已读原始字节 iconv(GBK→UTF-8)，
     # 失败才退回 readLines 并警告。
@@ -2446,17 +2577,44 @@ read_param_file <- function(path) {
   }
   lines <- lines[nzchar(trimws(lines)) & !grepl("^\\s*#", lines)]
   if (length(lines) == 0) stop("no active entries in ", path)
+  #：缩进续行并入前置键（重写为重复键行）——多行键（如 4 标记
+  # label_type）的 \t/空格缩进续行写法此前被解析成空键垃圾行、标记静默丢失
+  #（fixmod 只剩第一行、Stage A 理论标记不全）。重写后走既有重复键向量机制，
+  # 下游 label_type 消费方零改动。
+  #: indented continuation lines fold into the preceding key (rewritten
+  # as repeated key rows) - multi-row keys (e.g. a 4-label label_type) written
+  # with tab/space-indented continuation lines used to become empty-key junk
+  # lines, silently dropping labels (fixmod kept only the first row, stage-A
+  # theoretical labels incomplete). Rewritten rows ride the existing
+  # duplicate-key vector mechanism; downstream consumers need no change.
+  cont <- grepl("^[ \t\r]", lines)
+  if (any(cont)) {
+    if (cont[1])
+      warning("参数文件首行即续行（无前置键），已忽略 / leading continuation line dropped: ",
+              trimws(lines[1]), call. = FALSE)
+    drop <- logical(length(lines))
+    for (i in which(cont)) {
+      j <- i - 1L
+      while (j >= 1L && drop[j]) j <- j - 1L
+      if (j >= 1L) {
+        key_j <- strsplit(lines[j], "\t", fixed = TRUE)[[1]][1]
+        lines[i] <- paste0(key_j, "\t", trimws(lines[i]))
+        cont[i] <- FALSE
+      } else drop[i] <- TRUE
+    }
+    lines <- lines[!drop]
+  }
   kv <- strsplit(lines, "\t", fixed = TRUE)
   keys <- vapply(kv, function(x) trimws(x[1]), character(1))
-  # P3-7（2026-09-25）：值保留第 3 段及之后内容（含制表符的值不再被截断）；
+  # P3-7值保留第 3 段及之后内容（含制表符的值不再被截断）；
   # 无制表符的行给出空格推断提示并按连续空格切分；重复键 warning 说明取值规则。
-  # P3-7 (2026-09-25): keep segment 3 onwards (tab-containing values are no
+  # P3-7 keep segment 3 onwards (tab-containing values are no
   # longer truncated); tab-less lines are split on 2+ spaces with a warning;
   # duplicate keys warn about the take-all-values rule.
   vals <- vapply(kv, function(x) {
     if (length(x) >= 2) trimws(paste(x[-1], collapse = "\t")) else ""
   }, character(1))
-  # P1（2026-09-25 代码审查）：值被切出 3 段以上时提示——第 3 段起并入值，
+  # P1值被切出 3 段以上时提示——第 3 段起并入值，
   # 尾列注释/多余列会被并进路径导致"文件不存在"；提示用户值内勿用制表符。
   if (any(lengths(kv) > 2)) {
     warning("参数文件存在值含制表符的行（第 3 段起并入值；若为尾列注释请删除，值内勿用制表符）：",
@@ -2478,7 +2636,7 @@ read_param_file <- function(path) {
   }
   dupk <- unique(keys[duplicated(keys)])
   if (length(dupk) > 0)
-    # N-8（2026-09-25）：文案与实现对齐——实现保留全部同名值为向量，各消费方
+    # N-8文案与实现对齐——实现保留全部同名值为向量，各消费方
     # 自行取 [1]/tail()（如 user_step2 的 cfg_get 用 tail 取最后一个非空）
     warning("参数文件存在重复键（同名值全部保留为向量，各消费方自行取第一个或最后一个非空）：",
             paste(dupk, collapse = ", "), call. = FALSE)
@@ -2512,12 +2670,12 @@ resolve_cfg_paths <- function(cfg, key) {
     else file.path(cfg$config_dir, p)
   }, character(1), USE.NAMES = FALSE)
 }
-#' 步骤 2 策略集合指纹（2026-09-26 功能排队①）：同一配置的"策略集合"身份——
+#' 步骤 2 策略集合指纹同一配置的"策略集合"身份——
 #' search_file 原始条目（经路径解析）+ 类型（显式或命名规则推断），排序去重。
 #' user_run（跳过判据）与 user_step2（写侧车 merge/peptide.txt.strategies）
 #' 共用同一实现，保证两侧逐字节一致；策略集合变化时步骤 2 重跑（引擎结果
 #' 经参数指纹复用，仅重算合并）。
-#' Step-2 strategy-set fingerprint (2026-09-26, queue item 1): the identity of
+#' Step-2 strategy-set fingerprint the identity of
 #' the configured strategy set - resolved search_file entries + types (explicit
 #' or inferred by the naming rules), sorted and deduplicated. user_run (the
 #' skip criterion) and user_step2 (the sidecar writer) share this one
@@ -2545,19 +2703,36 @@ strategy_identity_lines <- function(cfg2) {
     if (length(search_files) > 0) vapply(search_files, infer_strategy_type, character(1))
     else character(0)
   }
-  sort(unique(paste0(as.character(search_types), "\t",
-                     gsub("\\\\", "/", as.character(search_files)))))
+  out <- sort(unique(paste0(as.character(search_types), "\t",
+                            gsub("\\\\", "/", as.character(search_files)))))
+  #：候选长度阈值入清单——改 min_pep_len 须触发步骤 2 重跑合并
+  # （搜库结果按参数指纹复用，仅重算合并表与 peptide.txt）
+  #: the candidate length gate joins the manifest - a min_pep_len
+  # change must re-run the step-2 merge (search results are reused via the
+  # parameter fingerprints; only the merged table and peptide.txt recompute)
+  mpl <- 7L
+  try({
+    bc <- resolve_cfg_paths(cfg2, "base_config")[1]
+    if (nzchar(bc) && file.exists(bc)) {
+      b <- read_param_file(bc)
+      if (!is.null(b$min_pep_len) && length(b$min_pep_len) > 0) {
+        v <- suppressWarnings(as.integer(tail(b$min_pep_len, 1)))
+        if (!is.na(v) && v >= 4L) mpl <- v
+      }
+    }
+  }, silent = TRUE)
+  c(out, paste0("min_pep_len=", mpl))
 }
-#' pUniFind 配置键优先级读取（2026-09-26 功能排队②）：config_step1（step1_cfg）
+#' pUniFind 配置键优先级读取config_step1（step1_cfg）
 #' 优先于 config_step2（step2_cfg）；validate 过滤无效值（如越界模式码）；两处
 #' 都无有效值返回 default。返回 list(value=, source=)（source 为
 #' "config_step1"/"config_step2"/""），user_step2 据此打印生效值与来源。
-#' pUniFind config-key precedence read (2026-09-26, queue item 2):
+#' pUniFind config-key precedence read 
 #' config_step1 wins over config_step2; validate drops invalid values; the
 #' default is returned when neither side holds a valid value. Returns
 #' list(value=, source=) with source in "config_step1"/"config_step2"/"" so the
 #' caller can print the effective value and where it came from.
-# v1.0（2026-09-28 工作站反馈缺陷2/4）：参考库匹配三口径——accession 命中、
+# v1.0参考库匹配三口径——accession 命中、
 # 序列级匹配（大写＋I/L 归一子串；六框翻译库 orf| accession 与参考库
 # WP_/NP_/tr| 不同体系时仅比 accession 会整侧漏判）、污染库排除（CON_ 前缀
 # accession 一律视为非新肽段）。fa_file 缺失时只做 accession 与 CON_ 判定。
@@ -2590,7 +2765,7 @@ fa_annotated_proteins <- function(proteins, seqs, fa_file) {
 
 cfg_get_preferred <- function(step1_cfg, step2_cfg, key, default = NULL,
                               validate = NULL) {
-  # v1.0（2026-09-28 工作站反馈）：step1 与 step2 同键不同值时显式告警——
+  # v1.0step1 与 step2 同键不同值时显式告警——
   # 旧行为静默取 step1，Macaca 把正确的新路径写在 config_step2 却被
   # config_step1 的旧值覆盖、GPU 段跑旧 CLI 崩掉白等一夜。告警不改取值口径
   # （仍 step1 优先），只把覆盖变成可见诊断。
@@ -2619,7 +2794,7 @@ cfg_get_preferred <- function(step1_cfg, step2_cfg, key, default = NULL,
   }
   list(value = default, source = "")
 }
-# ---- MGF → mzML 本地化转换（2026-09-26，纯 base R） ------------------------
+# ---- MGF → mzML 本地化转换------------------------
 # 背景：Sage/MetaMorpheus/MSFragger 只读 mzML，而管线输入本身是 MGF；此前依赖
 # 外部 msconvert（ProteoWizard，未装机即硬停），代码目录的
 # mgf_to_mzml_builtin.py 从未被调用。本函数在 R 内完成 MGF→mzML(1.1.0)：
@@ -2633,7 +2808,7 @@ b64_alphabet <- strsplit("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz01
 base64_encode_raw <- function(bytes) {
   if (!length(bytes)) return("")
   m8 <- matrix(as.integer(rawToBits(bytes)), nrow = 8L)   # 每字节一列、位 LSB 在前
-  m8 <- m8[8:1, , drop = FALSE]                            # 翻转为 MSB 在前
+  m8 <- m8[8:1,, drop = FALSE]                            # 翻转为 MSB 在前
   bits <- as.logical(as.vector(m8))                        # 按字节序展平
   npad <- (6L - length(bits) %% 6L) %% 6L
   bits <- c(bits, rep(FALSE, npad))
@@ -2643,14 +2818,14 @@ base64_encode_raw <- function(bytes) {
   paste0(out, strrep("=", (4L - nchar(out) %% 4L) %% 4L))
 }
 #' mgf_to_mzml：MGF 文件 → 规范最小 mzML（indexedmzML + indexList 字节偏移）
-# v1.0（2026-09-28 工作站回执优先项）：内置 MGF→mzML 转换共享缓存。
+# v1.0内置 MGF→mzML 转换共享缓存。
 # 工作站实测纯 R 转换吞吐 0.19 MB/s，msfragger/sage 两槽对同一重编号 MGF
 # 各转一遍，Macaca 规模（143 万谱）重复转换是 4–9 h 级浪费——转换产物缓存
 # 到项目级 mzml_cache/ 目录，第二槽起直接复制；产物已存在且新于源 MGF 时
 # 0 成本跳过（同 #18 标记跳过口径）。缓存键＝源 MGF 文件名+字节数（重编号
 # 对同一输入确定性生成，跨引擎目录同名同内容）；并发双写以 临时文件+rename
 # 原子落盘，后写胜出、内容一致无碍正确性。msconvert 外部路径不走本缓存。
-# v1.0 (workstation receipt priority): shared cache for the built-in
+# (workstation receipt priority): shared cache for the built-in
 # MGF->mzML converter. The pure-R converter runs at 0.19 MB/s (measured);
 # msfragger and sage each converting the same renumbered MGF wastes 4-9 h at
 # Macaca scale. The converted mzML is cached at project level (mzml_cache/);
@@ -2738,7 +2913,7 @@ mgf_to_mzml_base <- function(mgf_file, out_mzml) {
     'URI="http://obo.cvs.sourceforge.net/obo/obo/ontology/phenotype/unit.obo"/>',
     '</cvList>\n',
     '<fileDescription><fileContent/></fileDescription>\n',
-    # 实弹验收补齐（2026-09-26，deepseek v1.0 工作站报告）：batmass-io 等
+    # 实测验收补齐batmass-io 等
     # reader 要求标准头部链——softwareList / instrumentConfigurationList（run
     # 挂 defaultInstrumentConfigurationRef）/ dataProcessingList；cvParam 均带
     # value 属性（空值也写 value=""，否则 reader 取 getValue() 时 NPE）
@@ -2766,11 +2941,11 @@ mgf_to_mzml_base <- function(mgf_file, out_mzml) {
     inb <- base64_encode_raw(writeBin(sp$int, raw(), size = 8L, endian = "little"))
     blk <- paste0(
       '<spectrum index="', i - 1L, '" id="scan=', i, '" defaultArrayLength="', np, '">\n',
-      # 实弹修复（2026-09-26）：MGF 谱是二级谱——写 ms level=2 + MSn spectrum，
+      # 实测修复MGF 谱是二级谱——写 ms level=2 + MSn spectrum，
       # 而非 MS1（此前把全部谱标成 MS1，Sage/MSFragger 都找不到 MS2 谱）
       '<cvParam cvRef="MS" accession="MS:1000511" name="ms level" value="2"/>\n',
       '<cvParam cvRef="MS" accession="MS:1000580" name="MSn spectrum" value=""/>\n',
-      # P1-1（2026-09-26，工作站 v1.0 复测）：MGF 峰本就 centroided——补逐谱
+      # P1-1MGF 峰本就 centroided——补逐谱
       # centroid spectrum 标记。缺它 Sage panic（contains profile data，exit
       # 1033）、MetaMorpheus 计 All MS2 Scans: 0；补上后 Sage 实测出 1,457 PSM
       '<cvParam cvRef="MS" accession="MS:1000127" name="centroid spectrum" value=""/>\n',
@@ -2813,11 +2988,11 @@ mgf_to_mzml_base <- function(mgf_file, out_mzml) {
   writeLines(c(head1, blocks, tail1, idx_block), con, sep = "")
   n
 }
-# v1.0（2026-09-29 性能轮③）：base64 快速编码器——3 字节组整数查表替代
+# v1.0base64 快速编码器——3 字节组整数查表替代
 # 逐位矩阵（旧 base64_encode_raw 每谱 ~1.6 KB 字节要构造 1.28 万个 logical
 # 再 colSums，是纯 R 转换 0.19 MB/s 的主根因之一）。输出与旧实现逐字节
 # 一致（含 1/2 字节尾组与 "=" 补位；mzml_convert_vec_test 对拍随机 raw）。
-# v1.0 (perf round 3): fast base64 via 3-byte-group integer table lookup,
+# (perf round 3): fast base64 via 3-byte-group integer table lookup,
 # replacing the per-bit matrix of base64_encode_raw (which materialized ~12.8k
 # logicals per average spectrum). Byte-identical output incl. 1/2-byte tails
 # and "=" padding; cross-checked against the old encoder on random inputs.
@@ -2848,14 +3023,14 @@ base64_encode_fast <- function(bytes) {
   }
   paste0(out, collapse = "")
 }
-# v1.0（2026-09-29 性能轮③）：mgf_to_mzml 向量化版。解析段：整文件
+# v1.0mgf_to_mzml 向量化版。解析段：整文件
 # trimws 一次、BEGIN/END 向量定位（良构输入＝严格交替；否则回落 _base 旧
 # 实现），参数行（TITLE=/CHARGE=/RTINSECONDS=/PEPMASS=）向量子提取、每块
 # 取最后一次出现值（与旧循环覆盖语义一致）；峰行批量 strsplit＋首两 token
 # 取 mz/int（旧循环同判：token<2 或 mz 非数值的行丢弃，多余 token 忽略），
 # split 按谱分组。编码段：base64_encode_fast。输出与 _base 逐字节一致
 # （mgf_to_mzml_test 结构断言＋真件 diff 双重对拍）。
-# v1.0 (perf round 3): vectorized mgf_to_mzml. Parsing: one trimws pass,
+# (perf round 3): vectorized mgf_to_mzml. Parsing: one trimws pass,
 # vectorized BEGIN/END locating (well-formed input = strictly alternating;
 # malformed input falls back to _base), vectorized parameter extraction with
 # last-occurrence-wins per block (same as the old loop's overwrite semantics);
@@ -3051,17 +3226,17 @@ system_avail_mb <- function() {
 #' 物理内存总量（MB；PowerShell CIM 优先、systeminfo 兜底）。
 #' Total physical memory (MB; PowerShell CIM first, systeminfo fallback).
 #'
-#' 2026-09-25（P1-5/N-2）：MSFragger -Xmx 自适应需要总量。systeminfo 在
+#' MSFragger -Xmx 自适应需要总量。systeminfo 在
 #' Windows 上是公认慢命令（10-30 秒），因此优先 PowerShell CIM（秒级）。
-#' 2026-09-25 (P1-5/N-2): the adaptive MSFragger -Xmx needs the total.
+#' (P1-5/N-2): the adaptive MSFragger -Xmx needs the total.
 #' systeminfo is notoriously slow on Windows (10-30 s), so PowerShell CIM
 #' runs first (sub-second).
 system_total_mb <- local({
   cached <- NULL
   fail_at <- NULL
   function() {
-    # 进程级记忆化（N-2，2026-09-25）：iso_mem_guard 逐万行调用，探测只做一次。
-    # 2026-09-26（P2-3.4）：失败值不永久缓存——首探若因瞬时原因失败（权限/瞬断），
+    # 进程级记忆化iso_mem_guard 逐万行调用，探测只做一次。
+    # 失败值不永久缓存——首探若因瞬时原因失败（权限/瞬断），
     # 30 分钟后允许重试；期间返回 NA 由调用方走默认值。
     # Cache only successes: a transient first-probe failure (permissions, hiccup)
     # would otherwise be frozen for the whole run. Retry after 30 min; in between
@@ -3101,8 +3276,8 @@ system_total_mb <- local({
     NA_real_
   }
 })
-#' system2 安全封装：参数统一 shQuote（P1-3，2026-09-25）。
-#' Safe system2 wrapper: every argument is shQuote'd (P1-3, 2026-09-25).
+#' system2 安全封装：参数统一 shQuote。
+#' Safe system2 wrapper: every argument is shQuote'd .
 #'
 #' 旧写法大量未加引号的路径参数在中文/含空格路径下被 shell 拆分而静默失败；
 #' 已用 shQuote 的调用点不要经本封装（会二次引用）。标志类参数（如 -Xmx15G）
@@ -3185,14 +3360,14 @@ assess_resources <- function(mgf_files) {
 #'   返回写出的无标记 MGF 文件路径。
 #'   The written unlabeled MGF file paths.
 #' @keywords internal
-#' 第一步 psm_file 格式校验（用户口径 2026-09-26 修订）：接受任何带 File_Name
+#' 第一步 psm_file 格式校验接受任何带 File_Name
 #' 列的制表符结果表——pFind 家族表（File_Name+Label）、适配器交换格式
 #' （.spectra）与其他搜库软件的表格输出均可用；非表格格式（XML 等）须先经
 #' 对应适配器转交换格式。无标记/标记谱区分：有 Label 列按 pFind 语义（首字符
 #' 1＝无标记）；无 Label 列时无标记样本全部视为无标记谱，标记样本需显式设
 #' psm_all_unlabeled=1 确认全为无标记谱，否则报错。返回 list(i_fn, i_lab,
 #' all_unlabeled)。
-#' Step-1 psm_file format check (user ruling revised 2026-09-26): any
+#' Step-1 psm_file format check any
 #' tab-separated result table with a File_Name column is accepted - pFind
 #' family tables (File_Name + Label), adapter exchange .spectra and other
 #' engines' tabular outputs; non-tabular formats (XML etc.) must first pass
@@ -3236,7 +3411,7 @@ check_psm_header <- function(psm_file, label_type = "unlabeled",
   }
   list(i_fn = i_fn, i_lab = i_lab, all_unlabeled = FALSE)
 }
-#' 第一步 psm_file 格式嗅探（2026-09-26 修订二）：判断是否需要先经适配器转换。
+#' 第一步 psm_file 格式嗅探判断是否需要先经适配器转换。
 #' 返回 ""＝可直接当表读（非 XML 且含制表符）；"xtandem"（<bioml）；"msfragger"
 #' （<msms_pipeline_analysis）；其余未知返回 "unknown"。
 psm_sniff_engine <- function(psm_file, first_line = NULL) {
@@ -3244,7 +3419,7 @@ psm_sniff_engine <- function(psm_file, first_line = NULL) {
     first_line <- readLines(psm_file, n = 3, warn = FALSE)
   }
   if (!length(first_line)) return("unknown")
-  # P2（2026-09-26，工作站 v1.0 复测）：真实 XML 首行常是 <?xml …?>
+  # P2真实 XML 首行常是 <?xml …?>
   # 声明（<bioml> 等在下一行）——只看首行恒嗅探失败；取前 3 行、剥声明、
   # 再看首个标签行
   lines <- sub("^\\s*<\\?xml[^>]*\\?>", "", as.character(first_line))
@@ -3259,7 +3434,7 @@ psm_sniff_engine <- function(psm_file, first_line = NULL) {
   if (any(grepl("\t", as.character(first_line)))) return("")
   "unknown"
 }
-#' 第一步 psm_file 自动转换（2026-09-26 修订二）：非表格格式（XML/CSV）可以
+#' 第一步 psm_file 自动转换非表格格式（XML/CSV）可以
 #' 转换——bioml 自动走 X!Tandem 适配器；CSV/其他格式经 config_step1 的
 #' psm_type 键指定适配器（xtandem/mascot/peaks），转换到交换格式后作为第一步
 #' 输入；msfragger/pnovo 因需要重编号映射/参数文件（第一步不产出），给出定向
@@ -3267,7 +3442,35 @@ psm_sniff_engine <- function(psm_file, first_line = NULL) {
 psm_prepare_input <- function(psm_file, cfg, code_dir) {
   first_line <- readLines(psm_file, n = 3, warn = FALSE)
   if (!length(first_line)) return(psm_file)
+  # 用户检测反馈：网页 STEP1 的 search_engine 键此前 R 侧零消费——
+  # MaxQuant msms.txt 这类表格嗅探不出引擎，直通到 File_Name 校验才报错。
+  # 现按用户所选引擎指认：maxquant 走两参适配器自动转换（无需映射）；
+  # sage/comet/msfragger 的结果需扫描号映射（第一步不产出），给出双路指引。
+  # The STEP1 search_engine key was never consumed R-side: tabular results
+  # like MaxQuant msms.txt sniff to no engine and only died at the
+  # File_Name check. Now the selected engine names it: maxquant converts
+  # via its two-arg adapter (no map needed); sage/comet/msfragger results
+  # need the scan map (not produced at step 1) and get a two-path guidance.
+  se_key <- if (!is.null(cfg$search_engine) && length(cfg$search_engine) > 0)
+    tolower(trimws(tail(cfg$search_engine, 1))) else ""
   engine <- psm_sniff_engine(psm_file, first_line)
+  if (!nzchar(engine)) {
+    has_fn <- any(grepl("File_Name", first_line, fixed = TRUE))
+    if (!has_fn && se_key == "maxquant") {
+      engine <- "maxquant"
+    } else if (!has_fn && se_key %in% c("sage", "comet", "msfragger")) {
+      stop("[第一步] search_engine=", se_key, " 的结果文件需要扫描号映射才能转换（第一步不产出映射）：",
+           psm_file,
+           "\n两条路径任选其一：",
+           "\n  (1) 把该引擎结果放入 config_step2 的 search_file 槽位接入（自动链路含映射与适配）；",
+           "\n  (2) 改填任何带 File_Name 列的制表符结果表（pFind 家族表或交换格式）。",
+           "\n[step 1] search_engine=", se_key, " results need the scan map to convert, ",
+           "which step 1 does not produce: ", psm_file,
+           "\nEither (1) feed the engine result through a config_step2 search_file slot ",
+           "(the automated path provides the map and adapter), or (2) fill any ",
+           "tab-separated table with a File_Name column (pFind-family or interchange).")
+    }
+  }
   if (!nzchar(engine)) return(psm_file)              # 表格：直接可用（File_Name 校验在后）
   psm_type <- if (!is.null(cfg$psm_type) && length(cfg$psm_type) > 0)
     tolower(trimws(tail(cfg$psm_type, 1))) else ""
@@ -3294,14 +3497,15 @@ psm_prepare_input <- function(psm_file, cfg, code_dir) {
   }
   adapter <- switch(engine, xtandem = "search_adapter_xtandem.R",
                     mascot = "search_adapter_mascot.R",
-                    peaks = "search_adapter_peaks.R")
+                    peaks = "search_adapter_peaks.R",
+                    maxquant = "search_adapter_maxquant.R")
   out_ex <- file.path(cfg$config_dir, "unlabeled_tmp", "psm_exchange.spectra")
   dir.create(dirname(out_ex), recursive = TRUE, showWarnings = FALSE)
   logf <- paste0(out_ex, ".log")
-  # 空格路径修复（2026-09-26，小时核验发现）：裸 system2 参数不自动加引号，
+  # 空格路径修复裸 system2 参数不自动加引号，
   # 代码目录/输入/输出路径含空格时被 cmd 拆断（适配器 exit 5）——三个参数
   # 全部 shQuote（裸 system2 的既有安全模式）
-  # P2（2026-09-26，工作站 v1.0 复测）：xtandem 转换与 step2 同口径——同目录
+  # P2xtandem 转换与 step2 同口径——同目录
   # <同名>_renum_map.tsv（new_scan<TAB>original_title）存在时一并传入，适配器按
   # <group id> 解析谱标题（否则 label=蛋白描述，谱级信息退化）
   map_xt <- if (engine == "xtandem")
@@ -3338,6 +3542,10 @@ extract_unlabeled_per_mgf <- function(psm_file, mgf_files, out_dir, max_cores = 
   cc <- rep("NULL", length(hdr))
   cc[i_fn] <- "character"
   if (!is.na(i_lab)) cc[i_lab] <- "character"
+  #：读 Exp.MH./Charge（有则读）——回退选择的 ppm 比对用
+  i_mh <- match("Exp.MH.", hdr); i_z <- match("Charge", hdr)
+  if (!is.na(i_mh)) cc[i_mh] <- "character"
+  if (!is.na(i_z)) cc[i_z] <- "character"
   ps <- read.delim(psm_file, sep = "\t", header = TRUE, stringsAsFactors = FALSE,
                    colClasses = cc, na.strings = character(0))
   if (isTRUE(keep_all)) {
@@ -3355,8 +3563,18 @@ extract_unlabeled_per_mgf <- function(psm_file, mgf_files, out_dir, max_cores = 
                                 character(1)))
   per_file_kept <- list()          # basename -> list of MGF objects
   per_file_input <- list()         # basename -> input block count
-  scan_c_map <- new.env(hash = TRUE)  # 'RAW.SCAN.CHARGE' -> c(file, title)
-  scan_map <- new.env(hash = TRUE)    # 'RAW.SCAN' -> c(file, title, charge)
+  #：两个 scan 键改登记"全部候选"（file/title/charge/mz），
+  # 回退时按 ppm 最小＋价态一致选优（pick_best_src）
+  scan_c_map <- new.env(hash = TRUE)  # 'RAW.SCAN.CHARGE' -> list of entries
+  scan_map <- new.env(hash = TRUE)    # 'RAW.SCAN' -> list of entries
+  mass_map <- new.env(hash = TRUE)    # title -> Exp.MH.（ppm 比对用）
+  if (!is.na(i_mh)) {
+    mh_vals <- suppressWarnings(as.numeric(ps[["Exp.MH."]]))
+    fn_vals <- as.character(ps$File_Name)
+    for (j in seq_len(nrow(ps)))
+      if (!is.na(mh_vals[j]) && is.null(mass_map[[fn_vals[j]]]))
+        mass_map[[fn_vals[j]]] <- mh_vals[j]
+  }
   seen_env <- new.env(hash = TRUE)    # kept titles (dedupe duplicate blocks)
   missing <- wanted
 
@@ -3366,7 +3584,7 @@ extract_unlabeled_per_mgf <- function(psm_file, mgf_files, out_dir, max_cores = 
   # 一次并行读取全部所需文件（每文件一个 worker；墙钟时间＝最慢文件）——后续循环只从内存选择/补齐
   # load ALL needed files in one parallel pass (one worker per file; wall
   # time = slowest file) - the loop below only selects/patches from memory
-  # v1.0（性能第二轮）：补丁分支的 src 文件必在 need_idx 内——loaded 按
+  # （性能第二轮）：补丁分支的 src 文件必在 need_idx 内——loaded 按
   # basename 命名保留到补丁阶段结束，二次整读 MGF 去掉（原实现同文件读两遍）
   loaded <- load_mgf_shared(mgf_files[need_idx], cl)
   names(loaded) <- basename(mgf_files[need_idx])
@@ -3389,20 +3607,18 @@ extract_unlabeled_per_mgf <- function(psm_file, mgf_files, out_dir, max_cores = 
       }
     }
     keys <- vapply(pars$Title, title_scan_key, character(1))
-    # 向量化登记：文件内去重，跨文件保持先到先得语义
-    # vectorized registration: dedupe within the file, then keep the
-    # first-come-first-served semantics ACROSS files
     kc_vec <- paste0(keys, ".", pars$Charge)
-    for (j in which(!duplicated(kc_vec))) {
-      if (is.null(scan_c_map[[kc_vec[j]]])) {
-        scan_c_map[[kc_vec[j]]] <- c(file = basename(f), title = pars$Title[j])
-      }
-    }
-    for (j in which(!duplicated(keys))) {
-      if (is.null(scan_map[[keys[j]]])) {
-        scan_map[[keys[j]]] <- c(file = basename(f), title = pars$Title[j],
-                                charge = as.character(pars$Charge[j]))
-      }
+    pm_vec <- if (!is.null(pars$pepMass)) pars$pepMass else rep(NA_real_, length(pars$Title))
+    for (j in seq_along(pars$Title)) {
+      ent <- c(file = basename(f), title = pars$Title[j],
+               charge = as.character(pars$Charge[j]),
+               mz = as.character(pm_vec[j]))
+      kc <- kc_vec[j]
+      prev <- scan_c_map[[kc]]
+      scan_c_map[[kc]] <- if (is.null(prev)) list(ent) else c(prev, list(ent))
+      kk <- keys[j]
+      prev2 <- scan_map[[kk]]
+      scan_map[[kk]] <- if (is.null(prev2)) list(ent) else c(prev2, list(ent))
     }
     per_file_input[[basename(f)]] <- length(m)
     cat(sprintf("  %-55s in=%d kept=%d\n", basename(f), length(m), sum(sel)))
@@ -3417,15 +3633,16 @@ extract_unlabeled_per_mgf <- function(psm_file, mgf_files, out_dir, max_cores = 
     for (t in missing) {
       k <- title_scan_key(t)
       chg <- strsplit(t, ".", fixed = TRUE)[[1]][4]
-      src <- scan_c_map[[paste0(k, ".", chg)]]
-      if (is.null(src)) src <- scan_map[[k]]
-      if (!is.null(src)) {
+      cands <- scan_c_map[[paste0(k, ".", chg)]]
+      if (is.null(cands)) cands <- scan_map[[k]]
+      if (!is.null(cands)) {
+        src <- pick_best_src(cands, chg, mass_map[[t]])
         f0 <- unname(src["file"])
         if (is.null(need[[f0]])) need[[f0]] <- character(0)
         need[[f0]][t] <- unname(src["title"])
       }
     }
-    # v1.0（性能第二轮）：src_files 必在 need_idx 内——直接按 basename 从
+    # （性能第二轮）：src_files 必在 need_idx 内——直接按 basename 从
     # 已加载的 loaded 取（不再二次整读同一批 MGF）
     src_load <- loaded[names(need)]
     names(src_load) <- names(need)
@@ -3496,17 +3713,17 @@ extract_unlabeled_per_mgf <- function(psm_file, mgf_files, out_dir, max_cores = 
 #'   The corrected data frame.
 #' @keywords internal
 revise_search_result <- function(dat, mode = "full") {
-  # 后处理模式（用户 2026-09-03 六条规格；2026-09-10 修订）："none"＝无后处理
+  # 后处理模式"none"＝无后处理
   # （限定式搜库、denovo 由回帖步骤处理）；"full"＝13C 删行＋末端丢失归一化
   # （开放式搜库）；"terminal"＝同 full 的两步（pUniFind rescore）。
-  # SAP 替换已不再在任何模式施进序列（2026-09-10 用户口径：X->Y 全程保持
+  # SAP 替换已不再在任何模式施进序列（设计约定：X->Y 全程保持
   # SAP 修饰形式，仅在 pDeep2 理论谱图生成时代入——见下方第 4 步注释）。
-  # Post-processing modes (user six-rule spec 2026-09-03; revised 2026-09-10):
+  # Post-processing modes 
   # "none" = no post-processing (restricted search; denovo is handled by the
   # database look-back); "full" = 13C drop + terminal-loss normalization
   # (open search); "terminal" = the same two steps (pUniFind rescore).
   # SAP substitutions are no longer applied into sequences in ANY mode
-  # (user ruling 2026-09-10: X->Y stays in the SAP-modification form
+  # (user ruling: X->Y stays in the SAP-modification form
   # throughout; substitution only when building pDeep2 spectra - see the
   # step-4 note below).
   if (identical(mode, "none")) return(dat)
@@ -3528,7 +3745,7 @@ revise_search_result <- function(dat, mode = "full") {
   met <- which(str_detect(dat[, col_mod], "0,Met-"))
   if (length(met) > 0) {
     error_index <- c()
-    # v1.0 优化（2026-09-26）：原实现逐行 dat[i, col] <- 每行整表复制
+    # v1.0 优化原实现逐行 dat[i, col] <- 每行整表复制
     # （2.1s 的主因）——改为本地字符向量改写，循环后一次性写回两列
     seq_v <- as.character(dat[, col_seq]); mod_v <- as.character(dat[, col_mod])
     for (i in met) {
@@ -3556,7 +3773,7 @@ revise_search_result <- function(dat, mode = "full") {
     if (length(error_index) > 0) {
       # 原口径：报错行整表删除（不只删这两列）——本地向量与全表同步删行
       seq_v <- seq_v[-error_index]; mod_v <- mod_v[-error_index]
-      dat <- dat[-error_index, , drop = FALSE]
+      dat <- dat[-error_index,, drop = FALSE]
     }
     dat[[col_seq]] <- seq_v
     dat[[col_mod]] <- mod_v
@@ -3578,15 +3795,14 @@ revise_search_result <- function(dat, mode = "full") {
     dat[[col_seq]] <- seq_v
     dat[[col_mod]] <- mod_v
   }
-  # 4) XXX->YYY 替换 → 序列字母替换：已删除（用户口径 2026-09-10）——
+  # 4) XXX->YYY 替换 → 序列字母替换：已删除——
   #    X->Y 全程保持 SAP 修饰形式（参考序列＋替换记号），参考蛋白/位置不丢失，
   #    分类按真 SAP 判据走；仅在生成 pDeep2 理论谱图时才代入序列变常规形式
   #    （pDeep2 输入构建处的 X->Y 代入与 stageB 的 apply_sap_to_sequence 已覆盖；
   #    打分的 by_ions_position 原生支持 "->" 记号，按目标残基质量计）。
   #    此前 full 模式在此处把替换施进序列，产生参考库中不存在的变体肽段，
   #    导致其蛋白归属为空（corrected_protein 空行的根因）。
-  # 4) XXX->YYY substitution -> sequence letter replacement: REMOVED (user
-  #    ruling 2026-09-10) - X->Y tokens now stay in the SAP-modification form
+  # 4) XXX->YYY substitution -> sequence letter replacement: REMOVED - X->Y tokens now stay in the SAP-modification form
   #    (reference sequence + substitution token) throughout the pipeline, so
   #    protein/position attribution is preserved and classification follows
   #    the real-SAP rule; the substitution into the plain sequence happens
@@ -3598,11 +3814,11 @@ revise_search_result <- function(dat, mode = "full") {
   #    from the reference proteome - the root cause of empty corrected_protein.
   dat
 }
-#' denovo 数据库回帖（用户 2026-09-03 定）：denovo 序列必须回帖到搜库库
+#' denovo 数据库回帖denovo 序列必须回帖到搜库库
 #' （I/L 等价＋N=GG 双向替换，组合上限 kmax），不能匹配的记"没有匹配"——
 #' 该谱的 denovo 槽序列与修饰清空（不参与合并竞争），并加 "<slot>.DB_match"
 #' 状态列（match:direct / match:GG->N / match:N->GG / no_match）。
-#' Database look-back for de-novo sequences (user rule 2026-09-03): every denovo
+#' Database look-back for de-novo sequences every denovo
 #' sequence must map back into the search database under I/L equivalence with
 #' N=GG substitution in both directions (combo cap kmax); a non-matching entry
 #' is recorded as "no match" - its slot sequence and modification are blanked
@@ -3625,7 +3841,7 @@ revise_search_result <- function(dat, mode = "full") {
 denovo_db_lookback <- function(datalist, fasta_file, slot = "e",
                                mode = c("keep", "all")) {
   mode <- match.arg(mode[1], c("keep", "all"))
-  # denovo 数据库回帖（用户 2026-09-03 规格④）：肽段做 I→L、N→GG 替换，
+  # denovo 数据库回帖肽段做 I→L、N→GG 替换，
   # 蛋白组数据库同样生成替换后数据库；保留在替换后库内有匹配的替换肽段序列，
   # 并标注对应蛋白与前后氨基酸（与 pFind-Filtered.spectra 的 Proteins/Positions
   # 列同格式：Proteins＝"ACC/"、Positions＝"pos,前,后/"）；无匹配记 no_match、
@@ -3643,9 +3859,9 @@ denovo_db_lookback <- function(datalist, fasta_file, slot = "e",
   cn_p <- paste0(slot, ".Proteins");   cn_po <- paste0(slot, ".Positions")
   if (!cn_s %in% colnames(datalist))
     stop("denovo slot column missing: ", cn_s)
-  # denovo=0 空槽跳过（2026-09-06 缺陷修复）：该槽序列/修饰全空说明 denovo 策略
+  # denovo=0 空槽跳过该槽序列/修饰全空说明 denovo 策略
   # 没有任何结果，直接返回原表，不做无意义的库构建与匹配
-  # skip an all-empty slot (bug fix 2026-09-06): when the denovo strategy
+  # skip an all-empty slot when the denovo strategy
   # produced no results the slot is entirely blank - return the table as-is
   # instead of building the transformed database for nothing
   if (all(is.na(datalist[[cn_s]]) | !nzchar(as.character(datalist[[cn_s]]))) &&
@@ -3676,16 +3892,16 @@ denovo_db_lookback <- function(datalist, fasta_file, slot = "e",
     datalist[[cn_po]] <- ""
   }
   status <- rep("", nrow(datalist))
-  # P8（2026-09-11）：按变换后序列缓存匹配结果。实测 48,203 行 denovo 仅有
+  # P8按变换后序列缓存匹配结果。实测 48,203 行 denovo 仅有
   # 22,581 个唯一序列（最高重复 91 次），命中蛋白/位置只查一次整库；no_match
   # 同样缓存。I→L 折叠与 N→GG 均为同向替换，同变换串的原始蛋白坐标一致。
-  # P8 (2026-09-11): cache the match by the transformed sequence. 48,203
+  # P8 cache the match by the transformed sequence. 48,203
   # denovo rows hold only 22,581 unique sequences (top repeat 91x), so each
   # proteome-wide scan runs once per unique sequence; no_match is cached too.
   # Both I->L and N->GG are one-way, so equal transformed strings share the
   # same original-protein coordinates.
   sq_cache <- new.env(parent = emptyenv(), hash = TRUE)
-  # v1.0 优化（2026-09-26）：原实现逐行 datalist[i, col] <- 每行整表复制
+  # v1.0 优化原实现逐行 datalist[i, col] <- 每行整表复制
   # （48k 行 × 4 列 O(n²) 拷贝）——改为本地向量改写，循环后一次写回。
   # cn_m 缺失且 mode≠all 且有 no_match 行时，原实现会顺带创建全空修饰列
   # （no_match 行写 ""）——按同样条件创建，保持列存在性口径一致。
@@ -3715,9 +3931,9 @@ denovo_db_lookback <- function(datalist, fasta_file, slot = "e",
     }
     if (is.null(hit)) {
       status[i] <- "no_match"
-      # mode="all"（用户口径 2026-09-16）：no_match 的 denovo 序列不清空，
+      # mode="all"no_match 的 denovo 序列不清空，
       # 带 DB_match=no_match 标记保留进竞争（SAP 类库外变异肽段由此参与仲裁）
-      # mode="all" (user ruling 2026-09-16): a no-match denovo sequence stays
+      # mode="all" a no-match denovo sequence stays
       # in the competition flagged DB_match=no_match (SAP-type out-of-database
       # variants thereby enter the arbitration)
       if (!identical(mode, "all")) {
@@ -3754,10 +3970,10 @@ denovo_db_lookback <- function(datalist, fasta_file, slot = "e",
 #' 用户步骤 2：多策略搜库结果合并（多引擎版）。
 #' User step 2: merge the search strategies (multi-engine edition).
 #'
-#' 策略目录表（用户 2026-09-08 规格）：每种策略类型硬编码为单字母槽号
+#' 策略目录表每种策略类型硬编码为单字母槽号
 #' （a=原始结果，b..z=补充策略），合并按字母序自然排序；字母开头即合法 R 列名，
 #' 无需 X 前缀。p..z 为通用槽（type="other"，可重复挂任意引擎）。
-#' The strategy catalog (user 2026-09-08 spec): every strategy type maps to a
+#' The strategy catalog every strategy type maps to a
 #' fixed single-letter slot (a = original result, b..z = supplementary);
 #' the merge orders columns by letter naturally, and letter-leading column
 #' names are valid R names without an X prefix. p..z are generic slots
@@ -3837,11 +4053,11 @@ strategy_slots <- function(types) {
 #'   字符向量，需要数据库回帖的 denovo 槽位字母（如 "e"）。
 #'   Character vector, the denovo slot letters needing database look-back (e.g. "e").
 #' @param denovo_lookback_mode
-#'   字符串，denovo 回帖模式（用户口径 2026-09-16）："keep"＝仅保留能回帖到
+#'   字符串，denovo 回帖模式"keep"＝仅保留能回帖到
 #'   数据库的肽段（默认，历史行为）；"all"＝放开全部结果——no_match 的
 #'   denovo 序列不清空、带 DB_match=no_match 标记参与竞争（SAP 类库外变异
 #'   肽段由此进入仲裁）。
-#'   Character, the denovo look-back mode (user ruling 2026-09-16): "keep" =
+#'   Character, the denovo look-back mode "keep" =
 #'   only peptides mapping back into the database survive (default,
 #'   historical behaviour); "all" = release everything - no-match denovo
 #'   sequences stay in the competition flagged DB_match=no_match (so SAP-type
@@ -3866,15 +4082,13 @@ sanitize_pdeep2_mods <- function(mod, len) {
 #'
 #' 输入已归一化的 n×k 字符矩阵（每槽一列），输出每行分组标签：全部非空
 #' 值相同或全空 → "Same"；否则按首现顺序把同值槽的字母并串、组间用 ";"
-#' 连接（如 "ab;c"）。逐行 sapply 版本在大表上耗时小时级（2026-09-24 R2
-#' 工作站卡点同源）；本版把每行编码为整数键，标签闭包只对唯一键执行
+#' 连接（如 "ab;c"）。逐行 sapply 版本在大表上耗时小时级；本版把每行编码为整数键，标签闭包只对唯一键执行
 #' （唯一键数远小于行数），再按键索引还原。
 #' Input: a normalized n-by-k character matrix (one column per slot). Output:
 #' per-row group labels - "Same" when all non-empty values agree or the row is
 #' empty, else the slot letters of equal values concatenated in
 #' first-occurrence order, groups joined by ";" (e.g. "ab;c"). The per-row
-#' sapply version cost hours on large tables (same family as the 2026-09-24 R2
-#' stall); this one encodes each row as an integer key, runs the label closure
+#' sapply version cost hours on large tables; this one encodes each row as an integer key, runs the label closure
 #' once per unique key (far fewer than rows) and maps back by key.
 #'
 #' @param m
@@ -3912,7 +4126,7 @@ slot_state_matrix <- function(m, sym) {
   }, "")
   unname(setNames(lab, uk)[keys])
 }
-# 全候选模式合并表装配（candidate_scope=top5，2026-09-27 用户口径）：忽略各
+# 全候选模式合并表装配忽略各
 # 引擎 1% FDR 过滤，每个策略槽每张谱取引擎自身排序（文件序）前 5 个肽段+
 # 修饰组合进竞争池。输出表与常规合并完全同构（逐谱 1..K 行、K 为各槽候选数
 # 最大者且封顶 5，槽位字母列），下游 stageA/peptide.txt/报告通用消费。
@@ -3970,7 +4184,7 @@ build_top5_datalist <- function(datalist, search_files, slot_letters) {
   k_rep <- unlist(lapply(K, seq_len), use.names = FALSE)
   base <- datalist[first0, keep_annot, drop = FALSE]
   out <- data.frame(File_Name = spec_key[spec_rep], stringsAsFactors = FALSE)
-  out[keep_annot] <- base[spec_rep, , drop = FALSE]
+  out[keep_annot] <- base[spec_rep,, drop = FALSE]
   pick <- function(g, v) {
     r <- rep("", length(spec_rep))
     for (j in seq_len(n_spec)) {
@@ -4004,7 +4218,8 @@ merge_search_results <- function(psm_file, search_files, out_dir,
                              denovo_slots = NULL,
                              denovo_lookback_mode = c("keep", "all"),
                              candidate_scope = "filtered",
-                             strip_labels = NULL) {
+                             strip_labels = NULL,
+                             min_pep_len = 7L) {
   # 多引擎版：槽位用单字母（a=原始结果，b..z=补充策略），字母开头即合法 R 列名
   # multi-engine edition: slots are single letters (a = original, b..z =
   # supplementary); a letter-leading column name is a valid R name
@@ -4020,11 +4235,11 @@ merge_search_results <- function(psm_file, search_files, out_dir,
     stop("denovo_slots must be a subset of slot_letters")
   }
   dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
-  # 列类型守卫（2026-09-19 缺陷修复）：psm 的 Modification 列全空时（如
+  # 列类型守卫psm 的 Modification 列全空时（如
   # pFind 3.2.3 双通道搜库的某些输出）R 会把该列推断为 logical 并整体读成
   # NA，随后 write.table 默认 na="NA" 写成字面 "NA"，令下游 pDeep2 崩溃。
   # 显式把 File_Name/Sequence/Modification 读为 character。
-  # column-type guard (bug fix 2026-09-19): when the psm Modification column
+  # column-type guard when the psm Modification column
   # is entirely empty (e.g. certain pFind 3.2.3 two-channel outputs) R infers
   # it as logical and reads it all-NA; write.table's default na="NA" then
   # emits literal "NA" strings that crash pDeep2 downstream. Force the three
@@ -4047,16 +4262,16 @@ merge_search_results <- function(psm_file, search_files, out_dir,
   }
   spectra_list <- datalist$File_Name
   # 原位改名（不复制整表）：Sequence/Modification -> a.Sequence/a.Modification；
-  # 槽列追加与列序重排都只做一次（2026-09-24 R2 内存修复：旧版每引擎一次
+  # 槽列追加与列序重排都只做一次（R2 内存修复：早期实现每引擎一次
   # cbind 整表拷贝，十来个引擎累计 70GB+ 级拷贝流量，RSS 被 GC 节律推高）
   # rename in place (no whole-table copy): Sequence/Modification ->
   # a.Sequence/a.Modification; slot appends and the final column reorder each
-  # happen once (2026-09-24 R2 memory fix: the old per-engine cbind copied the
+  # happen once (R2 memory fix: the old per-engine cbind copied the
   # whole growing table, ~70GB+ cumulative copy traffic across a dozen engines)
   names(datalist)[names(datalist) %in% c("Sequence", "Modification")] <-
     c("a.Sequence", "a.Modification")
 
-  # 全候选模式（2026-09-27 用户口径）：跳过常规逐槽 top-1 映射，改由
+  # 全候选模式跳过常规逐槽 top-1 映射，改由
   # build_top5_datalist 装配逐谱 1..K 行、每槽第 k 个候选的合并表
   if (is.null(candidate_scope) || !length(candidate_scope)) candidate_scope <- "filtered"
   scope_top5 <- identical(candidate_scope[1], "top5")
@@ -4076,13 +4291,13 @@ merge_search_results <- function(psm_file, search_files, out_dir,
     }
     temp <- read.delim(sf, sep = "\t", header = TRUE, stringsAsFactors = FALSE,
                        colClasses = cc, na.strings = character(0))
-    # 列齐性守卫（2026-09-23 网页版冒烟修复）：部分适配器产物（如 MetaMorpheus
+    # 列齐性守卫部分适配器产物（如 MetaMorpheus
     # 修订文件）只有 File_Name/Sequence 而无 Modification 列，旧逻辑直接按三列
     # 改名致 names[3] vs 2 崩溃——缺失列补空
-    # column-completeness guard (web-shell smoke fix 2026-09-23): some adapter
+    # column-completeness guard some adapter
     # outputs (e.g. MetaMorpheus revised) lack the Modification column and the
     # old 3-name assignment crashed with names[3] vs 2 - fill the missing empty
-    # 空结果容错（2026-09-23 网页版冒烟修复）：引擎结果文件仅表头（如
+    # 空结果容错引擎结果文件仅表头（如
     # MetaMorpheus 自动搜库 0 产出）时该槽整列置空，不中断合并——须先于列守卫
     # （0 行 data.frame 上 `$<-` 赋长度 1 会崩）
     # empty-result tolerance: a header-only engine file blanks the whole slot;
@@ -4103,16 +4318,16 @@ merge_search_results <- function(psm_file, search_files, out_dir,
       # column - fill the missing one empty
       if (!"Modification" %in% names(temp)) temp$Modification <- ""
       if (!"Sequence" %in% names(temp)) temp$Sequence <- ""
-      # v1.0 优化（2026-09-26）：原实现对 57k 键向量哈希三次
+      # v1.0 优化原实现对 57k 键向量哈希三次
       # （%in% + setdiff + order(match)），改为一次 match 复用于三处：
       # mt2 = temp 行在 spectra_list 中的位置；hit_pos = 被命中的位置；
       # 未命中 = unique(spectra_list) 中未出现的位置（与 setdiff 口径一致，
       # 含重复 File_Name 场景）；最终排序直接 order 位置向量（不再二次哈希）
       mt2 <- match(temp$File_Name, spectra_list)
       v <- !is.na(mt2)
-      temp <- temp[v, , drop = FALSE]
+      temp <- temp[v,, drop = FALSE]
       mt2 <- mt2[v]
-      # P2-3（2026-09-26，deepseek v1.0 审查）：unmatched 必须用 setdiff
+      # P2-3unmatched 必须用 setdiff
       # 值域口径——此前拿"唯一序下标"去比"位置"跨索引空间比较，重复
       # File_Name 时由旧实现的响亮报错变静默错位；setdiff 恢复旧语义
       # （%in% 本就是哈希实现，无性能损失）
@@ -4130,14 +4345,14 @@ merge_search_results <- function(psm_file, search_files, out_dir,
     }
     colnames(temp) <- c("File_Name", paste0(sl, ".Sequence"),
                         paste0(sl, ".Modification"))
-    # 槽列按名追加：只移动新列指针，不复制整表（旧版 cbind 每引擎全帧拷贝）
+    # 槽列按名追加：只移动新列指针，不复制整表（早期实现 cbind 每引擎全帧拷贝）
     # append by name: only the two new column vectors move, no whole-table
     # copy (the old cbind duplicated the entire frame per engine)
     datalist[[colnames(temp)[2]]] <- temp[[2]][ord]
     datalist[[colnames(temp)[3]]] <- temp[[3]][ord]
   }
   # 列序一次性对齐：槽对（Sequence 与 Modification 相邻）移到末尾——仅此一次
-  # 整表列指针拷贝，替代旧版逐引擎 cbind 整表数据拷贝
+  # 整表列指针拷贝，替代早期实现逐引擎 cbind 整表数据拷贝
   # one-shot column order: slot pairs (Sequence and Modification adjacent)
   # move to the end - a single pointer-level copy replaces the old per-engine
   # whole-table data copies
@@ -4147,7 +4362,45 @@ merge_search_results <- function(psm_file, search_files, out_dir,
   datalist <- datalist[c(keep_nm, as.vector(rbind(seq_nm, mod_nm)))]
   iso_mem_guard(40000, "合并：主表与槽列装配完成")
 
-  # denovo 数据库回帖（用户 2026-09-03）：无库内匹配的 denovo 槽清空并记状态；
+  # 候选长度阈值过滤——所有槽位序列长度
+  # 低于 min_pep_len（默认 7，config_step1 键）的候选置空（退出竞争、不进
+  # peptide.txt 预测输入）。pFind 搜库侧 len_lower 只约束搜库自身，denovo/
+  # psm_file 候选（如 4 肽 TRHW）不受控——短肽预测软件做不了（Prosit 硬限
+  # 7-30 aa）、理论离子信息量不足；须在状态分组前过滤，状态反映过滤后集合。
+  #  candidate length gate - every slot
+  # sequence shorter than min_pep_len (default 7, config_step1 key) is
+  # blanked (out of the competition and of the peptide.txt prediction input).
+  # pFind's len_lower only constrains the search itself; denovo/psm_file
+  # candidates (e.g. the 4-mer TRHW) were uncontrolled - predictors cannot
+  # handle them (Prosit hard-limits 7-30 aa) and their theoretical ions carry
+  # too little information. Filtering precedes the state grouping so the
+  # states reflect the filtered set.
+  {
+    mpl <- suppressWarnings(as.integer(min_pep_len[1]))
+    if (!is.na(mpl) && mpl >= 4L) {
+      n_short <- 0L; n_rows_hit <- 0L
+      for (ci in grep("\\.Sequence$", colnames(datalist))) {
+        sq <- as.character(datalist[[ci]])
+        bad <- nzchar(sq) & nchar(sq) < mpl
+        if (any(bad)) {
+          mod_cn <- sub("\\.Sequence$", ".Modification", colnames(datalist)[ci])
+          datalist[[ci]][bad] <- ""
+          if (mod_cn %in% colnames(datalist))
+            datalist[[mod_cn]][bad] <- ""
+          n_short <- n_short + sum(bad)
+          n_rows_hit <- n_rows_hit + 1L
+        }
+      }
+      if (n_short > 0L) {
+        cat(sprintf("[合并] 长度阈值过滤：min_pep_len=%d，置空短肽候选 %d 个（涉及槽位 %d 列；不进竞争与预测输入）\n",
+                    mpl, n_short, n_rows_hit))
+        cat(sprintf("[merge] length gate: min_pep_len=%d, blanked %d short candidates across %d slot column(s)\n",
+                    mpl, n_short, n_rows_hit))
+      }
+    }
+  }
+
+  # denovo 数据库回帖无库内匹配的 denovo 槽清空并记状态；
   # 需在 Peptide_state/Modification_state 计算前执行（状态反映过滤后的集合）。
   # 多引擎版：denovo 槽为字母向量（如 "e"），可多个
   # denovo database look-back: blank non-matching denovo slots before the
@@ -4169,7 +4422,7 @@ merge_search_results <- function(psm_file, search_files, out_dir,
   cat(sprintf("[合并] 向量化计算 Peptide_state / Modification_state（%d 行 × %d 槽）...\n",
               nrow(datalist), length(seq_idx)))
   t_st <- proc.time()
-  # 逐行 sapply 曾在大表上跑出小时级耗时（R2 卡点同源）；此处把每行 k 个
+  # 逐行 sapply 曾在大表上跑出小时级耗时；此处把每行 k 个
   # 槽值编码为整数键，标签闭包只对唯一键执行（唯一键数远小于行数），
   # 再按键索引还原
   # the per-row sapply once cost hours on large tables (same family as the R2
@@ -4177,7 +4430,7 @@ merge_search_results <- function(psm_file, search_files, out_dir,
   # closure runs once per unique key (far fewer than rows) and labels are
   # mapped back by key
   # 生产在 I→L 归一化后分组状态（2.combine_result_spectra.R）
-  # 2026-09-03 规格④：denovo 槽存替换后序列（N→GG），分组同步做 N→GG 归一
+  # 规格④：denovo 槽存替换后序列（N→GG），分组同步做 N→GG 归一
   # production groups the states after I->L normalization
   # (2.combine_result_spectra.R); spec item 4: denovo slots hold substituted
   # sequences (N->GG); the state grouping therefore also normalizes N->GG so
@@ -4201,23 +4454,23 @@ merge_search_results <- function(psm_file, search_files, out_dir,
   for (pc in seq_idx) {
     tmp <- datalist[, c(pc, pc + 1, which(colnames(datalist) == "Charge"))]
     colnames(tmp) <- c("peptide", "modification", "charge")
-    # v1.0（无标记通道=0）：pDeep2 对去标记肽段预测——肽表修饰剥除标记修饰
+    # （无标记通道=0）：pDeep2 对去标记肽段预测——肽表修饰剥除标记修饰
     if (!is.null(strip_labels) && length(strip_labels) > 0)
       tmp$modification <- strip_label_mods(tmp$modification, strip_labels)
     # SAP 型替换修饰（X->Y）代入序列后再给 pDeep2（如 DASAVILVSDAR+1,Asp->Asn[D]
-    # -> NASAVILVSDAR），避免 pDeep2 无法预测返回空白（2026-09-03 修）
+    # -> NASAVILVSDAR），避免 pDeep2 无法预测返回空白
     # apply SAP-type substitutions (X->Y) into the sequence before handing to
-    # pDeep2 so predictions are not blank (fixed 2026-09-03)
-    # 2026-09-24 R2 内存修复：逐行循环只对含 "->" 的行执行（apply_sap_to_sequence
+    # pDeep2 so predictions are not blank 
+    # R2 内存修复：逐行循环只对含 "->" 的行执行（apply_sap_to_sequence
     # 对无 "->" 的行原样返回，全表逐行调用曾是大表小时级开销的一部分）
-    # 2026-09-24 R2 memory fix: the per-row loop only runs on rows carrying
+    # R2 memory fix: the per-row loop only runs on rows carrying
     # "->" (apply_sap_to_sequence returns rows without "->" unchanged; the
     # full-table per-row calls were part of the large-table hour-scale cost)
     sap <- grepl("->", tmp$modification, fixed = TRUE)
     extras <- NULL
     if (any(sap)) {
-      # v1.0：Xle 歧义行列表收集 + 循环后单次拼接（原逐行 rbind 累积拷贝，
-      # SAP 行数大时二次方退化——合并段规模化审查 2026-09-28）
+      #：Xle 歧义行列表收集 + 循环后单次拼接（原逐行 rbind 累积拷贝，
+      # SAP 行数大时二次方退化——合并段规模化审查）
       # collect Xle-ambiguity rows in a list and bind once after the loop (the
       # per-row rbind accumulated copies and went quadratic on SAP-heavy runs)
       xle_rows <- vector("list", sum(sap)); xi <- 0L
@@ -4239,16 +4492,16 @@ merge_search_results <- function(psm_file, search_files, out_dir,
       }
       if (xi > 0L) extras <- do.call(rbind, xle_rows[seq_len(xi)])
     }
-    # 防御（2026-09-13）：过滤位点超出肽长的修饰——个别引擎会输出错位修饰
+    # 防御过滤位点超出肽长的修饰——个别引擎会输出错位修饰
     # （如 33 肽上的 64,Oxidation[M]），pDeep2 按位点对列表赋值会越界崩溃；
-    # 越界修饰是无意义产物，直接丢弃。2026-09-24：只对非空修饰行执行
-    # defence (2026-09-13): drop mods whose position exceeds the peptide -
+    # 越界修饰是无意义产物，直接丢弃。：只对非空修饰行执行
+    # defence drop mods whose position exceeds the peptide -
     # some engines emit mispositioned mods (e.g. 64,Oxidation[M] on a 33-mer)
     # which crash pDeep2's position-indexed assignment; such mods are
-    # meaningless and are discarded. 2026-09-24: non-empty mods only
+    # meaningless and are discarded.: non-empty mods only
     nonempty <- which(nzchar(tmp$modification))
     if (length(nonempty) > 0) {
-      # v1.0 优化（2026-09-26）：原 vapply 逐格调用 sanitize_pdeep2_mods
+      # v1.0 优化原 vapply 逐格调用 sanitize_pdeep2_mods
       # （23 万次 strsplit+vapply 级）改为展平一次判定。注意旧函数的隐藏
       # 归一化：R 的 strsplit 恰好剥掉一个尾空串（"x;;;"→"x","",""），故旧
       # 结果 = 剥一个尾分号 + 丢越界 token + 按 ";" 重组——无越界 token 的行
@@ -4282,7 +4535,7 @@ merge_search_results <- function(psm_file, search_files, out_dir,
     if (!is.null(extras)) tmp <- rbind(tmp, extras)
     pd_parts[[length(pd_parts) + 1L]] <- unique(tmp)
   }
-  # 列表收集 + 一次拼接（旧版逐槽 rbind 累积拷贝）
+  # 列表收集 + 一次拼接（早期实现逐槽 rbind 累积拷贝）
   # collect in a list and bind once (the old per-slot rbind accumulated copies)
   peptide_df <- do.call(rbind, pd_parts)
   peptide_df <- unique(peptide_df)
@@ -4316,7 +4569,7 @@ read_predict_txt <- function(path) {
   lines <- readLines(path, warn = FALSE)
   begins <- which(lines == "BEGIN IONS")
   ends <- which(lines == "END IONS")
-  # P1-1（2026-09-26，deepseek v1.0 审查）：BEGIN/END 计数不等时下方
+  # P1-1BEGIN/END 计数不等时下方
   # rep() 长度不匹配报 invalid 'times' argument，用户无法定位——对齐长度并
   # 给出可行动错误（截断的 predict.txt 删掉重跑 pDeep2）
   if (length(begins) != length(ends)) {
@@ -4327,7 +4580,7 @@ read_predict_txt <- function(path) {
   keys <- rep(NA_character_, n)
   intensities <- vector("list", n)
   if (n > 0) {
-    # v1.0 优化（2026-09-26）：原实现逐块拷贝 lines[begins[i]:ends[i]] +
+    # v1.0 优化原实现逐块拷贝 lines[begins[i]:ends[i]] +
     # 块内 grepl/startsWith 扫描（19k 块、predict.txt 解析数十秒级）——改为
     # 一次性展平分组：blk_idx = 每行所属块号；blk_lines = 全块行（按序拼接）
     # block_lens 钳制非负（病态块 ends<begins 不崩溃，该块键留 NA）
@@ -4370,12 +4623,12 @@ read_predict_txt <- function(path) {
       b2v <- b2_all[[i]]; if (is.null(b2v)) b2v <- numeric(0)
       y1v <- y1_all[[i]]; if (is.null(y1v)) y1v <- numeric(0)
       y2v <- y2_all[[i]]; if (is.null(y2v)) y2v <- numeric(0)
-      # y 向量 reverse（2026-09-20 发现的核心 bug）：pDeep2 的 y+1/y+2 向量按
+      # y 向量 reversepDeep2 的 y+1/y+2 向量按
       # "位点顺序"存储（index 1 = 最长 y 离子 y_{n-1}，index n-1 = y1），与
       # by_ions_long / b_y_ions_intensity 的 y1→y_{n-1} 正序相反——此前直接
       # 拼接未 reverse，导致 predict 余弦的 y 离子强度逐位错位（理论注入谱上
       # 实测定位：MFRPAQR y4 实测 0.992 被分配到 y3 位置）。
-      # y-vector reverse (the core bug found 2026-09-20): pDeep2 stores the
+      # y-vector reverse pDeep2 stores the
       # y+1/y+2 vectors in position order (index 1 = longest y ion y_{n-1},
       # index n-1 = y1), the opposite of the y1->y_{n-1} forward order used by
       # by_ions_long / b_y_ions_intensity - the raw concatenation below used
@@ -4443,7 +4696,7 @@ write_per_raw_mgfs <- function(mgf_files, out_dir) {
   flush_block <- function(raw) {
     if (bidx <= 1L || !nzchar(raw)) return(invisible(NULL))
     if (is.null(cons[[raw]])) {
-      # 2026-09-12：raw 数超过 R 连接上限（128）时批量关闭再按 append 重开——
+      #：raw 数超过 R 连接上限（128）时批量关闭再按 append 重开——
       # 加标实验 511 个 raw 触发 "all 128 connections are in use" 崩溃的修复
       if (length(cons) >= 100L) {
         for (cc in names(cons)) try(close(cons[[cc]]), silent = TRUE)
@@ -4549,8 +4802,8 @@ get_result_dir <- function(cfg_dir) {
   rd <- Sys.getenv("RESULT_DIR")
   if (nzchar(rd)) rd else resolve_result_dir(cfg_dir)
 }
-#' 对一张搜库结果表执行诱饵库去除（decoy removal，用户 2026-09-05 规格）。
-#' Decoy removal on ONE search-result table (user 2026-09-05 spec).
+#' 对一张搜库结果表执行诱饵库去除。
+#' Decoy removal on ONE search-result table .
 #'
 #' 逐行处理 Proteins 列（pFind 格式：条目以 "/" 结尾、直接相邻拼接，如
 #' "XP_.../REV_.../"）：列表全部为 REV_ 诱饵的行整行删除；正库与诱饵库并存
@@ -4619,7 +4872,7 @@ clean_decoy_spectra_base <- function(x, cleaned_dir, tag, annot = NULL, fa = NUL
       parts <- strsplit(ap, "/", fixed = TRUE)
       keep <- rep(TRUE, n_in)
       n_stripped <- 0L
-      # v1.0 优化（2026-09-26）：原逐行 trimws+grepl 循环（57k×5 文件约
+      # v1.0 优化原逐行 trimws+grepl 循环（57k×5 文件约
       # 20.9s）改为展平一次向量化——flat：全部蛋白片段；nz：非空标记；g：
       # 片段所属行号；nrev/ntot：每行诱饵数/非空条目数。注意 strsplit 对
       # 空串返回 character(0)，空行会缺席 rowsum 分组——按行名回填全长向量
@@ -4647,7 +4900,7 @@ clean_decoy_spectra_base <- function(x, cleaned_dir, tag, annot = NULL, fa = NUL
         }
       }
       dropped <- unique(dat$File_Name[!keep])
-      dat <- dat[keep, , drop = FALSE]
+      dat <- dat[keep,, drop = FALSE]
       write.table(dat, out, sep = "\t", quote = FALSE, row.names = FALSE, na = "")
       return(list(file = out, n_in = n_in, n_out = nrow(dat),
                   n_dropped = n_in - nrow(dat), n_stripped = n_stripped,
@@ -4669,7 +4922,7 @@ clean_decoy_spectra_base <- function(x, cleaned_dir, tag, annot = NULL, fa = NUL
   new_pr <- pr
   new_po <- if ("Positions" %in% colnames(dat)) dat$Positions else NULL
   po_parts <- if (!is.null(new_po)) strsplit(new_po, "/", fixed = TRUE) else NULL
-  # v1.0 优化（2026-09-26）：同上向量化——只对"正库+诱饵并存"的剥离行
+  # v1.0 优化同上向量化——只对"正库+诱饵并存"的剥离行
   # 用 vapply 重建 Proteins/Positions（保持与旧循环逐字节同义：片段先去空、
   # 再按 isrev 掩码剔除、结尾补 "/"）。空行（strsplit 返回 character(0)）
   # 按行名回填全长 nrev/ntot，避免 keep 向量长度错位被下标回收
@@ -4689,7 +4942,7 @@ clean_decoy_spectra_base <- function(x, cleaned_dir, tag, annot = NULL, fa = NUL
     n_stripped <- length(strip_rows)
     if (length(strip_rows) > 0) {
       pos_of <- cumsum(lengths(parts)) - lengths(parts) + 1L
-      # v1.0：长度向量预算一次——闭包内 lengths(parts)[i] 每次迭代对全表
+      #：长度向量预算一次——闭包内 lengths(parts)[i] 每次迭代对全表
       # list 重算 lengths，剥离行上万时二次方退化（open 件实测 +35 min）
       parts_len <- lengths(parts)
       new_pr[strip_rows] <- vapply(strip_rows, function(i) {
@@ -4717,7 +4970,7 @@ clean_decoy_spectra_base <- function(x, cleaned_dir, tag, annot = NULL, fa = NUL
     }
   }
   dropped <- unique(dat$File_Name[!keep])
-  dat <- dat[keep, , drop = FALSE]
+  dat <- dat[keep,, drop = FALSE]
   dat$Proteins <- new_pr[keep]
   if (!is.null(new_po)) dat$Positions <- new_po[keep]
   write.table(dat, out, sep = "\t", quote = FALSE, row.names = FALSE, na = "")
@@ -4725,7 +4978,7 @@ clean_decoy_spectra_base <- function(x, cleaned_dir, tag, annot = NULL, fa = NUL
        n_dropped = n_in - nrow(dat), n_stripped = n_stripped,
        dropped_spectra = dropped)
 }
-# v1.0（2026-09-29 性能轮①，工作站/本机画像）：诱饵清洗行级过滤快速路径。
+# v1.0诱饵清洗行级过滤快速路径。
 # 真实瓶颈不是诱饵判定（v1.0 已向量化），而是 read.delim 对 515 MB/
 # 1.8M 行×18 列字符表的逐字段解析与 write.table 全量回写（实测整段
 # 91–97 min ≈ 3 ms/行）。新路径：readLines 整读（~200 MB/s）→ 一次向量化
@@ -4737,7 +4990,7 @@ clean_decoy_spectra_base <- function(x, cleaned_dir, tag, annot = NULL, fa = NUL
 # 成 "Exp.MH."，新路径保留原始表头——下游读表时两者同样被 check.names
 # 规范化，语义等价（decoy_clean_equiv_test 断言解析后表相等）。列数异常
 # （防御）或无 Proteins 列（punifind 回查/兜底）回落 _base 旧实现。
-# v1.0 (perf round 1): line-level filtering for decoy cleaning. The real
+# (perf round 1): line-level filtering for decoy cleaning. The real
 # cost was read.delim parsing + write.table re-serializing every field of a
 # 515 MB / 1.8M-row character table (~3 ms/row); the decoy logic itself has
 # been vectorized since v1.0. New path: read the file as lines, one
@@ -4804,7 +5057,7 @@ clean_decoy_spectra_fast <- function(x, cleaned_dir, tag) {
     n_stripped <- length(strip_rows)
     if (length(strip_rows) > 0) {
       pos_of <- cumsum(lengths(parts)) - lengths(parts) + 1L
-      # v1.0：长度向量预算一次——闭包内 lengths(parts)[i] 每次迭代对全表
+      #：长度向量预算一次——闭包内 lengths(parts)[i] 每次迭代对全表
       # list 重算 lengths，剥离行上万时二次方退化（open 件实测 +35 min）
       parts_len <- lengths(parts)
       new_pr <- vapply(strip_rows, function(i) {
@@ -4900,7 +5153,7 @@ extract_sap_rows_df <- function(dat, fasta) {
   mod <- as.character(dat[[mi]])
   keep <- grepl("->", mod, fixed = TRUE)
   if (!any(keep)) return(NULL)
-  dat <- dat[keep, , drop = FALSE]
+  dat <- dat[keep,, drop = FALSE]
   mod <- as.character(dat[[mi]])
   seq <- as.character(dat[[si]])
 
@@ -4934,7 +5187,7 @@ extract_sap_rows_df <- function(dat, fasta) {
     mod[j] <- ""
   }
   if (any(drop)) {
-    dat <- dat[!drop, , drop = FALSE]
+    dat <- dat[!drop,, drop = FALSE]
     mod <- mod[!drop]
     seq <- seq[!drop]
   }
@@ -4966,7 +5219,7 @@ extract_sap_rows_df <- function(dat, fasta) {
   }
   keep2 <- rp != ""
   if (!any(keep2)) return(NULL)
-  dat <- dat[keep2, , drop = FALSE]
+  dat <- dat[keep2,, drop = FALSE]
   dat$revised_peptide <- rp[keep2]
   dat$revised_modification <- rm2[keep2]
   dat$ref_protein <- refp[keep2]
@@ -5101,7 +5354,7 @@ resolve_pdeep2_exe <- function(user_path) {
   resolved
 }
 normalize_pfind_exe <- function(p) {
-  # v1.0（2026-10-05 客户端实弹）：约定层级＝pFind 版本目录（含
+  # v1.0约定层级＝pFind 版本目录（含
   # bin/Searcher.exe 的那一级，如 C:/pFindStudio/pFind3）。宽容化：bin
   # 目录、Searcher.exe/pFind.exe 全路径、只给到 Studio 根（自动扫一层
   # 版本目录）全部可接；既有输入的结果保持不变。
@@ -5173,12 +5426,12 @@ denovo_csv_to_spectra <- function(csv_path, out_dir) {
   }
   out <- data.frame(File_Name = fn, Sequence = sq, Modification = md,
                     stringsAsFactors = FALSE)
-  # 去重（2026-09-17）：denovo merged csv 对同一谱可有多行（并列候选），
+  # 去重denovo merged csv 对同一谱可有多行（并列候选），
   # 合并步骤按标题对齐会因重复行报行数不一致——每谱保留首个（top）候选
-  # dedup (2026-09-17): the denovo merged csv may hold several rows for one
+  # dedup the denovo merged csv may hold several rows for one
   # spectrum (tied candidates), which breaks the title-aligned merge with a
   # row-count mismatch - keep the first (top) candidate per spectrum
-  out <- out[!duplicated(out$File_Name), , drop = FALSE]
+  out <- out[!duplicated(out$File_Name),, drop = FALSE]
   out_path <- file.path(out_dir, "pUniFind_denovo.spectra")
   write.table(out, out_path, sep = "	", row.names = FALSE, quote = FALSE)
   out_path
@@ -5215,7 +5468,7 @@ filter_mods_compatible <- function(path, compat_file) {
   dat <- readLines(path, warn = FALSE)
   header <- dat[1]
   body <- dat[-1]
-  # v1.0（性能第二轮）：原逐行×逐单元格×逐分片嵌套循环改展平一次判定
+  # （性能第二轮）：原逐行×逐单元格×逐分片嵌套循环改展平一次判定
   # （rows×cells×pieces 三维展成一次子集运算，再映射回行）
   cells <- strsplit(body, "\t", fixed = TRUE)
   flat <- unlist(cells, use.names = FALSE)          # 全部单元格
@@ -5267,7 +5520,7 @@ ensure_pfind_template <- function(kind, fasta_path, project_dir) {
   if (file.exists(dst)) return(dst)
   tpl_rel <- file.path("pFind_templates",
                       if (kind == "open") "open_pFind.cfg" else "restrict_pFind.cfg")
-  # P3（2026-09-26，deepseek 实弹）：模板路径不再依赖 cwd——先按全局 code_dir/
+  # P3模板路径不再依赖 cwd——先按全局 code_dir/
   # sd0 解析（脚本经 --file= 定位的代码目录），都不可用才回退 cwd 相对（旧行为）
   tpl <- character(0)
   for (base in c(if (exists("code_dir", envir = .GlobalEnv, inherits = FALSE))
@@ -5338,7 +5591,7 @@ ensure_pfind_template <- function(kind, fasta_path, project_dir) {
 #' @keywords internal
 run_punifind_cli <- function(kind, punifind_dir, qry_res_dir, mgf_dir, out_dir,
                              converter_py = NULL, python_exe = NULL) {
-  # N-16（2026-09-26，GLM）：回退实现复用 pf_build_args——适配模块随包分发，
+  # N-16回退实现复用 pf_build_args——适配模块随包分发，
   # 模块文件存在时直接委托 pf_run（参数面单一真源：数据目录前置、--flag=value
   # 连写、flag 面探测、消毒/压实/新鲜度/缓存失效全链路），不再维护本函数内
   # 漂移的独立参数面；仅模块文件缺失时走下方 legacy 路径（仅修 worker flag
@@ -5372,18 +5625,18 @@ run_punifind_cli <- function(kind, punifind_dir, qry_res_dir, mgf_dir, out_dir,
   dir.create(data_tmp, recursive = TRUE, showWarnings = FALSE)
   dir.create(res_dir, recursive = TRUE, showWarnings = FALSE)
 
-  # pUniFind 推理的 CPU 并行度（用户口径 2026-09-19：GUI Parameters 的
+  # pUniFind 推理的 CPU 并行度（设计约定：GUI Parameters 的
   # CPU Processors＝8，与 GPU Batch Size 64 同面板；此前 CLI 写死 --num-proc 1
   # 导致推理近单核、rescore/denovo 各约 3 h）。默认 8，可用环境变量
   # PUNIFIND_NUM_PROC 覆盖。
-  # CPU parallelism of pUniFind inference (user ruling 2026-09-19: the GUI
+  # CPU parallelism of pUniFind inference (user ruling: the GUI
   # Parameters panel sets CPU Processors = 8 alongside GPU Batch Size 64; the
   # CLI had hardcoded --num-proc 1, keeping inference near single-core at
   # ~3 h per stage). Default 8; override with the PUNIFIND_NUM_PROC env var.
   num_proc <- Sys.getenv("PUNIFIND_NUM_PROC")
   if (!nzchar(num_proc) || suppressWarnings(is.na(as.integer(num_proc))) ||
       as.integer(num_proc) < 1) num_proc <- "8"
-    # P2-1（2026-09-26，deepseek 实测）：--num-workers 0 让 GPU 挨饿（8 分钟只
+    # P2-1--num-workers 0 让 GPU 挨饿（8 分钟只
     # 推进 100/822 batch），pUniFind 自身默认 16。PUNIFIND_NUM_WORKERS 环境变量
     # 可配，默认 8；留空则省略该 flag、交给 pUniFind 默认值。
     num_workers <- trimws(Sys.getenv("PUNIFIND_NUM_WORKERS", unset = ""))
@@ -5391,11 +5644,11 @@ run_punifind_cli <- function(kind, punifind_dir, qry_res_dir, mgf_dir, out_dir,
   mk_args <- function(q, m, o) {
     # system2 的 args 每个元素一个参数（含空格的值由 system2 自行加引号）
     # each element of args is ONE argument (values with spaces are quoted by system2)
-    # P1-1（2026-09-26，deepseek 实测）：新 pUniFind 构建不再定义 --load-contra，
+    # P1-1新 pUniFind 构建不再定义 --load-contra，
     # "flag 与值分离"写法下其值 0 泄漏成位置参数 data → 0\test.parquet 找不到、
     # rescore/denovo 100% 失败。改法：① 数据目录放第一条（官方 CLI 同款）；
     # ② 删除 --load-contra；③ 数值型参数一律 --flag=value 连写（防同类泄漏）。
-    # N-16（2026-09-26，GLM）：0 不再传出（旧口径 >=0 会把 0 传给 pUniFind），
+    # N-160 不再传出（旧口径 >=0 会把 0 传给 pUniFind），
     # 且改 --flag=value 连写（与 pf_build_args 同口径，防值泄漏成位置参数）
     nw <- if (nzchar(num_workers) && !suppressWarnings(is.na(as.integer(num_workers))) &&
               as.integer(num_workers) > 0) paste0("--num-workers=", num_workers) else character(0)
@@ -5440,7 +5693,7 @@ run_punifind_cli <- function(kind, punifind_dir, qry_res_dir, mgf_dir, out_dir,
 
   run_once <- function(q, m, o) {
     args <- mk_args(q, m, o)
-    # N-16（2026-09-25）：统一经 iso_system2 全量 shQuote（旧写法只对"含空格且
+    # N-16统一经 iso_system2 全量 shQuote（旧写法只对"含空格且
     # 不以 -- 开头"的条件加引号，含 &/(/)/^/% 的路径仍会被 cmd 截断；shQuote 对
     # 无特殊字符的参数原样返回，flag 不受影响）
     logf <- file.path(o, if (kind == "rescore") "rescore.log" else "denovo.log")
@@ -5452,17 +5705,17 @@ run_punifind_cli <- function(kind, punifind_dir, qry_res_dir, mgf_dir, out_dir,
     list(ok = (st == 0), status = st, log = logtxt)
   }
 
-  # 消毒 qry.res（2026-09-14）：pFind 开放式搜库对修饰表外的 delta 质量写出
+  # 消毒 qry.respFind 开放式搜库对修饰表外的 delta 质量写出
   # ";name#0" 占位修饰名（新加入的边缘谱所致），pUniFind 预处理的
   # multiprocessing 断言崩溃。这些 PSM 的唯一修饰即未命名 delta，无法被
   # pUniFind 评分——整行删除（token 清除会留下空修饰字段继续触发断言）。
-  # sanitize the qry.res in place (2026-09-14): pFind's open search writes a
+  # sanitize the qry.res in place pFind's open search writes a
   # ";name#0" placeholder for delta masses outside the mod table (caused by the
   # marginal spectra added to the new unlabeled set), which trips pUniFind's
   # preprocessing assertion. Such PSMs carry nothing but the unnamed delta and
   # cannot be scored by pUniFind - the whole ROW is dropped (stripping just the
   # token leaves an empty modification field that keeps tripping the assertion).
-  pf_sanitize_qryres(qry_res_dir)   # P0-A（2026-09-26）：消毒提为公共函数，与 pf_run 共用
+  pf_sanitize_qryres(qry_res_dir)   # P0-A消毒提为公共函数，与 pf_run 共用
 
   r <- run_once(qry_res_dir, mgf_dir, out_dir)
   if (!r$ok && any(grepl("[^\x01-\x7F]", c(qry_res_dir, mgf_dir, out_dir)))) {
@@ -5513,10 +5766,10 @@ run_punifind_cli <- function(kind, punifind_dir, qry_res_dir, mgf_dir, out_dir,
     }
   }
   # CLI 主进程退出时其 multiprocessing worker 可能仍在收尾写 .spectra
-  # （2026-09-14 实测：主进程 exit 0 后产物稍后才落盘，随即检查会误报缺失）：
+  # （实测：主进程 exit 0 后产物稍后才落盘，随即检查会误报缺失）：
   # 退出码为 0 时轮询等待产物落盘（最多约 60 s）再判定。
   # the CLI's multiprocessing workers may still be flushing the .spectra when
-  # the main process exits (observed 2026-09-14: the output lands moments after
+  # the main process exits (observed: the output lands moments after
   # the exit, so an immediate check falsely reports it missing): when the exit
   # code is 0, poll for the output (up to ~60 s) before deciding.
   if (r$ok && kind == "rescore") {
@@ -5532,11 +5785,11 @@ run_punifind_cli <- function(kind, punifind_dir, qry_res_dir, mgf_dir, out_dir,
   }
   if (kind == "rescore") {
     sp <- list.files(qry_res_dir, pattern = "pUniFind\\.spectra$", full.names = TRUE)
-    # 2026-09-06：官方 CLI 只产出打分 pkl、不产出 .spectra。用随客户端分发的
+    #：官方 CLI 只产出打分 pkl、不产出 .spectra。用随客户端分发的
     # punifind_rescore_convert.py 把谱级打分（pscore_res_*.pkl）转成 fdr0.01
     # .spectra；python 由 punifind_python 配置（需装有 torch/numpy），未配置或
     # 缺失时退回原有报错（等价于 GUI 导出待办）。
-    # the official CLI writes only score pkls, not .spectra (2026-09-06): the
+    # the official CLI writes only score pkls, not .spectra the
     # shipped punifind_rescore_convert.py turns the spectrum-level scores
     # (pscore_res_*.pkl) into an fdr0.01 .spectra; the python named by
     # punifind_python (torch/numpy required) is used, and when missing the
@@ -5559,10 +5812,10 @@ run_punifind_cli <- function(kind, punifind_dir, qry_res_dir, mgf_dir, out_dir,
         pk <- pks[which.max(file.info(pks)$mtime)]
         out_sp <- file.path(qry_res_dir, "testfdr0.01_pUniFind.spectra")
         # system2 取 stdout=TRUE 时返回值是捕获的输出行、退出码在 "status"
-        # 属性里（2026-09-19 实测竞态：转换实际成功却因 st==0 恒假误报失败，
+        # 属性里（实测竞态：转换实际成功却因 st==0 恒假误报失败，
         # spectra 在报错后 1 s 落盘）——先取属性，再判转换产物
         # with stdout=TRUE system2 returns the captured lines and the exit
-        # code rides the "status" attribute (2026-09-19 measured race: a
+        # code rides the "status" attribute (measured race: a
         # successful conversion was reported as failure because st==0 was
         # always FALSE; the spectra landed 1 s after the error) - read the
         # attribute first, then check the converted output
@@ -5621,7 +5874,7 @@ make_step2_config <- function(cfg1_path, cfg1, out_path) {
     old <- read_param_file(out_path)
     keep <- old$search_file
     keep <- keep[!is.na(keep) & keep != ""]
-    # 保留 search_file_type（用户口径 2026-09-11 修正）：此前只保留路径、类型键被
+    # 保留 search_file_type此前只保留路径、类型键被
     # 丢弃，step1 重跑后类型全部按文件名规则推成 pfind_open -> "策略类型重复"报错
     keep_ty <- old$search_file_type
     if (is.null(keep_ty)) keep_ty <- rep("", length(keep))
@@ -5768,7 +6021,7 @@ make_step3_config <- function(cfg2_path, cfg2, out_path) {
     old_wb <- old_wb[!is.na(old_wb) & old_wb != ""]
     old_tb <- old$threshold_B
     old_tb <- old_tb[!is.na(old_tb) & old_tb != ""]
-    # v1.0（2026-09-28 工作站反馈）：proteogenomics_mode 等用户键此前会被
+    # v1.0proteogenomics_mode 等用户键此前会被
     # 本函数重建时冲掉（只保留 5 键）——与 predict_file 同口径保留。
     old_pg <- old$proteogenomics_mode
     old_pg <- old_pg[!is.na(old_pg) & old_pg != ""]
@@ -5847,10 +6100,10 @@ expand_groups <- function(state_str) {
 #'   字符串，pDeep2 predict.txt。
 #'   Character string, the pDeep2 predict.txt.
 #' @param weights_A
-#'   数值向量，阶段 A 三权重（ul_by、ul_all、predict；用户口径 2026-09-20/21，
+#'   数值向量，阶段 A 三权重（ul_by、ul_all、predict；设计约定 /21，
 #'   统一跨标记类型；金标定权见 stageA权重_20260921）。
 #'   Numeric vector, the three stage-A weights (ul_by, ul_all, predict; user
-#'   ruling 2026-09-20/21, unified across label types; gold-calibrated).
+#'   ruling /21, unified across label types; gold-calibrated).
 #' @param threshold_A
 #'   数值，阶段 A 判定阈值（ΔACS_A：最强挑战者与 a 槽候选的加权分差门限）。
 #'   Numeric, the stage-A decision threshold (the ACS_A gap between the top
@@ -5946,7 +6199,7 @@ stageA_evaluate <- function(merged_file, unlabeled_mgf_files,
   chunks <- split(seq_len(nrow(dat)),
                    droplevels(cut(seq_len(nrow(dat)), 100)))  # 空组剔除：<99 行小样本不再产生空块
   mk_payload <- function(ch) {
-    datsub <- dat[ch, , drop = FALSE]
+    datsub <- dat[ch,, drop = FALSE]
     fn <- dat$File_Name[ch]
     li <- unname(ul_title_idx[fn])
     uniq <- sort(unique(li[!is.na(li)]))
@@ -5959,7 +6212,7 @@ stageA_evaluate <- function(merged_file, unlabeled_mgf_files,
       md <- sub(";+$", "", as.character(datsub[[mod_cols[k]]]))  # 键修饰去尾分号
       nz <- !is.na(sq) & sq != ""                           # NA 守卫（空候选防 NA 传播）
       if (any(nz)) {
-        # v1.0（无标记通道=0）：pDeep2 对去标记肽段预测，键修饰同步去标记
+        # （无标记通道=0）：pDeep2 对去标记肽段预测，键修饰同步去标记
         if (!is.null(label_mods) && length(label_mods) > 0)
           md <- strip_label_mods(md, label_mods)
         z <- datsub$Charge[nz]
@@ -5984,6 +6237,14 @@ stageA_evaluate <- function(merged_file, unlabeled_mgf_files,
   scan_chunk <- function(pp) {
     mod_sites <- build_mod_sites(aa)
     dat <- pp$datsub
+    #：观测前体（Exp.MH. 带 pFind 尾点；兼容无点写法）——传给
+    # spectrum_params 做按质量推断的标记追加（多标记互斥口径）
+    #: observed precursor (pFind writes "Exp.MH."; dotless tolerated)
+    # - fed to spectrum_params for mass-inferred label appending
+    mh_v <- if ("Exp.MH." %in% colnames(dat)) suppressWarnings(as.numeric(dat[["Exp.MH."]]))
+            else if ("Exp.MH" %in% colnames(dat)) suppressWarnings(as.numeric(dat[["Exp.MH"]]))
+            else rep(NA_real_, nrow(dat))
+    if (length(mh_v) == 0) mh_v <- rep(NA_real_, nrow(dat))
     rep_rows <- vector("list", nrow(dat))
     det_rows <- vector("list", nrow(dat))
     for (j in seq_len(nrow(dat))) {
@@ -5993,7 +6254,7 @@ stageA_evaluate <- function(merged_file, unlabeled_mgf_files,
       if (length(pos) == 0) next
       spec <- pp$specs[[pos]]
       z <- pp$charges[pos]
-      # v1.0（性能第二轮）：同谱多候选的 matched_peak_set 复用一次排序
+      # （性能第二轮）：同谱多候选的 matched_peak_set 复用一次排序
       # （spec_ord 映射回原始峰下标，与函数内自排序语义一致）
       spec_mz <- as.numeric(spec[[1]])
       spec_ord <- order(spec_mz, na.last = NA)
@@ -6001,7 +6262,7 @@ stageA_evaluate <- function(merged_file, unlabeled_mgf_files,
       p_groups <- expand_groups(dat$Peptide_state[j])
       m_groups <- expand_groups(dat$Modification_state[j])
       # "Same" 肽段＝全部槽一致：肽段组应覆盖全部槽，否则"仅修饰冲突/仅序列冲突"
-      # 会被塌缩成单 a 槽候选而失去仲裁（组索引 vs 槽位 2026-09-22 审查修正）
+      # 会被塌缩成单 a 槽候选而失去仲裁
       # a "Same" peptide means every slot agrees: the peptide group must span ALL
       # slots, otherwise mod-only/seq-only conflicts collapse to the lone a-slot
       if (identical(as.character(dat$Peptide_state[j]), "Same"))
@@ -6040,7 +6301,7 @@ stageA_evaluate <- function(merged_file, unlabeled_mgf_files,
       for (k in seq_along(cand)) {
         sq <- cand[[k]]$seq; md <- cand[[k]]$mod
         sp <- spectrum_params(sq, md, label_tag, aa, aa_tab, spec, 20, "ppm",
-                              labels = label_mods)
+                              labels = label_mods, precursor_mh = mh_v[j])
         if (is.null(sp)) next
         # 预测谱缺失时不填 0，记 NA（结果文件中以空值显式标注、并在 predict_missing 列标记）
         # a missing predicted spectrum is recorded as NA, never 0 (annotated as empty in
@@ -6057,7 +6318,7 @@ stageA_evaluate <- function(merged_file, unlabeled_mgf_files,
           v <- sp$b_y_ions_intensity
           nmin <- min(length(pv), length(v))
           if (nmin > 0) {
-            # v1.0（无标记通道=0）：按子离子顺序对齐，缺失位点 0 补齐
+            # （无标记通道=0）：按子离子顺序对齐，缺失位点 0 补齐
             if (!is.null(label_mods) && length(label_mods) > 0) {
               vv <- v[seq_len(nmin)]; vv[is.na(vv)] <- 0
               pvv <- pv[seq_len(nmin)]; pvv[is.na(pvv)] <- 0
@@ -6071,10 +6332,10 @@ stageA_evaluate <- function(merged_file, unlabeled_mgf_files,
         cand[[k]]$predict_cosine <- pr
       }
 
-      # 相对策略 a 候选的特异离子比（嵌合证据；2026-09-06 m/z 口径：按观测峰
+      # 相对策略 a 候选的特异离子比（嵌合证据；m/z 口径：按观测峰
       # 集合，特异峰数 ÷ 两候选命中峰并集，取 min——同一峰不论位点只计一次）
       # specific-ion ratios vs the strategy-a candidate (chimeric evidence;
-      # m/z basis since 2026-09-06: observed-peak sets, specific peaks over
+      # m/z basis since: observed-peak sets, specific peaks over
       # the union of both candidates' matched peaks, taking the minimum - a
       # shared peak counts once regardless of its position in either peptide)
       spec_ratios <- setNames(rep("", length(supp_slots)),
@@ -6108,23 +6369,23 @@ stageA_evaluate <- function(merged_file, unlabeled_mgf_files,
       n <- length(cand)
       u_by <- sapply(cand, function(x) if (is.null(x$sp)) NA_real_ else x$sp$PSM_score_by)
       u_all <- sapply(cand, function(x) if (is.null(x$sp)) NA_real_ else x$sp$PSM_score_all)
-      # 竞争匹配不引入 predict（用户口径 2026-09-17）：任何报告结果都不如
+      # 竞争匹配不引入 predict任何报告结果都不如
       # pDeep2 原生生成的谱图相似性高（理论注入谱即 pDeep2 产物、余弦理论
       # 1.00），predict 指标会系统性偏向 pDeep2 生成谱而失实——投票仅用
       # by/all 两指标；predict 仍计算并写入候选列供报告，不参与投票
-      # the competition vote excludes predict (user ruling 2026-09-17): no
+      # the competition vote excludes predict no
       # reported result reaches the similarity of a pDeep2-native spectrum
       # (the theoretical injections ARE pDeep2 outputs, cosine ~1.00 by
       # construction), so the predict metric systematically favours generated
       # spectra - the vote uses by/all only; predict is still computed and
       # written into the candidate columns for reporting, just not voted
       u_pred <- sapply(cand, function(x) x$predict_cosine)
-      # ---- 加权 ACS_A 判定（用户口径 2026-09-21：StageA 用统一四指标权重）----
+      # ---- 加权 ACS_A 判定----
       # 四指标 = ul_by/100、ul_all/100、ul_cov/100、predict（无标记侧可得，八参数
       # 版配套口径）；任一候选缺某指标则本谱弃用该维度并重归一权重（与阶段 B 的
       # 可用性降级同构）。胜者 = ACS_A 最高候选；仅当胜者非 a 槽且
       # ΔACS_A ≥ threshold_A 时改判 candidate_misidentification，否则保持原始。
-      # ---- weighted ACS_A decision (user ruling 2026-09-21: stage A carries
+      # ---- weighted ACS_A decision (user ruling: stage A carries
       # its own UNIFIED four-metric weights): metrics are ul_by/100, ul_all/100,
       # ul_cov/100 and predict; a metric missing for ANY candidate is dropped
       # for this spectrum with the remaining weights renormalized. The winner
@@ -6256,10 +6517,21 @@ stageA_evaluate <- function(merged_file, unlabeled_mgf_files,
                 row.names = FALSE, quote = FALSE)
     write.table(detail, file.path(out_dir, "scan_details_A.tsv"), sep = "\t",
                 row.names = FALSE, quote = FALSE)
-    sm <- as.data.frame(table(report$decision_A), stringsAsFactors = FALSE)
-    write.table(sm, file.path(out_dir, "summary_A.txt"), sep = "\t",
+    #: spectrum-level summary is the primary count - a top5
+    # multi-engine merged table holds up to K candidate rows per spectrum
+    # and row-level counting inflates "errors" with rows 2..K flips (live
+    # case: 42% row-level vs 2% spectrum-level). summary_A.txt counts
+    # first-row verdicts per spectrum; row-level counts move to the sidecar.
+    sm <- as.data.frame(table(report$decision_A[!duplicated(report$File_Name)]),
+                        stringsAsFactors = FALSE)
+    write.table(sm, file.path(out_dir, "summary_A.txt"), sep = "	",
                 row.names = FALSE, quote = FALSE)
-    cat("stage A reported spectra:", nrow(report), "| detail rows:", nrow(detail), "\n")
+    sm_row <- as.data.frame(table(report$decision_A), stringsAsFactors = FALSE)
+    write.table(sm_row, file.path(out_dir, "summary_A.rowlevel.txt"), sep = "	",
+                row.names = FALSE, quote = FALSE)
+    cat("stage A reported rows:", nrow(report),
+        "| spectra:", sum(sm$Freq), "| detail rows:", nrow(detail), "
+")
     print(sm)
     mark("写出报告", "write outputs")
   } else {
@@ -6352,7 +6624,7 @@ match_peptide_protein <- function(peptide, proteins) {
 #' @keywords internal
 build_mod_sites <- function(aa_df) {
   aa <- aa_df$AA
-  # perl=TRUE：R 4.5.1 UCRT 的 TRE 引擎对否定类匹配失败（2026-09-13 实测修复）
+  # perl=TRUE：R 4.5.1 UCRT 的 TRE 引擎对否定类匹配失败
   has_br <- grepl("\\[[^\\[]*\\]$", aa, perl = TRUE)
   aa <- aa[has_br]
   nm <- character(length(aa))
@@ -6570,7 +6842,7 @@ error_reason_compute <- function(rev_form, rev_pep, ref_protein, sap_hit) {
     if (length(ctx_part) >= 2) {
       flanks <- vapply(strsplit(ctx_part[2], "/")[[1]], function(c) substr(c, 2, 2),
                        character(1))
-      # v1.0（2026-09-26）：N 端非特异判据按酶切类型参数化（旧版写死 K/R）；
+      # v1.0N 端非特异判据按酶切类型参数化（早期实现写死 K/R）；
       # C 端酶看前一残基，N 端酶看肽段首残基，无酶切恒特异
       first_aa <- substr(rev_pep, 1, 1)
       if (!any(vapply(flanks, function(fl) enzyme_nterm_ok(iso_enzyme(), fl, first_aa),
@@ -6650,7 +6922,7 @@ extend_report_A <- function(report, details, merged, fasta, sap = NULL) {
   }
 
   wb <- which(as.logical(details$is_best))
-  det_best <- details[wb, , drop = FALSE]
+  det_best <- details[wb,, drop = FALSE]
   idx_d <- match(report$File_Name, det_best$File_Name)
   best_syms <- rep("a", n)
   best_mod <- rep("", n)
@@ -6673,17 +6945,17 @@ extend_report_A <- function(report, details, merged, fasta, sap = NULL) {
   mod_eq <- rep(FALSE, n)
   wh0 <- which(!is_orig)
   if (length(wh0) > 0) {
-    # v1.0（2026-10-01）：>2000 行时并行化 normalize_mod_str 逐行比较。
+    # v1.0>2000 行时并行化 normalize_mod_str 逐行比较。
     # Macaca 890K 行的 extend_report_A 主要耗时段之一。
-    # v1.0 (2026-10-01): parallelize normalize_mod_str comparison for >2000 rows.
+    # v1.0 parallelize normalize_mod_str comparison for >2000 rows.
     if (length(wh0) > 2000 && requireNamespace("parallel", quietly = TRUE)) {
       nw_eq <- min(4L, parallel::detectCores() - 1L)
       cat("[extend_report_A] mod_eq comparison: ", length(wh0), " rows, ", nw_eq, " workers\n", sep = "")
       cl_eq <- parallel::makeCluster(nw_eq)
       on.exit(parallel::stopCluster(cl_eq), add = TRUE)
-      # v1.0：clusterExport 必须传 envir = environment()（局部变量在
+      #：clusterExport 必须传 envir = environment()（局部变量在
       # .GlobalEnv 找不到）；normalize_mod_str 依赖顶层 canon_mod_entry，
-      # worker 侧无闭包链须一并导出（工作站 P1 2026-10-04 两轮确定性复现）
+      # worker 侧无闭包链须一并导出
       parallel::clusterExport(cl_eq, c("normalize_mod_str", "canon_mod_entry",
                                        "revise_mod", "revise_pep",
                                        "x1m", "x1s", "sites"),
@@ -6712,14 +6984,14 @@ extend_report_A <- function(report, details, merged, fasta, sap = NULL) {
   replaced <- rep("", n)
   if (any(changed)) {
     wh <- which(changed)
-    # v1.0（2026-10-01）：>2000 行时并行化 revise_form_classify + revise_aa_pairs。
-    # v1.0 (2026-10-01): parallelize form classification and AA-pair analysis for >2000 rows.
+    # v1.0>2000 行时并行化 revise_form_classify + revise_aa_pairs。
+    # v1.0 parallelize form classification and AA-pair analysis for >2000 rows.
     if (length(wh) > 2000 && requireNamespace("parallel", quietly = TRUE)) {
       nw_cls <- min(4L, parallel::detectCores() - 1L)
       cat("[extend_report_A] form classify + AA pairs: ", length(wh), " rows, ", nw_cls, " workers\n", sep = "")
       cl_cls <- parallel::makeCluster(nw_cls)
       on.exit(parallel::stopCluster(cl_cls), add = TRUE)
-      # v1.0：同上——revise_form_classify 间接经 normalize_mod_str 需要
+      #：同上——revise_form_classify 间接经 normalize_mod_str 需要
       # canon_mod_entry，两者均须导出给 worker
       parallel::clusterExport(cl_cls, c("revise_form_classify", "revise_aa_pairs",
                                          "normalize_mod_str", "canon_mod_entry",
@@ -6750,12 +7022,12 @@ extend_report_A <- function(report, details, merged, fasta, sap = NULL) {
   ref_str <- setNames(rep("", length(norm_peps)), norm_peps)
   ref_pos <- setNames(rep("", length(norm_peps)), norm_peps)
   if (length(norm_peps) > 0) {
-    # v1.0（2026-10-01）：肽→蛋白匹配并行化。
+    # v1.0肽→蛋白匹配并行化。
     # Macaca 报告此处为单核 2.6h（50K+ unique peptides × 72K proteins）。
     # 每条肽段的蛋白匹配完全独立（embarrassingly parallel），>200 条时
     # 用 parLapplyLB 分发到多 worker。低于 200 条时走原顺序循环（序列化
     # 开销不划算）。match_peptide_protein 保持原逻辑不变。
-    # v1.0 (2026-10-01): parallelize peptide→protein matching.
+    # v1.0 parallelize peptide→protein matching.
     # Macaca reports this as single-core 2.6h (50K+ peptides × 72K proteins).
     # Each peptide's protein scan is fully independent; >200 peptides triggers
     # parLapplyLB with multiple workers. Below 200 runs the original sequential
@@ -6768,7 +7040,7 @@ extend_report_A <- function(report, details, merged, fasta, sap = NULL) {
           " peptides, ", nw, " workers (parallel)\n", sep = "")
       cl <- parallel::makeCluster(nw)
       on.exit(parallel::stopCluster(cl), add = TRUE)
-      # v1.0：fasta 为函数局部变量，须显式传 environment()
+      #：fasta 为函数局部变量，须显式传 environment()
       parallel::clusterExport(cl, c("fasta", "match_peptide_protein"),
                               envir = environment())
       hits_list <- parallel::parLapplyLB(cl, norm_peps, function(p) {
@@ -6944,7 +7216,7 @@ silac_labeled_mod <- function(seq, mod) {
 #'   MGF 对象列表，同一 raw 的原始谱图（无标记＋标记）。
 #'   A list of MGF objects, the same raw's original spectra (unlabeled + labeled).
 #' @param label_type
-#'   字符串，标记类型（N15 / C13 / SILAC），默认为 "N15"。
+#'   字符串，标记类型默认为 "N15"。
 #'   Character string, the label type (N15 / C13 / SILAC); defaults to "N15".
 #' @param aa
 #'   数据框或 NULL，AA_mass_dataframe 内容（NULL 时自动读）。
@@ -6969,7 +7241,7 @@ silac_labeled_mod <- function(seq, mod) {
 #'   返回列表（paired/light/label/paired_cosine 等）或 NULL。
 #'   A list (paired/light/label/paired_cosine etc.) or NULL.
 #' @keywords internal
-# RT 窗口纯函数（v1.0，P1-2）：findInterval 区间 + 下标升序排序，与旧
+# RT 窗口纯函数findInterval 区间 + 下标升序排序，与旧
 # which(rt >= lo & rt <= hi) 逐位等价（集合同、枚举顺序同；NA RT 丢弃；
 # rt_tol/light_rt 为 NA 返回空）。rt_ord 由调用方每 raw 预排序传入。
 rt_window_indices <- function(rt, light_rt, rt_tol, rt_ord = NULL) {
@@ -6980,16 +7252,16 @@ rt_window_indices <- function(rt, light_rt, rt_tol, rt_ord = NULL) {
   i_hi <- findInterval(light_rt + rt_tol, rt_sorted)
   if (i_lo <= i_hi) sort(rt_ord[i_lo:i_hi]) else integer(0)
 }
-# ---- 多标记行式口径（v1.0，2026-09-28 用户口径）------------------------
+# ---- 多标记行式口径------------------------
 # label_type 为多行键：每行一个标记。取值两类——第一类全原子稳定同位素替换：
 # "N15"/"C13"；第二类修饰形式标记（格式与 modification.ini 一致，名称=原子
 # 类型与数量）：如 "Dimethyl[AnyN-term]"、"Label_13C(6)[K]"、
 # "Label_13C(6)15N(4)[R]"。空行/无键＝无标记。兼容旧单值口径
-# （unlabeled/N15/C13/SILAC 单值走 legacy 路径，行为逐字节不变）。
+#。
 parse_label_spec <- function(label_type) {
   lt <- trimws(as.character(label_type))
   lt <- lt[!is.na(lt) & nzchar(lt)]
-  # v1.0：自定义 "|" 行注册到 option——理论离子构建器经
+  #：自定义 "|" 行注册到 option——理论离子构建器经
   # augment_aa_mass_table() 把 名称→计算质量 补进 AA_mass_dataframe，
   # 修饰串按名查质量的全部既有逻辑对自定义名无感生效。
   options(isopsv_custom_labels = if (any(grepl("|", lt, fixed = TRUE))) {
@@ -7008,7 +7280,7 @@ parse_label_spec <- function(label_type) {
   mods <- lt[!up %in% c("N15", "C13", "UNLABELED")]
   list(legacy = NULL, class1 = c1, mods = unique(mods))
 }
-# ---- v1.0（2026-09-28 用户口径）：第二类修饰形式标记——用户自定义修饰行 ----
+# ---- v1.0第二类修饰形式标记——用户自定义修饰行 ----
 # 行语法（label_type 的值，单行四字段、竖线分隔）：<名称>|<位置>|<氨基酸集合>|<元素组成>
 #   位置：ANY 任意位置 / PEP_N 肽段N端 / PEP_C 肽段C端 / PRO_N 蛋白N端 / PRO_C 蛋白C端
 #         （中文短语与 pFind 风格 NORMAL/AnyN-term/AnyC-term/ProteinN-term/ProteinC-term 同收）
@@ -7017,7 +7289,7 @@ parse_label_spec <- function(label_type) {
 #         （2H/D、13C、15N、18O、34S）；标记质量 = Σ 元素单价质量 × 计数
 # 例：Phospho|ANY|STY|H(1)O(3)P(1)；NeuCode8|ANY|K|C(-6)13C(6)N(-2)15N(2)
 # 旧预设名（无竖线，如 Label_13C(6)[K]）仍按 AA_mass_dataframe 查表，完全兼容。
-# v1.0 (user ruling): class-2 modification-form labels accept user-defined
+# (user ruling): class-2 modification-form labels accept user-defined
 # rows name|position|aa-set|composition; mass is computed from element counts.
 # Legacy preset names (no "|") keep the AA_mass_dataframe lookup.
 ELEMENT_MONO_MASSES <- c(
@@ -7083,7 +7355,7 @@ label_pos_normalize <- function(p) {
 
 is_custom_label_row <- function(x) grepl("|", as.character(x), fixed = TRUE)
 
-# 自定义修饰行 → (name, residue, mass, pos)。名称不得含 [ ] ; , 与制表符
+# 自定义修饰行 → (name, residue, mass, pos)。名称不得含 [ ];, 与制表符
 # （修饰串格式 "pos,name;" 的安全前提）；氨基酸集合去重保序、限标准字母。
 parse_label_row <- function(x) {
   f <- trimws(strsplit(as.character(x), "|", fixed = TRUE)[[1]])
@@ -7092,7 +7364,7 @@ parse_label_row <- function(x) {
          x, call. = FALSE)
   name <- f[1]
   if (!nzchar(name) || grepl("[][;,\t]", name))
-    stop("修饰名称非法（不得为空或含 [ ] ; , 制表符）/ invalid modification name: ",
+    stop("修饰名称非法（不得为空或含 [ ];, 制表符）/ invalid modification name: ",
          f[1], call. = FALSE)
   pos <- label_pos_normalize(f[2])
   aas <- toupper(f[3])
@@ -7110,7 +7382,7 @@ parse_label_row <- function(x) {
              stringsAsFactors = FALSE)
 }
 
-# v1.0：自定义行进修饰串用的带标签名（pFind 命名惯例）——理论离子构建器
+#：自定义行进修饰串用的带标签名（pFind 命名惯例）——理论离子构建器
 # 靠名字里的 "N-term"/"C-term" 路由端基质量、按名查表取质量：
 #   ANY+集合 → Name[STY]；ANY+* → Name（裸名）；PEP_N/PRO_N → Name[AnyN-term]<AA?>
 #   PEP_C/PRO_C → Name[AnyC-term]<AA?>（蛋白端理论侧按肽段端近似，与引擎侧一致）
@@ -7139,7 +7411,7 @@ augment_aa_mass_table <- function(aa_df) {
   key <- paste(cl$name, cl$pos, cl$residue, cl$mass, collapse = ";")
   if (identical(attr(aa_df, "isopsv_augmented"), key)) return(aa_df)
   add_names <- unique(unlist(lapply(seq_len(nrow(cl)),
-                                    function(k) label_table_names(cl[k, , drop = FALSE]))))
+                                    function(k) label_table_names(cl[k,, drop = FALSE]))))
   new <- add_names[!add_names %in% aa_df$AA]
   if (length(new) == 0L) {
     attr(aa_df, "isopsv_augmented") <- key
@@ -7160,8 +7432,8 @@ augment_aa_mass_table <- function(aa_df) {
   out
 }
 
-# 标记修饰的质量与残基解析（v1.0：引擎自动搜库注入 NeuCode 标记用；
-# v1.0：自定义 "|" 行走组成式计算，旧预设名仍查 AA_mass_dataframe）。
+# 标记修饰的质量与残基解析（引擎自动搜库注入 NeuCode 标记用；
+#：自定义 "|" 行走组成式计算，旧预设名仍查 AA_mass_dataframe）。
 # 旧名 [AA] 括号给残基；[AnyN-termQ] 等端部括号折算为 pos 码 + 纯残基。
 label_mod_masses <- function(labels) {
   if (is.null(labels) || length(labels) == 0) return(NULL)
@@ -7183,9 +7455,9 @@ label_mod_masses <- function(labels) {
   do.call(rbind, out)
 }
 
-# v1.0（2026-09-28）：标记修饰行生成。comet/msfragger 共用编号续接逻辑
+# v1.0标记修饰行生成。comet/msfragger 共用编号续接逻辑
 # （编号接在模板已有 variable_mod(NN) 之后避免撞车）；sage 走 JSON 条目。
-# v1.0：残基字段先经 engine_mod_token 按引擎语法折算端部（comet 裸 n/c =
+#：残基字段先经 engine_mod_token 按引擎语法折算端部（comet 裸 n/c =
 # 任意残基端；msfragger [^ / ]$ = 任意残基端、n/c 前缀 = 特定残基端）；
 # 蛋白端（PRO_N/PRO_C）comet/msfragger 无原生支持，按肽段端近似并在注入时提示。
 engine_mod_token <- function(residue, pos, engine = c("comet", "msfragger")) {
@@ -7231,7 +7503,7 @@ sage_label_mod_entries <- function(label_mass) {
         paste(label_mass$name[term], collapse = "、"), "\n",
         "[sage label inject] sage variable_mods is residue-keyed only; terminal labels not injected into sage: ",
         paste(label_mass$name[term], collapse = ", "), "\n", sep = "")
-  lm2 <- label_mass[!term, , drop = FALSE]
+  lm2 <- label_mass[!term,, drop = FALSE]
   grp <- split(round(lm2$mass, 6), lm2$residue)
   paste0(sprintf('      "%s": [%s]', names(grp),
                  vapply(grp, function(m) paste(sprintf("%.6f", m), collapse = ", "),
@@ -7247,7 +7519,7 @@ label_tau_of <- function(spec) {
   0.0083
 }
 # 把修饰形式的标记按适用残基/N 端追加进修饰串（内部格式 pos,name;...）
-# v1.0：自定义 "|" 行按 位置码+氨基酸集合 定位——ANY 集合内所有残基位、
+#：自定义 "|" 行按 位置码+氨基酸集合 定位——ANY 集合内所有残基位、
 # PEP_N/PRO_N → 0、PEP_C/PRO_C → 肽长（蛋白端在此无蛋白上下文，按肽段端
 # 近似，理论侧口径与引擎侧一致）；修饰串里写带标签名（Name[STY] /
 # Name[AnyN-term]，与 pFind 命名惯例一致——理论端基质量路由靠名字里的
@@ -7303,11 +7575,121 @@ strip_label_mods <- function(mod, labels) {
   toks <- toks[nzchar(toks)]
   drop <- vapply(toks, function(tk) {
     nm <- sub("^[^,]*,\\s*", "", tk)
-    # v1.0：自定义行按别名集匹配（原始行值/裸名/带标签名 Name[STY] 等）
+    #：自定义行按别名集匹配（原始行值/裸名/带标签名 Name[STY] 等）
     any(vapply(labels, function(lb) nm %in% label_mod_aliases(lb), logical(1)))
   }, logical(1))
   out <- toks[!drop]
   if (length(out) == 0) "" else paste0(paste(out, collapse = ";"), ";")
+}
+
+#：按观测前体质量推断每肽的标记组合（全标记样品多标记互斥口径）。
+# 背景：多行 label_type此前逐行
+# 循环把每个适用位点上叠加全部同族标记（K 位 K602+K080 双计质量）。真实
+# 样品同一位点只带一种标记，且同肽各 K 位通常同通道同标记。
+# 口径：
+#   ① 修饰串里已有的同族标记保留（denovo/pFind-Filtered 结果自带 K602[K]
+#      等修饰名时按原位点精确计质，不重复追加——先 strip 防双计）；
+#   ② 无标记的适用位点按观测前体（Exp.MH，M+H）与无标记理论 pep_mass 的
+#      质量差，在"各族选无/选族内一行 × 全部适用位点"的组合网格里取
+#      |Δ| 最小且过 ppm 容差（默认 20 ppm，K602 vs K080 差 36 mDa 在
+#      1000 Da 下 20 ppm 可分）的组合追加；
+#   ③ 推断失败（无前体、理论质量不可得或差值不过容差）：保留原修饰串
+#      （不追加），忠实于已有标记名。
+#: infer the per-peptide label combination from the observed
+# precursor mass (mutually-exclusive multi-label, fully-labeled samples).
+# The old append loop stacked EVERY same-family label row onto every
+# applicable site (K got K602+K080 double-counted). Real samples carry one
+# label per site, and one peptide's sites are usually all one channel.
+# Rules: (1) label names already present in the mod string are kept verbatim
+# (strip-then-extend prevents double counting); (2) unlabelled applicable
+# sites get the grid combination ("none / one family row x all sites" per
+# residue-family) closest to observed-minus-theoretical within a ppm
+# tolerance; (3) on inference failure the mod string is returned unchanged.
+append_label_mods_by_mass <- function(seq, mod, labels, obs_mh,
+                                      aa = NULL, aa_tab = NULL,
+                                      tol_ppm = 20) {
+  if (is.null(labels) || length(labels) == 0) return(mod)
+  if (is.null(mod) || is.na(mod)) mod <- ""
+  if (is.na(obs_mh) || obs_mh <= 0)
+    return(append_label_mods(seq, mod, labels))
+  lm <- label_mod_masses(labels)
+  if (is.null(lm) || nrow(lm) == 0 || any(is.na(lm$mass)))
+    return(append_label_mods(seq, mod, labels))
+  #：token 生成与 append_label_mods 同口径——custom 行
+  # （名称|位置|残基|组成）给带标签名 Name[K]/Name[AnyN-term]，legacy
+  # 预设名保留原文；label_mod_masses 的 name 列是裸名（"K602"），直接
+  # 写进修饰串会与质量表 Name[K] 行失配，理论离子按 0 质量错算。
+  #: tokens mirror append_label_mods - custom rows get the
+  # tagged name Name[K]/Name[AnyN-term], legacy preset names stay verbatim;
+  # label_mod_masses' bare name column ("K602") would miss the mass-table
+  # Name[K] row and the theoretical ions would carry a wrong mass.
+  lm <- do.call(rbind, lapply(labels, function(lab) {
+    if (is_custom_label_row(lab)) {
+      r <- parse_label_row(lab)
+      data.frame(token = paste0(r$name, label_mod_tag(r)),
+                 residue = r$residue, pos = r$pos, mass = r$mass,
+                 stringsAsFactors = FALSE)
+    } else {
+      r <- label_mod_masses(lab)
+      data.frame(token = lab, residue = r$residue, pos = r$pos, mass = r$mass,
+                 stringsAsFactors = FALSE)
+    }
+  }))
+  mod0 <- strip_label_mods(mod, labels)
+  if (is.null(aa)) aa <- read.delim(file.path(probe_code_dir(), "AA_mass_dataframe.txt"),
+                                    sep = "\t", header = TRUE, check.names = FALSE,
+                                    stringsAsFactors = FALSE)
+  if (is.null(aa_tab)) aa_tab <- amino_acid_table
+  bp <- cached_by_ions_position(seq, mod0, "Unlabel", aa, aa_tab)
+  if (length(bp) == 1 || is.null(bp$pep_mass) || is.na(bp$pep_mass))
+    return(mod)
+  diff <- obs_mh - bp$pep_mass
+  tol <- tol_ppm * 1e-6 * obs_mh
+  if (abs(diff) > 50) return(mod)   # 前体差超过 50 Da：非标记问题，不追加
+  # 族 = 残基集 + 位置码（同族行互斥）；逐族给"无 / 某行×全部位点"选项
+  fam_key <- paste(lm$residue, lm$pos, sep = "@")
+  fams <- split(lm, fam_key, drop = TRUE)
+  choices <- lapply(fams, function(f) {
+    first <- f[1,, drop = FALSE]
+    locs <- if (first$pos %in% c("PEP_N", "PRO_N")) 0L
+            else if (first$pos %in% c("PEP_C", "PRO_C")) nchar(seq)
+            else if (first$residue == "*") seq_len(nchar(seq))
+            else {
+              v <- as.integer(gregexpr(paste0("[", first$residue, "]"), seq)[[1]])
+              v[v > 0]
+            }
+    if (length(locs) == 0) return(list(list(rows = integer(0), mass = 0)))
+    c(list(list(rows = integer(0), mass = 0)),
+      lapply(seq_len(nrow(f)), function(k)
+        list(rows = k, mass = f$mass[k] * length(locs))))
+  })
+  # 笛卡尔组合（族数 × 行数通常 ≤ 3×3 = 9）取 |Δ| 最小者
+  grid <- expand.grid(lapply(choices, seq_along), KEEP.OUT.ATTRS = FALSE)
+  best_j <- NA_integer_; best_d <- Inf
+  for (g in seq_len(nrow(grid))) {
+    m <- 0
+    for (fi in seq_along(choices)) m <- m + choices[[fi]][[grid[g, fi]]]$mass
+    d <- abs(diff - m)
+    if (d < best_d) { best_d <- d; best_j <- g }
+  }
+  if (is.na(best_j) || best_d > tol) return(mod)
+  # 追加各族选中行（带标签名，与 append_label_mods 同名口径）
+  out <- mod0
+  for (fi in seq_along(choices)) {
+    k <- choices[[fi]][[grid[best_j, fi]]]$rows
+    if (length(k) == 0) next
+    f <- fams[[fi]][k,, drop = FALSE]
+    nm <- f$token
+    locs <- if (f$pos %in% c("PEP_N", "PRO_N")) 0L
+            else if (f$pos %in% c("PEP_C", "PRO_C")) nchar(seq)
+            else if (f$residue == "*") seq_len(nchar(seq))
+            else {
+              v <- as.integer(gregexpr(paste0("[", f$residue, "]"), seq)[[1]])
+              v[v > 0]
+            }
+    for (pos in locs) out <- paste0(out, pos, ",", nm, ";")
+  }
+  out
 }
 
 paired_match_candidate <- function(seq, mod, charge, light_spec, light_rt,
@@ -7321,18 +7703,18 @@ paired_match_candidate <- function(seq, mod, charge, light_spec, light_rt,
                                     stringsAsFactors = FALSE)
   if (is.null(aa_tab)) aa_tab <- amino_acid_table
   lab <- label_type
-  # 理论离子：无标记 vs 标记质量模型。SILAC 并行跑生产 zeroP（仅 K6/R10）与（含 Pro 肽段的）fullP（全 Pro 标记，"P_C5N1"）模型；每张候选标记谱按各自 m/z 窗口对应的模型打分。
+  # 理论离子：无标记 vs 标记质量模型。SILAC 并行跑生产 zeroP与（含 Pro 肽段的）fullP模型；每张候选标记谱按各自 m/z 窗口对应的模型打分。
   # theoretical ions: unlabeled vs labeled mass model. SILAC runs the
   # production zeroP (K6/R10 only) and, for Pro-containing peptides, the
   # fullP (all prolines labeled, "P_C5N1") model in parallel; each candidate
   # labeled spectrum is scored under the model of its own m/z window.
-  # v1.0（性能第二轮）：理论离子走进程级哈希缓存（跨候选/跨分块复用）
+  # （性能第二轮）：理论离子走进程级哈希缓存（跨候选/跨分块复用）
   ti_ul <- cached_by_ions_position(seq, mod, "Unlabel", aa, aa_tab)
   ti_lb_p <- NULL
-  # v1.0（2026-09-28 用户口径）：多标记行式口径——labels 为修饰形式的标记
+  # v1.0多标记行式口径——labels 为修饰形式的标记
   # 清单（名称=原子类型与数量，如 "Dimethyl[AnyN-term]"、"Label_13C(6)[K]"），
   # 全部标记按适用残基/N 端追加进修饰串后生成标记态理论离子；lab 为类 1
-  # 全标记标签（N15/C13）或 "Unlabel"（仅修饰标记时）。
+  # 全标记标签或 "Unlabel"（仅修饰标记时）。
   if (!is.null(labels) && length(labels) > 0) {
     mod_lb <- append_label_mods(seq, mod, labels)
     ti_lb <- cached_by_ions_position(seq, mod_lb, lab, aa, aa_tab)
@@ -7358,12 +7740,12 @@ paired_match_candidate <- function(seq, mod, charge, light_spec, light_rt,
   # labeled precursor m/z window(s): +/-20 ppm around the labeled m/z
   # (production rule); C13 lower bound gets the -2 Da mass-defect compensation
   H <- 1.007825
-  # P0-3（2026-09-26，GLM 审查）：pep_mass 为质子化单同位素质量（M+H），正确前体
+  # P0-3pep_mass 为质子化单同位素质量（M+H），正确前体
   # m/z = (M + z·H)/z = (pep_mass + (z-1)·H)/z。旧公式 (pep_mass + H)/z 只在
   # z=2 时正确——z=1 偏高 1.0078 Da、z=3 偏高 0.336 Da，阶段 B ±20 ppm 配对
   # 窗口下 1+/3+ 谱永远配不上。
   mz_of <- function(ti) precursor_mz(ti$pep_mass, charge)
-  # RT 窗口（v1.0 优化，2026-09-26；v1.0 修复 P1-2）：排序由调用方每
+  # RT 窗口排序由调用方每
   # raw 算一次经 rt_ord 传入（函数内挂 attr 因 R 写时复制从不跨调用生效）；
   # 窗口取 findInterval 区间 O(log R + 区间长)；left.open=TRUE 保证下界含
   # 等值峰（与 which(>=) 同口径）；NA RT 行按 which 口径丢弃；**窗口下标
@@ -7409,10 +7791,10 @@ paired_match_candidate <- function(seq, mod, charge, light_spec, light_rt,
     dc <- cosine(im_ul[["by_ions_long.match_intensity"]],
                  im_lb[["by_ions_long.match_intensity"]])
     if (is.nan(dc)) dc <- 0
-    # 近平手决胜（2026-09-10）：标记侧 PSM 分差 <1% 视为不可区分，改按成对余弦定胜负，
+    # 近平手决胜标记侧 PSM 分差 <1% 视为不可区分，改按成对余弦定胜负，
     # 避免稀疏谱以毫厘分差压过成对证据更好的候选（案例 pH6.14907 61.10 vs 14932 61.07，
     # 余弦 0.65 vs 0.90）；分差 >=1% 时维持 PSM_score_all 最高规则，与历史结果保持一致。
-    # near-tie tiebreak (2026-09-10): when labeled-side PSM_score_all values are
+    # near-tie tiebreak when labeled-side PSM_score_all values are
     # within 1% (indistinguishable), the higher paired cosine decides; otherwise
     # the higher PSM_score_all wins as before, keeping prior runs reproducible.
     if (is.null(best)) {
@@ -7457,8 +7839,8 @@ paired_match_candidate <- function(seq, mod, charge, light_spec, light_rt,
 }
 
 
-# ---- 终端丢失规范化（2026-09-02 增；输出格式与 panel_f 主表口径一致）----------------
-# Terminal-loss normalization (added 2026-09-02; output format aligned with the
+# ---- 终端丢失规范化----------------
+# Terminal-loss normalization (added; output format aligned with the
 # panel_f master table):
 #   1) 位置 1 的末端类修饰（[AnyN-term] / [ProteinN-term）归一为位置 0；
 #   2) Met-loss[ProteinN-termM]（位置 0/1 且序列以 M 开头）＝起始甲硫氨酸丢失：
@@ -7520,7 +7902,7 @@ normalize_terminal_loss <- function(seqv, modv) {
 }
 
 
-# ---- SAP 修饰代入序列（2026-09-03 增；修 pDeep2 对 X->Y 型修饰无法预测的问题）----
+# ---- SAP 修饰代入序列（增；修 pDeep2 对 X->Y 型修饰无法预测的问题）----
 # Apply SAP-type substitutions (X->Y notation) into the sequence so pDeep2 sees
 # plain peptides: e.g. DASAVILVSDAR + "1,Asp->Asn[D]" -> NASAVILVSDAR with the
 # SAP token removed from the modification. Ambiguous Xle tokens are kept as-is.
@@ -7558,7 +7940,7 @@ apply_sap_to_sequence <- function(sq, md) {
 }
 
 
-# ---- SAP 变体枚举（2026-09-03 增）：Xle->Y 歧义时分别生成 I 和 L 两条 -----------
+# ---- SAP 变体枚举Xle->Y 歧义时分别生成 I 和 L 两条 -----------
 # Enumerate SAP variants: an Xle->Y substitution is ambiguous (I or L), so
 # generate BOTH entries for prediction; the caller keeps the higher cosine.
 # 返回 list 每元素 list(seq, mod)；无 Xle 歧义时只含 1 个条目。

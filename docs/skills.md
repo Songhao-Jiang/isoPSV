@@ -12,7 +12,7 @@ exact arguments per scenario.
 
 - **唯一工具**：`Rscript code/user_run.R`（环境变量 `CONFIG` 指 config_step1.txt）
 - **场景约束**：
-  - 常规标记样本：`label_type=N15`（或 C13/自定义行）＋`all_mgf=<标记 MGF 文件夹>`＋`unlabeled_channel=1`
+  - 常规标记样本：`label_type=N15`＋`all_mgf=<标记 MGF 文件夹>`＋`unlabeled_channel=1`
   - 全标记样本：`unlabeled_channel=0`（不填 all_mgf）
   - 无标记样本：`label_type` 留空；输出＝阶段 A 报告＋无标记主表
   - 小样本（FDR 不可信）：`candidate_scope=top5`
@@ -34,7 +34,7 @@ exact arguments per scenario.
   - Sage/Comet/MSFragger 结果：**不经第一步**——放 config_step2 的 search_file 槽位
 - **禁止**：手改 File_Name 列名（由适配器生成）
 
-## Skill：外部引擎自动搜库（STEP2）
+## Skill：外部引擎自动搜库
 
 - **唯一工具**：config_step2 写 `<engine>_exe`＋`<engine>_mode=1`＋`search_file=(auto:engine)`
 - **参数**：MaxQuant 另需 `search_file_raw`；`auto_search=1` 必开（网页自动置位）

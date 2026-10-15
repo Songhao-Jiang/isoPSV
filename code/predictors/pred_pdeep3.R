@@ -1,5 +1,5 @@
 # =============================================================================
-# pred_pdeep3.R —— pDeep3 理论谱图预测器 L1 适配器（v1.0，2026-10-04）
+# pred_pdeep3.R —— pDeep3 理论谱图预测器 L1 适配器
 #
 # 把 isoPSV 的 merge/peptide.txt（peptide / modification / charge 三列）转成
 # pDeep3 输入，经 pdeep3_driver.py 调用 pDeep3（pFindStudio/pDeep3，
@@ -15,10 +15,9 @@
 #          --python <python-with-pDeep3> --params <instrument,ce，如 Lumos,30>
 #   Rscript pred_pdeep3.R --self-test   # 无需 pDeep3 安装，只测适配层
 # 退出码：0 成功；非 0 失败（user_run 据此把该预测列标缺失并继续）。
-# 依赖：仅 base R；pDeep3 运行于用户提供的 python 环境（TF1.13/Py3.7 或 TF2，
-# 含 pDeep 包）。pDeep3 为用户自装独立软件，本适配器不随包分发其本体。
+# 依赖：仅 base R；pDeep3 运行于用户提供的 python 环境。pDeep3 为用户自装独立软件，本适配器不随包分发其本体。
 # 状态：适配层自测通过；pDeep3 侧返回结构的强度排序假设（b+1,b+2,y+1,y+2）
-# 待 pDeep3 实弹环境核验（driver 内有两代返回形态的防御分支与明确报错）。
+# 待 pDeep3 实测环境核验（driver 内有两代返回形态的防御分支与明确报错）。
 # =============================================================================
 
 # ---- 参数解析（--flag=value 与 --flag 开关，纯 base R；与 pred_ms2pip 同款）----
@@ -46,7 +45,7 @@ parse_cli <- function(args = commandArgs(TRUE)) {
 #' pFind/pDeep 修饰串（"3,Oxidation[M];0,Acetyl[AnyN-term];"）→ pDeep3 modinfo
 #' （同族格式，剥尾分号；空串返回 ""——driver 侧按无修饰处理）。
 pfind_mods_to_pdeep3 <- function(mod) {
-  # 实弹教训（2026-10-04）：read.delim 缺省 na.strings 会把空修饰转 NA，
+  # 实测教训read.delim 缺省 na.strings 会把空修饰转 NA，
   # TITLE 键随之变 "PEPTIDEK|NA|2"——与消费端 "PEPTIDEK||2" 失配、预测列全缺。
   # 两道保险：读表 na.strings=character(0)＋此处 NA 兜底归 ""。
   if (is.null(mod) || is.na(mod) || !nzchar(mod)) return("")
@@ -103,9 +102,9 @@ block_lines <- function(title, b1, b2, y1, y2) {
 
 #' 输入表 + driver 结果 → predict.txt 行组。离子向量长度须为 n-1；不符或无
 #' 产物的行跳过并计数（下游按缺失处理，不阻断）。
-#' v100-7：组块累积改 list 预分配＋一次 unlist——旧版逐行 c() 追加是二次方
-#' 拷贝，79k 谱（55 万行）实弹要拖数分钟；O(n) 后秒级。
-#' v100-7: blocks accumulate into a pre-allocated list + one unlist - the old
+#'：组块累积改 list 预分配＋一次 unlist——早期实现逐行 c() 追加是二次方
+#' 拷贝，79k 谱（55 万行）实测要拖数分钟；O(n) 后秒级。
+#': blocks accumulate into a pre-allocated list + one unlist - the old
 #' per-line c() append is quadratic copying (minutes at 79k spectra / 554k
 #' lines); O(n) assembly takes seconds.
 build_predict_txt <- function(input_table, by_id) {
@@ -178,16 +177,16 @@ main <- function() {
   pep_df <- read.delim(cli_args$`in`, sep = "\t", check.names = FALSE,
                        stringsAsFactors = FALSE, na.strings = character(0))
   # 空修饰列会被类型推断成 logical NA（na.strings 拦不住）——统一归空串，
-  # 保 TITLE 键 "PEPTIDEK||2" 与消费端口径一致（实弹教训 2026-10-04）
+  # 保 TITLE 键 "PEPTIDEK||2" 与消费端口径一致
   pep_df$modification[is.na(pep_df$modification)] <- ""
   missing_cols <- setdiff(c("peptide", "modification", "charge"), colnames(pep_df))
   if (length(missing_cols)) stop("peptide.txt 缺列: ", paste(missing_cols, collapse = ","))
 
   input_table <- build_pdeep3_table(pep_df)
-  # v100-7：中间件入预测器独立夹（与 --out 同目录），peptides.tsv＝pDeep3 专属
+  #：中间件入预测器独立夹（与 --out 同目录），peptides.tsv＝pDeep3 专属
   # 输入列表（spec_id/peptide/modinfo/charge 格式，与 pDeep2 的 peptides.txt
   # 同源不同形）——目录不存在时（旧布局调用）先建。
-  # v100-7: intermediates live beside --out in the predictor folder;
+  #: intermediates live beside --out in the predictor folder;
   # peptides.tsv is the pDeep3-specific input list (same source, different
   # format than pDeep2's peptides.txt). Folder is created when missing.
   dir.create(dirname(cli_args$`out`), recursive = TRUE, showWarnings = FALSE)

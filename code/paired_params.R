@@ -25,7 +25,7 @@
 # Compute theoretical-ion match parameters for one spectrum (b/y coverage, PSM scores, compensation fields)
 # 输入：
 #   peptide / modification: 肽段序列与修饰
-#   mode: 标记模式（unlabeled / SILAC / N15 / C13 / C13_comp）
+#   mode: 标记模式
 #   AA_mass_dataframe / amino_acid_table: 氨基酸质量数据
 #   spectrum: 目标谱（MGF 谱对象）
 #   mass_shift_tolerence / ppm_or_da: 质量容差及单位
@@ -44,7 +44,7 @@
 spectrum_params <- function(peptide, modification = "", mode = "unlabeled",
                             AA_mass_dataframe, amino_acid_table, spectrum,
                             mass_shift_tolerence = 20, ppm_or_da = "ppm",
-                            labels = NULL) {
+                            labels = NULL, precursor_mh = NA_real_) {
   # 修饰为空/缺失时统一为空串
   # Normalize empty/NA modifications to ""
   if (is.null(modification) || is.na(modification)) modification <- ""
@@ -53,9 +53,22 @@ spectrum_params <- function(peptide, modification = "", mode = "unlabeled",
   # 调 acs_core.R 的 build_silac_mod 生成 SILAC 修饰串
   # Call build_silac_mod from acs_core.R to assemble the SILAC modification
   if (mode == "SILAC") modification <- build_silac_mod(peptide, modification)
-  # v1.0（无标记通道=0 口径）：标记作为额外固定修饰追加进修饰串
-  if (!is.null(labels) && length(labels) > 0)
-    modification <- append_label_mods(peptide, modification, labels)
+  # （无标记通道=0 口径）：标记作为额外固定修饰追加进修饰串
+  #：带观测前体（precursor_mh，Exp.MH 即 M+H）时改走按质量推断的
+  # 追加——多行标记同位互斥，旧逐行追加会双计同族质量（K 位 K602+K080）
+  # (unlabeled_channel=0): labels append as extra fixed modifications
+  #: with an observed precursor the append goes through the
+  # mass-inference path - multi-row labels are mutually exclusive per site
+  # and the old row loop double-counted same-family masses (K602+K080 on K)
+  if (!is.null(labels) && length(labels) > 0) {
+    if (!is.na(precursor_mh) && precursor_mh > 0)
+      modification <- append_label_mods_by_mass(peptide, modification, labels,
+                                                precursor_mh,
+                                                aa = AA_mass_dataframe,
+                                                aa_tab = amino_acid_table)
+    else
+      modification <- append_label_mods(peptide, modification, labels)
+  }
   # 各标记模式映射到 ReadMGF 的理论离子标签
   # Map each labeling mode to the ReadMGF theoretical-ion label
   label <- switch(mode,
@@ -68,7 +81,7 @@ spectrum_params <- function(peptide, modification = "", mode = "unlabeled",
 
   # 生成全部理论离子（含内离子表）；结果为空则直接返回 NULL
   # Generate all theoretical ions (including the internal-ion table); NULL if empty
-  # v1.0（性能第二轮）：走进程级哈希缓存（(peptide|mod|label) 纯函数，
+  # （性能第二轮）：走进程级哈希缓存（(peptide|mod|label) 纯函数，
   # 57k 谱候选大量重复；R 写时复制保证后续 match 列修改不污染缓存）
   pos <- cached_all_ions_position(peptide, modification, label, AA_mass_dataframe, amino_acid_table)
   if (length(pos) == 1) return(NULL)
@@ -89,7 +102,7 @@ spectrum_params <- function(peptide, modification = "", mode = "unlabeled",
 
   # 取 b/y 子表，计算 b/y 强度、覆盖度与三类 PSM 得分
   # Take the b/y sub-table and compute b/y intensities, coverage and the three PSM scores
-  b_y <- pos$ions_table[pos$ions_table$Class %in% c("b", "y"), , drop = FALSE]
+  b_y <- pos$ions_table[pos$ions_table$Class %in% c("b", "y"),, drop = FALSE]
   b_y_ions_intensity <- b_y$match
   b_y_coverage <- if (length(b_y_ions_intensity) > 0) {
     round(length(which(b_y_ions_intensity > 0)) / length(b_y_ions_intensity) * 100, 2)
@@ -124,7 +137,7 @@ spectrum_params <- function(peptide, modification = "", mode = "unlabeled",
     # 汇总补偿匹配结果，并计算补偿后的 b/y 覆盖度
     # Combine the compensated match results and compute compensated b/y coverage
     pos$ions_table$match_comp <- comb
-    b_y_c <- pos$ions_table[pos$ions_table$Class %in% c("b", "y"), , drop = FALSE]
+    b_y_c <- pos$ions_table[pos$ions_table$Class %in% c("b", "y"),, drop = FALSE]
     b_y_ions_intensity_comp <- b_y_c$match_comp
     b_y_coverage_comp <- round(length(which(b_y_ions_intensity_comp > 0)) / length(b_y_ions_intensity_comp) * 100, 2)
   }

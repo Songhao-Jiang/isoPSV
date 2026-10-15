@@ -250,22 +250,21 @@ melt <- function(data, ..., na.rm = FALSE, value.name = "value") {
   # Stop with an error for non-data.frame input
   stop("melt: unsupported input (data.frame expected)")
 }
-# 编码容错 CSV 读取（P3-5，2026-09-25）：UTF-8 BOM / UTF-8 / 本地编码（GBK 等）
+# 编码容错 CSV 读取UTF-8 BOM / UTF-8 / 本地编码（GBK 等）
 # 依次判定，供搜索引擎适配器读取外部导出件（Mascot/PEAKS CSV 常带 BOM 或
 # ANSI/GBK）。其余参数原样传给 read.csv。
-# Encoding-tolerant CSV read (P3-5, 2026-09-25): tries UTF-8 BOM, UTF-8, then
+# Encoding-tolerant CSV read tries UTF-8 BOM, UTF-8, then
 # the native encoding (GBK etc.), for the engine adapters reading external
 # exports (Mascot/PEAKS CSVs often carry a BOM or ANSI/GBK). Extra arguments
 # pass through to read.csv unchanged.
 read_csv_tolerant <- function(path, ...) {
   sz <- file.info(path)$size
   if (is.na(sz) || sz == 0) stop("empty input: ", path)
-  # N-3（2026-09-25）：编码判定只需文件头——只读前 64 KB（旧实现整文件读 raw
-  # 再全量 validUTF8，数百 MB 导出件峰值内存翻倍且多一次 O(n) 校验）
+  # N-3编码判定只需文件头——只读前 64 KB
   fh <- file(path, "rb"); on.exit(close(fh), add = TRUE)
   raw <- readBin(fh, "raw", n = min(sz, 65536L))
   has_bom <- length(raw) >= 3 && identical(raw[1:3], as.raw(c(0xEF, 0xBB, 0xBF)))
-  # N-3 配套（2026-09-26）：64 KB 截断点可能切在多字节字符中间，此时
+  # N-3 配套64 KB 截断点可能切在多字节字符中间，此时
   # validUTF8 误判为 FALSE 而错误落入本地编码分支（GBK 代码页 R ≤ 4.1 上
   # UTF-8 导出件会整篇乱码）。校验前先退到最后一个完整字符边界再判定。
   # The 64 KB cutoff may split a multi-byte character; back off to the last
@@ -285,24 +284,43 @@ read_csv_tolerant <- function(path, ...) {
   read.csv(path, ...)   # 本地编码（如 GBK 控制台导出件）
 }
 
-# Python 解释器探测（P1-4，2026-09-25；F-6 公共化，2026-09-26）：
+# Python 解释器探测
 # python → py -3 启动器 → python3 回退；返回 list(cmd, pre) 或 NULL。
 # 旧写法硬用 "python"，官方安装器/商店版常只有 py 启动器在 PATH 上，
 # renumber_mgf.py 静默失败且返回码被忽略。
-# Python interpreter probe (P1-4, 2026-09-25; shared here per F-6, 2026-09-26):
+# Python interpreter probe (P1-4,; shared here per F-6, ):
 # python -> py -3 launcher -> python3 fallback; returns list(cmd, pre) or NULL.
 # The old code hardcoded "python", but installer/store Python often exposes only
 # the py launcher on PATH, so renumber_mgf.py silently failed with its exit code
 # ignored. Shared by user_step2.R and sysinfo_probe.R so the environment probe
 # and the pipeline always agree on the interpreter.
 py_detect <- function(hint = NULL) {
-  # v1.0（2026-09-27）：python_exe 显式键优先。用户 Python 未写入环境目录
-  # （PATH）时，config_step1.txt 的 python_exe 指向解释器完整路径即可，不再
-  # 依赖 PATH 探测；hint 指向的文件不存在时报消息并回退 PATH。
-  # v1.0 (2026-09-27): the explicit python_exe key wins. When the user's
-  # Python is NOT on PATH, config_step1.txt's python_exe points at the full
-  # interpreter path; a hint that does not exist is reported and PATH probing
-  # is used as fallback.
+  # 自带 runtime 优先锁定——与 start_isoPSV.bat 的
+  # "bundled portable runtimes take precedence" 同规则（网页层一直如此，
+  # 管线此前唯独依赖 PATH，PATH 首个 python 损坏时报 initfsencoding/
+  # No module named 'encodings' 而流程中断）。自带 python 为嵌入式 3.12
+  # 纯标准库全隔离——本函数消费方（renumber_mgf.py 等）均 stdlib-only；
+  # 需三方包的场景走各自专属键（如 punifind_python 的 torch 环境），
+  # 不经本函数。runtime 缺失（开发树/裸副本）时按下方 hint → PATH 链回退。
+  #  the bundled runtime wins (same rule as
+  # start_isoPSV.bat's "bundled portable runtimes take precedence" - the web
+  # layer always did this; the pipeline alone used PATH and aborted when the
+  # first PATH python was broken). The bundled python is an embedded,
+  # stdlib-only, fully-isolated 3.12 - every consumer of this function is
+  # stdlib-only; third-party needs use their dedicated keys (e.g.
+  # punifind_python's torch env) and never come here. When runtime is absent
+  # (dev tree / bare copies), fall back to the hint -> PATH chain below.
+  # 探测锚点＝代码目录（调用方 user_step2.R / sysinfo_probe.R 均以 code 为
+  # 工作目录）的上一级包根。
+  bund <- file.path(dirname(getwd()), "runtime", "python", "python.exe")
+  if (file.exists(bund)) return(list(cmd = bund, pre = character(0)))
+  # v1.0python_exe 显式键（runtime 缺失布局时的覆盖）。
+  # 用户 Python 未写入环境目录（PATH）时，config_step1.txt 的 python_exe
+  # 指向解释器完整路径即可；hint 指向的文件不存在时报消息并回退 PATH。
+  # v1.0 the explicit python_exe key (override for layouts
+  # without the bundled runtime). When the user's Python is NOT on PATH,
+  # config_step1.txt's python_exe points at the full interpreter path; a hint
+  # that does not exist is reported and PATH probing is used as fallback.
   hp <- if (is.null(hint)) "" else as.character(hint)[1]
   if (is.na(hp)) hp <- ""
   hp <- trimws(hp)
@@ -315,23 +333,40 @@ py_detect <- function(hint = NULL) {
   if (nzchar(Sys.which("python"))) return(list(cmd = "python", pre = character(0)))
   if (nzchar(Sys.which("py"))) return(list(cmd = "py", pre = "-3"))
   if (nzchar(Sys.which("python3"))) return(list(cmd = "python3", pre = character(0)))
-  # v1.0（2026-10-09 用户口径）：机器无任何 Python 时用软件自带
-  # runtime/python（嵌入式 3.12，renumber_mgf.py 纯标准库可跑）。探测锚点＝
-  # 代码目录（本函数的调用方 user_step2.R / sysinfo_probe.R 均以 code 为
-  # 工作目录）的上一级包根。网页界面自 v1.0 起不再提供 python_exe 字段。
-  # v1.0: when the machine has no Python at all, fall back to the bundled
-  # runtime/python (embedded 3.12; renumber_mgf.py is stdlib-only). Anchor =
-  # the package root one level above the code dir (all callers run from code/).
-  # The web UI dropped the python_exe field as of v1.0.
-  bund <- file.path(dirname(getwd()), "runtime", "python", "python.exe")
-  if (file.exists(bund)) return(list(cmd = bund, pre = character(0)))
   NULL
 }
 
-# 引擎适配器共用输入解析（2026-09-26 九份副本合并；变量名可读化）。
+# 失败侧日志回贴引擎/步骤失败在主日志里只有一行
+# exit code 时，真正的错因藏在各自的侧日志里（Mch_TL 实测：sage 自动段逐文件
+# "引擎失败（exit 1）"，而 sage_exe 指错这一事实只在侧日志里可见）。把侧日志
+# 尾部回贴主日志——与  的 renumber 回贴同格式、同诊断目的。日志可能是
+# GBK 输出，按字节读取直通（不做转码，避免多字节标点编码错配）。
+# Echo the tail of a step/engine side log into the main log when a failure is
+# otherwise reported as a bare exit code (same format and purpose as the
+#  renumber echo). Logs may be GBK; read as bytes and pass through
+# (no transcoding - avoids multi-byte punctuation encodes mismatches).
+log_fail_tail <- function(logf, tag = "", n = 8L) {
+  # file.exists 前置守卫：文件缺失时 readLines 会经 warning 通道漏一条
+  # "cannot open file" 到主日志（tryCatch 只收 error）——先判存在再读。
+  lines <- if (file.exists(logf))
+    tryCatch(tail(readLines(logf, warn = FALSE, encoding = "bytes"), n),
+             error = function(e) character(0))
+  else character(0)
+  tryCatch({
+    if (length(lines) > 0) {
+      cat("[", tag, "] 失败日志尾部 / failure log tail (", logf, "):\n", sep = "")
+      cat(paste0("  ", lines, collapse = "\n"), "\n", sep = "")
+    } else {
+      cat("[", tag, "] 日志为空或不可读 / log empty or unreadable: ", logf, "\n", sep = "")
+    }
+  }, error = function(e) NULL)
+  invisible(NULL)
+}
+
+# 引擎适配器共用输入解析。
 # 输入路径可为文件或文件夹：文件夹按模式递归找目标文件、多候选取最新 mtime、
 # 无文件报错；文件路径直接返回。
-# Shared input resolution for the engine adapters (2026-09-26: nine duplicated
+# Shared input resolution for the engine adapters (: nine duplicated
 # copies consolidated; variable names made self-documenting). The input path may
 # be a file or a folder: a folder is searched recursively for files matching the
 # pattern (newest mtime wins among multiple hits; error when none); a file path

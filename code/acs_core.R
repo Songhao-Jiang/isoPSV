@@ -1,7 +1,7 @@
 
 # 构建 SILAC 标记修饰字符串（与 4.heavy_spectra_match_SILAC.R 一致）
 #   Build SILAC labeling modification string (mirrors 4.heavy_spectra_match_SILAC.R);
-# p_model = FALSE → zeroP（无 P 校正），TRUE → fullP（加 P_C5N1）
+# p_model = FALSE → zeroP（无 P 校正），TRUE → fullP
 #   p_model = FALSE -> zeroP (no P correction), TRUE -> fullP (P_C5N1 added)
 # 输入：
 #   seq: 肽段序列（字符）；mod: 初始修饰字符串（字符，可为空）

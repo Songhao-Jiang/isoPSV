@@ -22,11 +22,11 @@ import re
 def norm_mod(mp):
     # pUniFind 对多修饰肽段的 modification_pfind 会在后续修饰位点前多带 "_"
     # （如 "0,Acetyl[ProteinN-term];_3,Oxidation[M];"），pFind/pDeep2 格式应为
-    # "3,Oxidation[M];"——把 ";_" 归一为 ";"、去掉开头 "_"（2026-09-06）
+    # "3,Oxidation[M];"——把 ";_" 归一为 ";"、去掉开头 "_"
     # for multi-modified peptides pUniFind's modification_pfind prefixes the
     # later sites with "_" (e.g. "0,Acetyl[ProteinN-term];_3,Oxidation[M];");
     # the pFind/pDeep2 format is "3,Oxidation[M];" - normalize ";_" to ";"
-    # and drop any leading "_" (2026-09-06)
+    # and drop any leading "_" 
     mp = mp.replace(";_", ";")
     mp = re.sub(r"^_(?=\d)", "", mp)
     return mp

@@ -10,7 +10,7 @@ default English, 🌐 toggles Chinese).
 ## STEP 1 参数填写与配置文件生成
 
 1. **自动识别软件路径**：点"One-click detect & fill"，按"扫描范围/Extra
-   scan roots"（≤10 个目录，分号分隔）搜索本机安装并自动回填；多版本共存
+   scan roots"（≤10 个目录，分号分隔）搜索本地安装并自动回填；多版本共存
    时自动选版本号最新（按版本数字推断）。GPU 行经注册表探测（滤虚拟显卡）。
 2. **输入数据**：result_dir（结果目录）、psm_file（原始搜库结果——占位提示
    随 search_engine 联动）、fasta、mgf（MGF/raw 均可，raw 自动经 pParse 转）。

@@ -1,5 +1,5 @@
 # =============================================================================
-# unlabeled_two_part_report.R - 无标记样本两分法报告（2026-09-26 用户要求）
+# unlabeled_two_part_report.R - 无标记样本两分法报告
 #
 # 与标记样本同名同构地产出两份报告（文件名、目录、摘要文件、网页呈现一致）：
 #   第 1 部分 1.annotation_correction_report.tsv ＝ 已注释矫正报告：
@@ -12,13 +12,13 @@
 # 与标记版的差异（如实声明，不伪造证据）：
 #   - 判定来源：classification_A.tsv（阶段 A 逐谱结论）＋ merge 表槽列蛋白；
 #   - novel_doubt / novel_status / credible_novel 与标记版同标准计算
-#     （2026-09-26 用户口径修订：可信新肽段判定与标记与否无关——六重存疑
+#     （设计约定修订：可信新肽段判定与标记与否无关——六重存疑
 #     规则的数据源换为 classification_A 逐谱候选＋第一步无标记谱；
 #     paired_evidence 等成对专属列不适用、不产出）；
 #   - spectrum_verdict 与标记版同口径（混合谱 = wrong_spectrum_mixture）。
 #
 # 输入环境变量：CONFIG3（第三步参数文件）、RESULT_DIR（结果目录）。
-# 输出（v1.0 用户口径：无标记版落在 report 路径，即 1.unlabeled_result/
+# 输出（v1.0 设计约定：无标记版落在 report 路径，即 1.unlabeled_result/
 # 报告夹；网页两分法面板已加目录回退）：
 #   <result>/1.unlabeled_result/{1.annotation_correction_report.tsv,
 #   2.novel_peptide_competition_report.tsv, two_part_report_summary.txt}
@@ -69,12 +69,12 @@ if (file.exists(mrg_f)) {
   if (!"File_Name" %in% colnames(mrg))
     stop("merge 表缺 File_Name 列：", mrg_f, "\nmerge table lacks File_Name: ", mrg_f)
   mm <- match(as.character(cls$File_Name), as.character(mrg$File_Name))
-  # v1.0（工作站反馈缺陷1）：合并表槽 a 蛋白列就是基表 Proteins（无
+  # 合并表槽 a 蛋白列就是基表 Proteins（无
   # a.Proteins 列），旧条件恒假致报告该列整列恒空；按 master_table_export
   # 同口径回退 Proteins
   if ("a.Proteins" %in% colnames(mrg)) proteins <- as.character(mrg$a.Proteins)[mm]
   else if ("Proteins" %in% colnames(mrg)) proteins <- as.character(mrg$Proteins)[mm]
-  # v1.0（缺陷2）：槽 a 肽序列（序列级参考库匹配用）
+  # 槽 a 肽序列（序列级参考库匹配用）
   if ("a.Sequence" %in% colnames(mrg)) a_seqs <- as.character(mrg$a.Sequence)[mm]
   # denovo 槽：任一 <slot>.DB_match 列（取第一个）
   db_cols <- grep("^[a-z]\\.DB_match$", colnames(mrg), value = TRUE)
@@ -112,7 +112,7 @@ acc_of <- function(pr) {
   p <- trimws(strsplit(pr, "/", fixed = TRUE)[[1]])
   p[nzchar(p)]
 }
-# v1.0（工作站反馈缺陷2/4）：accession 之外补序列级匹配（六框库 orf| 与
+# accession 之外补序列级匹配（六框库 orf| 与
 # 参考库 WP_/NP_/tr| 不同体系）与污染库排除（CON_ 前缀 accession＝非新肽段）
 in_fasta <- vapply(proteins, function(pr) {
   acc <- acc_of(pr)
@@ -136,19 +136,19 @@ diff_type <- ifelse(as.integer(cls$vote_says_wrong) == 1L,
 out_dir2 <- file.path(result_dir, "1.unlabeled_result")
 dir.create(out_dir2, recursive = TRUE, showWarnings = FALSE)
 
-p1 <- cls[in_fasta, , drop = FALSE]
+p1 <- cls[in_fasta,, drop = FALSE]
 p1$a.Proteins <- proteins[in_fasta]
 p1$diff_type <- diff_type[in_fasta]
 write.table(p1, file.path(out_dir2, "1.annotation_correction_report.tsv"),
             sep = "\t", row.names = FALSE, quote = FALSE, fileEncoding = "UTF-8", na = "")
 
-p2 <- cls[!in_fasta, , drop = FALSE]
+p2 <- cls[!in_fasta,, drop = FALSE]
 p2$a.Proteins <- proteins[!in_fasta]
 p2$denovo_sequence <- denovo_seq[!in_fasta]
 p2$denovo_DB_match <- denovo_db[!in_fasta]
 p2$spectrum_verdict <- spec_verdict[!in_fasta]
 
-# ---- 可信新肽段六重存疑规则（2026-09-26 用户口径修订：与标记与否无关）----
+# ---- 可信新肽段六重存疑规则----
 # Stage A 侧与 Stage B 侧同标准判定，全部通过者 credible_novel=TRUE；判定
 # 优先级：判错 > 嵌合 > 峰集全同 > 已注释有力竞争 > 连续缺失≥2 > 低分卡值。
 # 数据源＝classification_A 的逐谱候选（candidates 紧凑 "seq(mod)|…" 列）＋
@@ -165,7 +165,7 @@ if (nzchar(tb_raw)) {
   tv <- suppressWarnings(as.numeric(tb_raw))
   if (!is.na(tv)) tau_ul <- tv
 }
-# v1.0（2026-09-28 实弹）：新肽段侧可能 0 行（序列级分侧生效后，参考库内
+# v1.0新肽段侧可能 0 行（序列级分侧生效后，参考库内
 # 鉴定肽整侧归已注释侧）——列初始化必须按行数扩空，`<- ""` 在 0 行数据框上报
 # "replacement has 1 row, data has 0"
 p2$cand1_sequence <- rep("", nrow(p2)); p2$cand1_modification <- rep("", nrow(p2))
@@ -231,7 +231,7 @@ for (k in nov_idx) {
   } else if (identical(as.integer(cls$chimeric[k]), 1L)) {
     doubt_k <- "chimeric"
   } else if (nzchar(s1) && annotated_seq_ul(s1)) {
-    # v1.0（工作站反馈缺陷3）：cand1 自身在参考库内——竞争结论即"有力已
+    # cand1 自身在参考库内——竞争结论即"有力已
     # 注释解释"，不能判可信新肽段；旧口径只在竞争者上做序列判定、cand1 从不
     # 被检，参考库肽段直通 credible_novel（实测约占 97%）
     doubt_k <- paste0("annotated_cand1:", s1)

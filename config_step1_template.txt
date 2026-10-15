@@ -14,14 +14,13 @@
 # name); the folder also holds the reusable unlabeled/ (step-1 split) and
 # config_step2.txt / config_step3.txt
 # psm_file: 常规搜库结果表（含 File_Name 列；pFind 家族表含 File_Name、Label 列，
-#           Label 首字符 1＝无标记）。口径（2026-09-26 修订）：第一步接受任何带
+#           Label 首字符 1＝无标记）。口径第一步接受任何带
 #           File_Name 列的制表符结果表——pFind 家族表、适配器交换格式（.spectra）
 #           与其他搜库软件的表格输出均可用；非表格格式（XML 等）请先经对应适配器
 #           转换。无 Label 列时：无标记样本全部谱按无标记处理；标记样本须设
 #           psm_all_unlabeled\t1 显式确认全为无标记谱。
 #           Regular search result table (File_Name column; pFind family tables carry
-#           File_Name + Label, Label first char 1 = unlabeled). Ruling (2026-09-26
-#           revised): step 1 accepts ANY tab-separated result table with a File_Name
+#           File_Name + Label, Label first char 1 = unlabeled). Ruling step 1 accepts ANY tab-separated result table with a File_Name
 #           column - pFind family tables, the adapter exchange format (.spectra) and
 #           other engines' tabular outputs; non-tabular formats (XML etc.) must first
 #           pass their adapter. Without a Label column: unlabeled samples treat all
@@ -39,9 +38,9 @@ psm_file	<绝对路径 absolute path>
 # fasta: 参考蛋白库
 #        reference proteome FASTA
 fasta	<绝对路径 absolute path>
-# label_type（v1.0 用户口径；v1.0 第二类改自定义修饰行）：多行键，
+# label_type（v1.0 设计约定；v1.0 第二类改自定义修饰行）：多行键，
 #   每行一个标记；空/无键＝无标记。
-#   第一类全原子稳定同位素替换：N15（15N 全标记）或 C13（13C 全标记），单选；
+#   第一类全原子稳定同位素替换：或 单选；
 #   第二类修饰形式标记（v1.0 起为用户自定义修饰，形似 modification.ini）：
 #   每行 4 个竖线分隔字段——名称|修饰位置|氨基酸集合|元素组成与数量。
 #     修饰位置：ANY 任意位置 / PEP_N 肽段N端 / PEP_C 肽段C端 /
@@ -52,21 +51,21 @@ fasta	<绝对路径 absolute path>
 #   示例：Phospho|ANY|STY|H(1)O(3)P(1)
 #         NeuCode8|ANY|K|C(-6)13C(6)N(-2)15N(2)（= Label_13C(6)15N(2)[K]）
 #         Dimethyl|PEP_N|*|H(4)C(2)
-#   NeuCode SILAC 预设（v1.0，pFind modification.ini 同源）：
-#         K602|ANY|K|C(-6)13C(6)N(-2)15N(2)  （8.0142 Da，13C6-15N2 K）
+#   NeuCode SILAC 预设（pFind modification.ini 同源）：
+#         K602|ANY|K|C(-6)13C(6)N(-2)15N(2)  
 #         K080|ANY|K|H(-8)2H(8)               （8.0502 Da，D8 K）
-#         R004|ANY|R|N(-4)15N(4)               （3.9881 Da，15N4 R）
+#         R004|ANY|R|N(-4)15N(4)               
 #         R040|ANY|R|H(-4)2H(4)                （4.0251 Da，D4 R）
-#         R604|ANY|R|C(-6)13C(6)               （6.0201 Da，13C6 R）
-#         R640|ANY|R|C(-6)13C(6)N(-4)15N(4)   （10.0083 Da，13C6-15N4 R）
+#         R604|ANY|R|C(-6)13C(6)               
+#         R640|ANY|R|C(-6)13C(6)N(-4)15N(4)   
 #   引擎侧：comet 端部按裸 n/c（任意残基端）；msfragger 按 [^ / ]$ 与 n/c 前缀；
 #   蛋白端两引擎无原生语法、按肽段端近似（注入时有提示）；sage variable_mods
 #   仅残基键，端部标记不注入 sage。两类可同时配置；旧预设名（如
-#   Label_13C(6)[K]、Dimethyl[AnyN-term]）与旧单值（unlabeled/N15/C13/SILAC）
+#   Label_13C(6)[K]、Dimethyl[AnyN-term]）与旧单值
 #   仍完全兼容。
 # label_type (user ruling v1.0; class 2 became user-defined rows in v1.0):
 #   multi-line key, one label per line; empty = unlabeled. Class 1 full-atom
-#   substitution: N15 or C13 (single choice). Class 2 user-defined modification
+#   substitution: N15 or . Class 2 user-defined modification
 #   rows (modification.ini style), four pipe-separated fields per line:
 #   name|position|aa-set|composition. Position: ANY / PEP_N / PEP_C / PRO_N /
 #   PRO_C (Chinese phrases accepted). AA set: "*" = all amino acids or a letter
@@ -80,7 +79,7 @@ fasta	<绝对路径 absolute path>
 #   injected into sage. Both classes may be combined; legacy preset names and
 #   single values (unlabeled/N15/C13/SILAC) remain fully compatible.
 label_type	<标记类型 label type>
-# unlabeled_channel（v1.0 用户口径）：样本是否含无标记通道。1＝含（默认，
+# unlabeled_channel（v1.0 设计约定）：样本是否含无标记通道。1＝含（默认，
 #   现状：第一步按 Label 提取无标记谱）；0＝不含（NeuCode 等全标记样本）——
 #   第一步改为提取输入结果文件的全部鉴定谱，阶段 A 把配置的标记作为额外固定
 #   修饰搜库，pDeep2 预测前剥除标记修饰、预测余弦按子离子顺序 0 补齐。
@@ -91,25 +90,24 @@ label_type	<标记类型 label type>
 #   fixed modifications, pDeep2 prediction strips the label mods and the
 #   predict cosine is position-aligned with 0 padding.
 unlabeled_channel	1
-# enzyme（v1.0，2026-09-26）：酶切类型，默认 trypsin。可选：
+# enzyme酶切类型，默认 trypsin。可选：
 # trypsin / lysarginase / lysc / lysn / argc / gluc / aspn /
 # chymotrypsin（糜蛋白酶）/ none（无酶切）。Trypsin 与 LysargiNase 均为
-# K/R 后遇 P 不切（用户口径 2026-09-26，Trypsin 统一为 P 切不开；旧写法
+# K/R 后遇 P 不切（设计约定 Trypsin 统一为 P 切不开；旧写法
 # Trypsin/P 自动归一为 trypsin）。影响：① 第二步自动搜库时改写各引擎模板
 # （pFind/MSFragger/Sage/Comet/MaxQuant/MetaMorpheus）的酶切参数；② 管线内部
 # 漏切位点计数与五类分类/Error_reason 的 N 端非特异判据（C 端酶看前一残基，
-# N 端酶看肽段首残基）。未知值直接报错停止（N-17，2026-09-26 注释对齐行为，
-# 不再回退 trypsin）。
-# enzyme (v1.0, 2026-09-26): cleavage enzyme, default trypsin. Choices:
+# N 端酶看肽段首残基）。未知值直接报错停止。
+# enzyme cleavage enzyme, default trypsin. Choices:
 # trypsin / lysarginase / lysc / lysn / argc / gluc / aspn / chymotrypsin /
 # none (unspecific). Trypsin and LysargiNase both refuse K/R followed by P
-# (user ruling 2026-09-26: trypsin is unified to P-blocking; the old spelling
+# (user ruling: trypsin is unified to P-blocking; the old spelling
 # Trypsin/P normalizes to trypsin). Effects: (1) the step-2 auto search
 # rewrites each engine template (pFind/MSFragger/Sage/Comet/MaxQuant/
 # MetaMorpheus); (2) the in-pipeline missed-cleavage count and the N-terminal
 # non-specific rule of the five-class classification / Error_reason
 # (C-terminal enzymes check the previous residue, N-terminal enzymes the
-# first residue). Unknown values stop with an error (N-17, 2026-09-26 comment
+# first residue). Unknown values stop with an error (N-17, comment
 # aligned with behavior - no trypsin fallback anymore).
 enzyme	trypsin
 # mgf: 每行一个；文件路径直接收，文件夹路径展开为其中全部 .mgf
@@ -124,7 +122,7 @@ auto_search	1
 # pfind_exe: pFind 安装路径（以 bin 结尾；填版本目录如 pFind3.1 时软件自动补 bin）
 #            pFind install path (must end with bin; a version folder like pFind3.1 gets bin appended automatically)
 pfind_exe	<绝对路径 absolute path>
-# 外部搜索引擎可执行文件（v1.0：自动搜库用；留空＝该引擎不自动搜库，需走 config_step2 search_file 手动提供结果）
+# 外部搜索引擎可执行文件（自动搜库用；留空＝该引擎不自动搜库，需走 config_step2 search_file 手动提供结果）
 # external search-engine executables (for automatic search; empty = no auto-search, supply results via config_step2 search_file)
 # comet_exe:  comet.exe 路径 | path to comet.exe
 # msfragger_exe:  MSFragger.jar 路径（java -jar 调用） | path to MSFragger.jar (invoked as java -jar)
@@ -153,19 +151,19 @@ punifind_denovo	0
 #                  the python executable used to run the pUniFind official CLI and the
 #                  pkl-to-.spectra converter (torch/numpy required)
 punifind_python	<python 可执行文件 python executable>
-# punifind_num_workers（v1.0，2026-09-26）：pUniFind GPU 适配模块的数据加载
+# punifind_num_workerspUniFind GPU 适配模块的数据加载
 # 进程数，默认 8（0=主进程串行，GPU 会挨饿；留空也按 8 处理——N-17，
-# 2026-09-26 注释对齐行为，配置路径不把空值交给 pUniFind 默认值）。
+# 注释对齐行为，配置路径不把空值交给 pUniFind 默认值）。
 # 与 punifind_num_proc（CPU 进程数，原 PUNIFIND_NUM_PROC）是两个独立旋钮。
-# punifind_num_workers (v1.0, 2026-09-26): pUniFind data-loader processes,
+# punifind_num_workers pUniFind data-loader processes,
 # default 8 (0 = serial in the main process, the GPU starves; empty also
-# becomes 8 - N-17, 2026-09-26 comment aligned with behavior, the config path
+# becomes 8 - N-17, comment aligned with behavior, the config path
 # does not delegate the empty value to pUniFind's own default). Independent of
 # punifind_num_proc (CPU processes, the former PUNIFIND_NUM_PROC).
 punifind_num_workers	8
 punifind_num_proc	8
 # punifind_batch_size / punifind_chunk_parallel / punifind_chunk_cleanup
-# （v1.0，2026-09-30，工作站 Macaca 实测 GPU 利用率仅 8–16% 供给瓶颈）：
+# （工作站 Macaca 实测 GPU 利用率仅 8–16% 供给瓶颈）：
 # batch_size＝推理批大小，默认 64，大数据集可试 128–256；chunk_parallel＝
 # pUniFind 分片并行路数，默认 1（顺序即停），16 GB 显存建议 2–3（每片独立
 # 进程约 3 GB，各路 MASTER_PORT 自动错开）；chunk_cleanup＝1 时合并成功后
@@ -178,12 +176,12 @@ punifind_num_proc	8
 punifind_batch_size	64
 punifind_chunk_parallel	1
 punifind_chunk_cleanup	0
-# 多理论谱图预测器（v1.0，2026-09-26）：predictor_primary 决定阶段 A 四指标里
+# 多理论谱图预测器predictor_primary 决定阶段 A 四指标里
 # predict 这一票的来源（默认 pdeep2，即 use_pdeep2 路径）；predictorN_* 为额外
 # 预测器（N 从 2 起），每个经 code/predictors/pred_<type>.R 适配器运行，产物与
 # pDeep2 predict.txt 同构（merge/predict_<type>.txt），失败只记 manifest、该列按
 # 缺失处理。type 可选 ms2pip / prosit（适配器随版本交付）/ custom；mode 1=启用。
-# multi-predictor (v1.0, 2026-09-26): predictor_primary selects the source of
+# multi-predictor predictor_primary selects the source of
 # the stage-A "predict" vote (default pdeep2, the use_pdeep2 path); predictorN_*
 # are extra predictors (N from 2), each run through code/predictors/pred_<type>.R
 # with pDeep2-shaped output (merge/predict_<type>.txt); failures only mark the
@@ -203,24 +201,24 @@ pdeep2_exe	<绝对路径 absolute path>
 # pdeep2_instrument: 仪器类型（QE / Lumos / Velos / Elite，默认 Lumos）
 #                   instrument type (QE / Lumos / Velos / Elite; default Lumos)
 pdeep2_instrument	Lumos
-# 谱图 PDF 导出（用户口径 2026-09-17）：1=生成、0=不生成（默认）
+# 谱图 PDF 导出1=生成、0=不生成（默认）
 # spectrum PDF export: 1=on, 0=off (default)
 pdf_on	0
-# 谱图 PDF 拆分（2026-09-26）：每 raw 一个 PDF、组内超过该页数再切 part（默认 1000）
+# 谱图 PDF 拆分每 raw 一个 PDF、组内超过该页数再切 part（默认 1000）
 # PDF split: one PDF per raw, sliced into parts beyond this page count (default 1000)
 pdf_pages_per_file	1000
-# pFind 自动搜库逐 raw 并行（2026-09-27 P4）：并行 worker 数（默认 1=逐 raw 串行；
+# pFind 自动搜库逐 raw 并行并行 worker 数（默认 1=逐 raw 串行；
 # 如 6 个 raw 设 6 则 restrict 墙钟约缩到 1/6，线程与内存按 worker 数自动摊薄）
 # pFind per-raw parallel search (P4): number of parallel workers (default 1 = serial;
 # e.g. 6 for 6 raws cuts restrict wall time ~6x; threads/memory scale per worker)
 pfind_workers	1
-# pfind_reader_workers（v1.0，2026-09-28 工作站反馈#19；v1.0 修正口径）：
+# pfind_reader_workers
 # pFind 后处理读取 qry.res 的并行方式。0/留空＝顺序读取（默认）。
 # 实测结论是"数据相关、须按目录实测"：低诱饵密度的 open 目录顺序更快
 # （669 s/文件 vs 并行 1,490 s/文件）；高诱饵密度的 restrict 目录相反
 # （6 路并行 2.5 h vs 顺序约 4.7 h，成本由候选行数而非字节数决定）。
 # 高密度目录建议设 2-3（如 pfind_reader_workers 3），不必一律顺序。
-# pfind_reader_workers (v1.0, workstation #19; guidance corrected in
+# pfind_reader_workers (, workstation #19; guidance corrected in
 # v1.0): parallelism of the qry.res read in pFind post-processing.
 # 0/empty = sequential (default). The measured rule is data-dependent:
 # the decoy-sparse open dir is faster sequential (669 s/file vs 1,490 s/
@@ -228,47 +226,47 @@ pfind_workers	1
 # parallel 2.5 h vs ~4.7 h sequential - cost scales with candidate rows,
 # not bytes). For dense dirs prefer 2-3 (e.g. pfind_reader_workers 3).
 pfind_reader_workers	0
-# python_exe（v1.0，2026-09-27）：Python 解释器绝对路径（可留空）。第二步
+# python_exePython 解释器绝对路径（可留空）。第二步
 # 重编号步骤 renumber_mgf.py 需要 Python；留空＝按环境目录（PATH）顺序探测
 # python / py -3 / python3。用户的 Python 若没有写到环境目录里，请在此填完整
 # 路径（如 D:\Python38\python.exe），软件优先使用本键；所填路径不存在时报
 # 提示并回退 PATH 探测。
-# python_exe (v1.0, 2026-09-27): absolute path of the Python interpreter (may
+# python_exe absolute path of the Python interpreter (may
 # be empty). The step-2 renumber step renumber_mgf.py needs Python; empty =
 # probe python / py -3 / python3 on PATH. If Python is NOT on PATH, fill the
 # full path here (e.g. D:\Python38\python.exe) - this key takes precedence; a
 # missing path is reported and PATH probing is used as fallback.
 python_exe	<可留空 may be empty>
-# candidate_scope（2026-09-27 用户口径）：候选摄入口径。filtered＝各引擎自身
-# 结果集（默认，现状，pFind 家族按 2026-09-16 口径已用未过滤全量替换）；
+# candidate_scope候选摄入口径。filtered＝各引擎自身
+# 结果集；
 # top5＝忽略各搜库软件的 1% FDR 过滤，每个引擎每张谱取引擎自身排序的前 5 个
 # 肽段＋修饰组合进竞争池（判定指标仍由软件从谱图独立计算，去诱饵清洗照常），
 # 小样本不依赖软件 FDR 也可用。适配器在 top5 下输出全部候选、合并步封顶 5。
-# candidate_scope (user ruling 2026-09-27): filtered = each engine's own result
+# candidate_scope filtered = each engine's own result
 # set (default, current; the pFind family already uses its unfiltered output per
-# the 2026-09-16 ruling); top5 = ignore the search software's 1% FDR filtering -
+# the ruling); top5 = ignore the search software's 1% FDR filtering -
 # each engine contributes its top 5 peptide+modification candidates per spectrum
 # to the competition pool (metrics are still recomputed from the spectra; decoy
 # cleaning still applies), so small samples work without relying on engine FDR.
 candidate_scope	filtered
-# proteogenomics_mode（2026-09-27 用户口径）：0＝完整流程（默认，对所有谱做
+# proteogenomics_mode0＝完整流程（默认，对所有谱做
 # 竞争验证与错误校正）；1＝纯蛋白质基因组学模式——只对含非参考库候选的谱做
 # 竞争验证（新肽段/新基因鉴定），已注释谱标记 annotated_skipped 并跳过错误
 # 校正（不参与判对/判错与五类错误统计），计算与输出聚焦新肽段证据。
-# proteogenomics_mode (user ruling 2026-09-27): 0 = full workflow (default,
+# proteogenomics_mode 0 = full workflow (default,
 # competition validation and error correction on all spectra); 1 = pure
 # proteogenomics mode - only spectra carrying non-reference candidates are
 # validated (novel peptide/gene identification); annotated spectra are marked
 # annotated_skipped and skip the error correction (no right/wrong judgment and
 # no five-class error statistics), focusing compute and output on novel evidence.
 proteogenomics_mode	0
-# 高级资源项（2026-09-25 起，可留空＝自适应，N-10）
-# advanced resource options (2026-09-25; leave empty = adaptive, N-10)
+# 高级资源项
+# advanced resource options (; leave empty = adaptive, N-10)
 # msfragger_xmx: MSFragger JVM 堆上限（如 8G；留空按物理内存 60% 自适应、封顶 15G，写在 config_step2.txt）
 #                MSFragger JVM heap ceiling (e.g. 8G; empty = 60% of physical memory capped at 15G, goes in config_step2.txt)
-# ISOMEM_LIMIT_MB（F-9，2026-09-26）：内存守卫上限（MB）。留空＝物理内存 80% 自适应（上限 40000）；
+# ISOMEM_LIMIT_MB内存守卫上限（MB）。留空＝物理内存 80% 自适应（上限 40000）；
 # 网页高级区可填此键；超物理内存的值只警告不拦截（显式覆盖，后果自负）。
-# ISOMEM_LIMIT_MB (F-9, 2026-09-26): memory guard ceiling in MB. Empty = 80% of
+# ISOMEM_LIMIT_MB memory guard ceiling in MB. Empty = 80% of
 # physical memory (capped at 40000); fillable in the web advanced panel; a value
 # above physical RAM only warns (explicit override at the user's own risk).
 ISOMEM_LIMIT_MB	<可留空 may be empty>
