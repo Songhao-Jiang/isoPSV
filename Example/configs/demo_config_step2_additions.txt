@@ -1,0 +1,6 @@
+# After step 1 generates config_step2.txt, append these four lines
+# (they register the two bundled supplementary strategies):
+search_file	D:/isoPSV_demo/data/search/pFind_open-Filtered.spectra
+search_file	D:/isoPSV_demo/data/search/pFind_restrict-Filtered.spectra
+search_file_type	pfind_open
+search_file_type	pfind_restrict

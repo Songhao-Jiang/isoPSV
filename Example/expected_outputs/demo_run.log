@@ -1,0 +1,205 @@
+[config_predictor] 未找到（查找了 config 目录、result_dir、包根）——跳过
+[config_predictor] not found (config dir, result_dir, package root) - skipped
+酶切类型 enzyme: trypsin （来源: config_step1 键 enzyme ）
+结果文件夹： D:/isoPSV_demo/result_20261017122700 
+result folder: D:/isoPSV_demo/result_20261017122700 
+[代码指纹] 与上次运行一致，断点续跑安全。
+[code fingerprint] matches the last run; resume is safe.
+==== [总程序 / Master] 无标记 isoPSV 三步流程总入口 ====
+==== [Master] three-step pipeline master entry ====
+[版本] isoPSV_multiengine v2.0.150 (build 2026-10-17) standard arm mod set completed per user ruling: variable mods = Oxidation[M] + Acetyl[AnyN-term] (protein N-terminal acetylation joins the conventional closed-search template; docs and tests updated accordingly)
+[version] isoPSV_multiengine v2.0.150 (build 2026-10-17) standard arm mod set completed per user ruling: variable mods = Oxidation[M] + Acetyl[AnyN-term] (protein N-terminal acetylation joins the conventional closed-search template; docs and tests updated accordingly)
+CONFIG: D:/isoPSV_demo/config_step1.txt 
+参数文件目录： D:/isoPSV_demo 
+config dir:  D:/isoPSV_demo 
+[跳过] 第一步：完成标记已存在 ->  D:/isoPSV_demo/unlabeled/step1_done.txt 
+[Skip] step 1: step-1 marker exists ->  D:/isoPSV_demo/unlabeled/step1_done.txt 
+Warning message:
+参数文件存在重复键（同名值全部保留为向量，各消费方自行取第一个或最后一个非空）：search_file, search_file_type 
+
+==== [总程序 / Master] [用户第二步] revise 修正 + 多引擎合并 开始 @ 12:31:15 ====
+==== [Master] [User Step 2] revise + multi-engine merge start @ 12:31:15 ====
+Warning message:
+参数文件存在重复键（同名值全部保留为向量，各消费方自行取第一个或最后一个非空）：search_file, search_file_type 
+==== [用户第二步] revise 修正 + 多策略合并 -> peptide.txt ====
+==== [User Step 2] revise + multi-strategy merge -> peptide.txt ====
+psm_file: D:/isoPSV_demo/data/search/pFind-Filtered.spectra 
+search files: 2 
+[pFind 臂] open=TRUE restrict=TRUE standard=FALSE
+[pFind arms] open=TRUE restrict=TRUE standard=FALSE
+[诱饵去除] 1_original_pFind-Filtered: 3784 -> 3784 行（删 0 行、剥 8 行、涉及谱图 0 张）
+[decoy removal] 1_original_pFind-Filtered: 3784 -> 3784 rows (dropped 0, stripped 8, 0 spectra)
+[诱饵去除] data_pFind_open-Filtered: 3784 -> 3407 行（删 377 行、剥 6 行、涉及谱图 377 张）
+[decoy removal] data_pFind_open-Filtered: 3784 -> 3407 rows (dropped 377, stripped 6, 377 spectra)
+[诱饵去除] data_pFind_restrict-Filtered: 3784 -> 3532 行（删 252 行、剥 9 行、涉及谱图 252 张）
+[decoy removal] data_pFind_restrict-Filtered: 3784 -> 3532 rows (dropped 252, stripped 9, 252 spectra)
+[计时] 诱饵库去除：已用 4.8s / CPU 4.6s
+[timing] decoy removal: elapsed 4.8s / CPU 4.6s
+revising pFind_open-Filtered.spectra (cleaned)
+  type: pfind_open | revise mode: full 
+  rows: 3407 -> 3407 
+revising pFind_restrict-Filtered.spectra (cleaned)
+  type: pfind_restrict | revise mode: none 
+  rows: 3532 -> 3532 
+[计时] revise 四个补充搜库结果：已用 3.5s / CPU 3.3s
+[timing] revise the four search results: elapsed 3.5s / CPU 3.3s
+SAP index rows: 276 -> D:/isoPSV_demo/result_20261017122700/merge/SAP_spectra_index.txt 
+[1] TRUE
+[计时] 自动提取 SAP 清单：已用 0.1s / CPU 0.1s
+[timing] extract SAP index: elapsed 0.1s / CPU 0.1s
+merging [ b ] data_pFind_open-Filtered_revised.spectra 
+merging [ c ] data_pFind_restrict-Filtered_revised.spectra 
+[合并] 长度阈值过滤：min_pep_len=7，置空短肽候选 2 个（涉及槽位 1 列；不进竞争与预测输入）
+[merge] length gate: min_pep_len=7, blanked 2 short candidates across 1 slot column(s)
+[合并] 向量化计算 Peptide_state / Modification_state（3784 行 × 3 槽）...
+[合并] 状态计算完成：0s，R 堆 44 MB
+[合并] 构建 peptide.txt（SAP 展开 + 越界修饰清理）...
+[合并] peptide.txt 完成：0s（3900 行），R 堆 45 MB
+written: 1.combine_result.spectra ( 3784 rows) and peptide.txt ( 3900 peptides)
+[计时] 多策略合并与 peptide.txt：已用 2.6s / CPU 1.4s
+[timing] multi-strategy merge + peptide.txt: elapsed 2.6s / CPU 1.4s
+[用户第二步] 已生成第三步参数文件： D:/isoPSV_demo/config_step3.txt  
+[User Step 2] step-3 parameter file generated:  D:/isoPSV_demo/config_step3.txt  
+==== [用户第二步] 完成，输出目录： D:/isoPSV_demo/result_20261017122700/merge  ====
+==== [User Step 2] done, output:  D:/isoPSV_demo/result_20261017122700/merge  ====
+DONE
+==== [总程序 / Master] [用户第二步] revise 修正 + 多引擎合并 完成 @ 12:31:27 ====
+==== [Master] [User Step 2] revise + multi-engine merge done @ 12:31:27 ====
+[跳过] pDeep2 理论预测谱未启用（use_pdeep2=0）：预测指标按缺省处理
+[Skip] pDeep2 predicted spectra not used (use_pdeep2=0): predict metric treated as missing
+
+==== [总程序 / Master] [用户第三步] 阶段 A 评估 开始 @ 12:31:27 ====
+==== [Master] [User Step 3] stage A evaluation start @ 12:31:27 ====
+==== [用户第三步] 阶段 A 无标记 isoPSV 评估 ====
+==== [User Step 3] stage A evaluation ====
+unlabeled MGFs: 1 | predict_file:  
+weights_A: 0.1306,0.4418,0.2381,0.1895 | threshold_A: 0.0204 
+Total Physical Memory:         65,241 MB
+Available Physical Memory:     41,751 MB
+resource assessment: cpu cores = 19 | avail mem (MB) ~= 41751 | biggest MGF (MB) = 3 | est peak per read (MB) ~= 18 -> max_cores = 19 
+[计时] 读取合并表：已用 0.1s / CPU 0.1s
+[timing] read merged table: elapsed 0.1s / CPU 0.1s
+use_pdeep2=0：预测指标按缺省处理
+use_pdeep2=0: predict metric treated as missing
+[计时] 解析 predict.txt：已用 0.0s / CPU 0.0s
+[timing] parse predict.txt: elapsed 0.0s / CPU 0.0s
+parallel workers: 19 
+### 并行读取  1  个分块任务（ 1  个文件）
+### parallel read of  1  chunk tasks ( 1  files)
+unlabeled spectra loaded: 3784 
+[计时] 加载无标记谱图：已用 4.1s / CPU 0.2s
+[timing] load unlabeled spectra: elapsed 4.1s / CPU 0.2s
+[计时] 准备逐块扫描载荷：已用 0.2s / CPU 0.2s
+[timing] build scan payloads: elapsed 0.2s / CPU 0.2s
+[计时] 并行集群建立与数据分发：已用 0.0s / CPU 0.0s
+[timing] cluster setup + data export: elapsed 0.0s / CPU 0.0s
+[stage A] 扫描  3784  张谱图，使用  19  个进程
+[stage A] scanning  3784  spectra with  19  workers
+  进度：19.0% (719 / 3784 谱图)
+  progress: 19.0% (719 / 3784 spectra)
+  进度：38.0% (1438 / 3784 谱图)
+  progress: 38.0% (1438 / 3784 spectra)
+  进度：57.0% (2157 / 3784 谱图)
+  progress: 57.0% (2157 / 3784 spectra)
+  进度：76.0% (2876 / 3784 谱图)
+  progress: 76.0% (2876 / 3784 spectra)
+  进度：95.0% (3594 / 3784 谱图)
+  progress: 95.0% (3594 / 3784 spectra)
+  进度：100.0% (3784 / 3784 谱图)
+  progress: 100.0% (3784 / 3784 spectra)
+[计时] 逐谱扫描评估：已用 17.8s / CPU 0.1s
+[timing] per-scan evaluation: elapsed 17.8s / CPU 0.1s
+[计时] 汇总块结果：已用 0.1s / CPU 0.1s
+[timing] assemble chunk results: elapsed 0.1s / CPU 0.1s
+stage A reported rows: 3784 | spectra: 3784 | detail rows: 5305 
+                         Var1 Freq
+1 candidate_misidentification   86
+2                  consistent 3698
+[计时] 写出报告：已用 0.2s / CPU 0.2s
+[timing] write outputs: elapsed 0.2s / CPU 0.2s
+==== [用户第三步] 完成，输出目录： D:/isoPSV_demo/result_20261017122700/1.unlabeled_result  ====
+==== [User Step 3] done, output:  D:/isoPSV_demo/result_20261017122700/1.unlabeled_result  ====
+DONE
+==== [总程序 / Master] [用户第三步] 阶段 A 评估 完成 @ 12:31:56 ====
+==== [Master] [User Step 3] stage A evaluation done @ 12:31:56 ====
+
+==== [总程序 / Master] [后处理] report 参考格式扩充 开始 @ 12:31:56 ====
+==== [Master] [Post-process] report reference-format extension start @ 12:31:56 ====
+==== [用户第三步-后处理] report_A 参考格式扩充 ====
+==== [User Step 3 - post-process] report_A reference-format extension ====
+report rows: 3784 | fasta proteins: 19813 | SAP rows: 276 
+written: D:/isoPSV_demo/result_20261017122700/1.unlabeled_result/report_A.tsv ( 3784 x 35 )
+revise_state distribution:
+
+ Changed Original 
+      85     3699 
+Error_reason distribution:
+
+n_terminal_non_specific_cleavage;modification_correction 
+                                                      43 
+                                 modification_correction 
+                                                      39 
+                        n_terminal_non_specific_cleavage 
+                                                       3 
+DONE
+==== [总程序 / Master] [后处理] report 参考格式扩充 完成 @ 12:31:59 ====
+==== [Master] [Post-process] report reference-format extension done @ 12:31:59 ====
+
+==== [总程序 / Master] [阶段A分类] 阶段 A 结果分类 开始 @ 12:31:59 ====
+==== [Master] [Stage A classification] stage-A result classification start @ 12:31:59 ====
+### 并行读取  1  个分块任务（ 1  个文件）
+### parallel read of  1  chunk tasks ( 1  files)
+unlabeled spectra loaded for chimeric check
+report_A rows: 3784 
+stage A classification written: D:/isoPSV_demo/result_20261017122700/1.unlabeled_result/classification_A.tsv ( 3784 rows )
+=== conclusion status distribution 结论状态分布 ===
+
+ambiguous: identical fragment ions   ambiguous: poor spectrum quality 
+                                 1                                759 
+                 chimeric spectrum   competition but original correct 
+                               491                                165 
+ no competition (strategies agree) 
+                              2368 
+=== wrong rows by error reason 错误原因分布（原始结果错误判定行） ===
+
+                                 modification_correction 
+                                                      39 
+                        n_terminal_non_specific_cleavage 
+                                                       3 
+n_terminal_non_specific_cleavage;modification_correction 
+                                                      43 
+                                         sequence_change 
+                                                       1 
+==== [总程序 / Master] [阶段A分类] 阶段 A 结果分类 完成 @ 12:32:47 ====
+==== [Master] [Stage A classification] stage-A result classification done @ 12:32:47 ====
+
+==== [总程序 / Master] [两分法报告] 无标记样本两分法报告（矫正/新肽段） 开始 @ 12:32:47 ====
+==== [Master] [two-part report] unlabeled two-part report (correction/novel) start @ 12:32:47 ====
+classification_A rows: 3784 
+[两分法报告-无标记] Part1 注释校正：3784 行（判错 86）-> D:/isoPSV_demo/result_20261017122700/1.unlabeled_result/1.annotation_correction_report.tsv
+[two-part report (unlabeled)] Part1 annotation correction: 3784 rows (judged wrong 86) -> D:/isoPSV_demo/result_20261017122700/1.unlabeled_result/1.annotation_correction_report.tsv
+[两分法报告-无标记] Part2 新肽段竞争：0 行（可信新肽段 0、存疑 0）-> D:/isoPSV_demo/result_20261017122700/1.unlabeled_result/2.novel_peptide_competition_report.tsv
+[two-part report (unlabeled)] Part2 novel competition: 0 rows (credible 0, doubted 0) -> D:/isoPSV_demo/result_20261017122700/1.unlabeled_result/2.novel_peptide_competition_report.tsv
+==== [总程序 / Master] [两分法报告] 无标记样本两分法报告（矫正/新肽段） 完成 @ 12:32:54 ====
+==== [Master] [two-part report] unlabeled two-part report (correction/novel) done @ 12:32:54 ====
+[跳过] 阶段 B：无标记样本
+[Skip] stage B: unlabeled sample
+
+==== [总程序 / Master] [无标记主表] 阶段 A 全谱主表（58 列） 开始 @ 12:32:54 ====
+==== [Master] [unlabeled master] stage-A full-spectrum master table (58 cols) start @ 12:32:54 ====
+[无标记主表] 结果目录（merge_result 推导）：D:/isoPSV_demo/result_20261017122700
+[无标记主表] 读取 D:/isoPSV_demo/result_20261017122700/1.unlabeled_result/scan_details_A.tsv
+[无标记主表] 完成：3784 行 × 58 列 -> D:/isoPSV_demo/result_20261017122700/1.unlabeled_result/master_table.tsv
+==== [总程序 / Master] [无标记主表] 阶段 A 全谱主表（58 列） 完成 @ 12:32:59 ====
+==== [Master] [unlabeled master] stage-A full-spectrum master table (58 cols) done @ 12:32:59 ====
+[SAP 索引留档] D:/isoPSV_demo/result_20261017122700/1.unlabeled_result 
+[SAP index archived] D:/isoPSV_demo/result_20261017122700/1.unlabeled_result 
+
+==== [多预测器余弦] 开始 ====
+[predict_cosine_overlay] master_table: 3784 行
+[predict_cosine_overlay] 预测器: 
+无预测器产物，跳过
+==== [多预测器余弦] 完成 ====
+
+==== [总程序 / Master] 全部完成 @  12:32:59  ====
+==== [Master] all done @  12:32:59  ====

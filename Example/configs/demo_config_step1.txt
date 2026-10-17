@@ -1,0 +1,11 @@
+# Minimal demo config (Chlamydomonas pH5 fraction, unlabeled, PRIDE PXD003236)
+# Copy Example/data to D:\isoPSV_demo\data first (any folder works; keep paths absolute)
+psm_file	D:/isoPSV_demo/data/search/pFind-Filtered.spectra
+fasta	D:/isoPSV_demo/data/GCF_000002595.2_Chlamydomonas_reinhardtii_v5.5_protein_con.fasta
+label_type	unlabeled
+mgf	D:/isoPSV_demo/data/mgf
+all_mgf	
+auto_search	0
+use_punifind	0
+use_pdeep2	0
+enzyme	trypsin

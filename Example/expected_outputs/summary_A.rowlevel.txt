@@ -1,0 +1,3 @@
+Var1	Freq
+candidate_misidentification	86
+consistent	3698
