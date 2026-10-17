@@ -460,37 +460,86 @@ if (pg_mode_u %in% c("1", "2")) {
   if (nzchar(psm_u) && file.exists(psm_u)) {
     hdr_u <- strsplit(readLines(psm_u, n = 1), "\t")[[1]]
     if ("Proteins" %in% hdr_u) {
-      cc_u <- rep("NULL", length(hdr_u))
-      cc_u[which(hdr_u == "Proteins")] <- "character"
-      psmu <- read.delim(psm_u, sep = "\t", header = TRUE, stringsAsFactors = FALSE,
-                         colClasses = cc_u, na.strings = character(0))
-      fa_u <- character(0)
+      # 预检结果缓存——大 psm_file
+      # （实测 165 万行）此前每次开跑都被全读一遍＋fasta 名录扫描，续跑纯属
+      # 重复劳动；指纹＝psm/fasta 路径+修改时间+大小+pg 模式，命中即复用
+      # 计数、跳过全量扫描。输入变化（新搜库结果/换库）自动失效重扫；
+      # 缓存写失败（如只读目录）不影响流程。
+      #: cache the precheck outcome (a 1.65M-row psm_file was fully
+      # re-read on every start); fingerprint = psm/fasta path+mtime+size+mode,
+      # a hit reuses the counts and skips the scan. Changed inputs rescan;
+      # a failed cache write never breaks the run.
+      fa_fp_u <- ""
       if (!is.null(cfg1$fasta) && length(cfg1$fasta) > 0) {
-        fa_f_u <- resolve_cfg_paths(cfg1, "fasta")[1]
-        if (nzchar(fa_f_u) && file.exists(fa_f_u)) fa_u <- unique(names(read_fasta(fa_f_u)))
+        fa_c_u <- resolve_cfg_paths(cfg1, "fasta")[1]
+        if (nzchar(fa_c_u) && file.exists(fa_c_u)) fa_fp_u <- fa_c_u
       }
-      seq_u <- if ("Sequence" %in% hdr_u) as.character(psmu$Sequence)
-               else rep("", nrow(psmu))
-      in_fa_u <- fa_annotated_proteins(as.character(psmu$Proteins), seq_u,
-                                       if (nzchar(fa_f_u)) fa_f_u else character(0))
-      n_target_u <- if (pg_mode_u == "1") sum(!in_fa_u) else sum(in_fa_u)
-      if (n_target_u == 0L) {
-        dir.create(file.path(result_dir, "1.unlabeled_result"),
-                   showWarnings = FALSE, recursive = TRUE)
-        sumf_u <- file.path(result_dir, "1.unlabeled_result", "proteogenomics_summary.txt")
-        msg_u <- if (pg_mode_u == "1") {
-          sprintf("纯蛋白质基因组学模式：输入 psm_file 的 %d 行全部为已注释肽段、无新肽段候选，任何搜库与竞争验证都不必执行，流程直接结束。\npure proteogenomics mode: all %d rows of the psm_file are annotated - no novel candidates, nothing to search or validate; the run ends here.",
-                  nrow(psmu), nrow(psmu))
-        } else {
-          sprintf("已注释肽段矫正模式：输入 psm_file 的 %d 行全部为新肽段候选、无已注释肽段，无需矫正，流程直接结束。\nannotated-correction mode: all %d rows of the psm_file are novel candidates - nothing annotated to correct; the run ends here.",
-                  nrow(psmu), nrow(psmu))
+      fi_p_u <- file.info(psm_u)
+      fp_psm_u <- paste0(normalizePath(psm_u, winslash = "/"), "|",
+                         format(fi_p_u$mtime, "%Y-%m-%d %H:%M:%OS3"), "|",
+                         fi_p_u$size)
+      fp_fa_u <- "none"
+      if (nzchar(fa_fp_u)) {
+        fi_f_u <- file.info(fa_fp_u)
+        fp_fa_u <- paste0(normalizePath(fa_fp_u, winslash = "/"), "|",
+                          format(fi_f_u$mtime, "%Y-%m-%d %H:%M:%OS3"), "|",
+                          fi_f_u$size)
+      }
+      pg_cache_u <- file.path(cfg_dir, "pg_precheck.cache")
+      pg_want_u <- c(paste0("psm=", fp_psm_u), paste0("fasta=", fp_fa_u),
+                     paste0("mode=", pg_mode_u))
+      pg_hit_u <- FALSE
+      n_target_c <- NA_integer_; n_rows_c <- NA_integer_
+      if (file.exists(pg_cache_u)) {
+        pg_cl_u <- trimws(readLines(pg_cache_u, warn = FALSE))
+        if (length(pg_cl_u) >= 5 && identical(head(pg_cl_u, 3), pg_want_u)) {
+          n_target_c <- suppressWarnings(as.integer(sub("^n_target=", "", pg_cl_u[4])))
+          n_rows_c <- suppressWarnings(as.integer(sub("^n_rows=", "", pg_cl_u[5])))
+          pg_hit_u <- !is.na(n_target_c) && !is.na(n_rows_c) && n_rows_c >= 0 &&
+            n_rows_c > 0
         }
-        writeLines(msg_u, sumf_u, useBytes = TRUE)
-        cat(msg_u, "\n")
-        quit(save = "no", status = 0)
       }
-      cat(sprintf("[蛋白质基因组学] 搜库前预检：目标侧行 %d / 总行 %d\n",
-                  n_target_u, nrow(psmu)))
+      if (pg_hit_u) {
+        cat(sprintf("[蛋白质基因组学] 搜库前预检：目标侧行 %d / 总行 %d（缓存复用，输入未变跳过全量扫描）\n",
+                    n_target_c, n_rows_c))
+        cat(sprintf("[proteogenomics] precheck: %d target / %d rows (cache hit; inputs unchanged)\n",
+                    n_target_c, n_rows_c))
+      } else {
+        cc_u <- rep("NULL", length(hdr_u))
+        cc_u[which(hdr_u == "Proteins")] <- "character"
+        psmu <- read.delim(psm_u, sep = "\t", header = TRUE, stringsAsFactors = FALSE,
+                           colClasses = cc_u, na.strings = character(0))
+        fa_u <- character(0)
+        if (!is.null(cfg1$fasta) && length(cfg1$fasta) > 0) {
+          fa_f_u <- resolve_cfg_paths(cfg1, "fasta")[1]
+          if (nzchar(fa_f_u) && file.exists(fa_f_u)) fa_u <- unique(names(read_fasta(fa_f_u)))
+        }
+        seq_u <- if ("Sequence" %in% hdr_u) as.character(psmu$Sequence)
+                 else rep("", nrow(psmu))
+        in_fa_u <- fa_annotated_proteins(as.character(psmu$Proteins), seq_u,
+                                         if (exists("fa_f_u", inherits = FALSE) && nzchar(fa_f_u)) fa_f_u else character(0))
+        n_target_u <- if (pg_mode_u == "1") sum(!in_fa_u) else sum(in_fa_u)
+        if (n_target_u == 0L) {
+          dir.create(file.path(result_dir, "1.unlabeled_result"),
+                     showWarnings = FALSE, recursive = TRUE)
+          sumf_u <- file.path(result_dir, "1.unlabeled_result", "proteogenomics_summary.txt")
+          msg_u <- if (pg_mode_u == "1") {
+            sprintf("纯蛋白质基因组学模式：输入 psm_file 的 %d 行全部为已注释肽段、无新肽段候选，任何搜库与竞争验证都不必执行，流程直接结束。\npure proteogenomics mode: all %d rows of the psm_file are annotated - no novel candidates, nothing to search or validate; the run ends here.",
+                    nrow(psmu), nrow(psmu))
+          } else {
+            sprintf("已注释肽段矫正模式：输入 psm_file 的 %d 行全部为新肽段候选、无已注释肽段，无需矫正，流程直接结束。\nannotated-correction mode: all %d rows of the psm_file are novel candidates - nothing annotated to correct; the run ends here.",
+                    nrow(psmu), nrow(psmu))
+          }
+          writeLines(msg_u, sumf_u, useBytes = TRUE)
+          cat(msg_u, "\n")
+          quit(save = "no", status = 0)
+        }
+        cat(sprintf("[蛋白质基因组学] 搜库前预检：目标侧行 %d / 总行 %d\n",
+                    n_target_u, nrow(psmu)))
+        try(writeLines(c(pg_want_u, paste0("n_target=", n_target_u),
+                         paste0("n_rows=", nrow(psmu))),
+                       pg_cache_u, useBytes = TRUE), silent = TRUE)
+      }
     }
   }
 }

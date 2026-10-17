@@ -2696,6 +2696,7 @@ strategy_identity_lines <- function(cfg2) {
     if (grepl("boost", sf_dir, fixed = TRUE)) return("msfragger_boost")
     if (grepl("pnovo", sf_dir, fixed = TRUE)) return("pnovo")
     if (grepl("restrict", sf_dir, fixed = TRUE)) return("pfind_restrict")
+    if (grepl("standard", sf_dir, fixed = TRUE)) return("pfind_standard")
     if (grepl("_punifind", sf_name, fixed = TRUE)) return("punifind_rescore")
     "pfind_open"
   }
@@ -2721,7 +2722,31 @@ strategy_identity_lines <- function(cfg2) {
       }
     }
   }, silent = TRUE)
-  c(out, paste0("min_pep_len=", mpl))
+  #：pFind 臂开关入清单——换臂组合（只跑 open / 只跑 restrict /
+  # 加跑 standard）须触发步骤 2 重跑合并；读取口径与主流程一致
+  # （config_step1 优先，值须为 0/1，默认 open=1/restrict=1/standard=0）
+  #: the pFind arm switches join the manifest - changing the arm
+  # combo must re-run the step-2 merge; same precedence as the main flow
+  # (step1 first, 0/1 values only, defaults 1/1/0).
+  arm_lines <- character(0)
+  try({
+    if (!exists("b", inherits = FALSE)) {
+      bc2 <- resolve_cfg_paths(cfg2, "base_config")[1]
+      b <- if (nzchar(bc2) && file.exists(bc2)) read_param_file(bc2) else list()
+    }
+    arm_get <- function(key, default) {
+      for (s in list(b, cfg2)) {
+        if (!is.null(s[[key]]) && length(s[[key]]) > 0 &&
+            trimws(as.character(tail(s[[key]], 1))) %in% c("0", "1"))
+          return(trimws(as.character(tail(s[[key]], 1))))
+      }
+      default
+    }
+    arm_lines <- paste0("pfind_arms=open=", arm_get("pfind_open", "1"),
+                        "|restrict=", arm_get("pfind_restrict", "1"),
+                        "|standard=", arm_get("pfind_standard", "0"))
+  }, silent = TRUE)
+  c(out, paste0("min_pep_len=", mpl), arm_lines)
 }
 #' pUniFind 配置键优先级读取config_step1（step1_cfg）
 #' 优先于 config_step2（step2_cfg）；validate 过滤无效值（如越界模式码）；两处
@@ -3985,8 +4010,9 @@ STRATEGY_SLOT <- c(original = "a", pfind_open = "b", pfind_restrict = "c",
                    maxquant = "f", comet = "g", msfragger = "h",
                    sage = "i", msfragger_boost = "j", xtandem = "k",
                    metamorpheus = "l", peaks = "m", mascot = "n", pnovo = "o",
-                   msfragger_open = "p")
+                   msfragger_open = "p", pfind_standard = "q")
 STRATEGY_REVISE <- c(pfind_open = "full", pfind_restrict = "none",
+                     pfind_standard = "none",
                      punifind_rescore = "terminal", punifind_denovo = "none",
                      maxquant = "none", msfragger_open = "none",
                      msfragger = "none", sage = "none", comet = "none",
@@ -5515,11 +5541,20 @@ filter_mods_compatible <- function(path, compat_file) {
 #'   The path of the template pFind.cfg.
 #' @keywords internal
 ensure_pfind_template <- function(kind, fasta_path, project_dir) {
-  proj_name <- if (kind == "open") "pFind_open" else "pFind_restrict"
+  #：三臂模板目录——open（开放式）/ restrict（半酶切多参数限定式）/
+  # standard（常规参数限定式：全特异酶切＋闭合质量＋常规修饰组合）
+  #: three arm templates - open / restrict (semi-specific multi-mod)
+  # / standard (conventional closed search, fully-specific digestion)
+  km <- c(open = "pFind_open", restrict = "pFind_restrict",
+          standard = "pFind_standard")
+  tm <- c(open = "open_pFind.cfg", restrict = "restrict_pFind.cfg",
+          standard = "standard_pFind.cfg")
+  if (!(kind %in% names(km)))
+    stop("未知 pFind 模板类型：", kind, "\nunknown pFind template kind: ", kind)
+  proj_name <- km[[kind]]
   dst <- file.path(project_dir, proj_name, "param", "pFind.cfg")
   if (file.exists(dst)) return(dst)
-  tpl_rel <- file.path("pFind_templates",
-                      if (kind == "open") "open_pFind.cfg" else "restrict_pFind.cfg")
+  tpl_rel <- file.path("pFind_templates", tm[[kind]])
   # P3模板路径不再依赖 cwd——先按全局 code_dir/
   # sd0 解析（脚本经 --file= 定位的代码目录），都不可用才回退 cwd 相对（旧行为）
   tpl <- character(0)

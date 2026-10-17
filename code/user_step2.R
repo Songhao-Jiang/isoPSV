@@ -124,6 +124,7 @@ infer_strategy_type <- function(sf) {
   if (grepl("boost", sf_dir, fixed = TRUE)) return("msfragger_boost")
   if (grepl("pnovo", sf_dir, fixed = TRUE)) return("pnovo")
   if (grepl("restrict", sf_dir, fixed = TRUE)) return("pfind_restrict")
+  if (grepl("standard", sf_dir, fixed = TRUE)) return("pfind_standard")
   if (grepl("_punifind", sf_name, fixed = TRUE)) return("punifind_rescore")
   "pfind_open"
 }
@@ -796,6 +797,33 @@ for (src in list(cfg2, base_cfg)) {
   # the old mutual exclusion silently dropped b/c)
   auto_files <- character(0)
   auto_types <- character(0)
+  # Find 臂拆分可配置——pfind_open /
+  # pfind_restrict / pfind_standard 三键（config_step1 优先，值 0/1；默认
+  # 1/1/0＝与既有双臂行为一致）。standard＝常规参数限定式搜库（全特异酶切＋
+  # 闭合质量＋Carbamidomethyl[C] 固定；Oxidation[M]、Acetyl[AnyN-term] 可变），与 b/c 并列竞争。
+  # rescore 的前提＝open-pFind 结果存在（本轮 open 臂或既有结果，见下方守卫）。
+  #: the pFind arms are separately switchable via pfind_open /
+  # pfind_restrict / pfind_standard (step1-first, 0/1; defaults 1/1/0 =
+  # unchanged). standard = a conventional closed search competing alongside
+  # b/c. rescore requires open results (this run's open arm or existing ones).
+  pf_arm_on <- function(key, default_on) {
+    r <- cfg_get_preferred(base_cfg, cfg2, key, if (default_on) "1" else "0",
+                           validate = function(m) as.character(m) %in% c("0", "1"))
+    identical(as.character(r$value)[1], "1")
+  }
+  pf_arms <- c(open = pf_arm_on("pfind_open", TRUE),
+               restrict = pf_arm_on("pfind_restrict", TRUE),
+               standard = pf_arm_on("pfind_standard", FALSE))
+  cat("[pFind 臂] open=", pf_arms[["open"]], " restrict=", pf_arms[["restrict"]],
+      " standard=", pf_arms[["standard"]], "\n", sep = "")
+  cat("[pFind arms] open=", pf_arms[["open"]], " restrict=", pf_arms[["restrict"]],
+      " standard=", pf_arms[["standard"]], "\n", sep = "")
+  # rescore 前提基线：既有 open 结果（本轮 open 臂跑成后置 TRUE）
+  # rescore precondition baseline: existing open results (set TRUE once this
+  # run's open arm completes)
+  open_avail0 <- length(list.files(file.path(cfg2$config_dir, "pFind_open", "result"),
+                                   pattern = "\\.spectra$")) > 0
+  open_available <- open_avail0
   if (auto_on && nzchar(pfind_exe)) {
   mgf_dir_chk <- file.path(cfg2$config_dir, "unlabeled")
   if (length(list.files(mgf_dir_chk, pattern = "\\.mgf$")) == 0) {
@@ -843,6 +871,20 @@ for (src in list(cfg2, base_cfg)) {
   # fix for its argument-splitting tasklist bug)
   source_utf8(file.path(code_dir, "two_queue_steward.R"))
   if (tq_on) {
+    #：rescore 前提守卫——punifind_rescore=1 但 open 臂关闭且无既有
+    # open 结果时，经环境变量告知管家跳过 rescore（denovo 照常），免 12h 空等
+    #: rescore precondition guard - when rescore=1 but the open arm
+    # is off with no existing open results, tell the steward to skip rescore
+    # (denovo unaffected) via an env var instead of a 12h empty wait
+    tq_rescore_want <- any(vapply(list(base_cfg, cfg2), function(s)
+      !is.null(s$punifind_rescore) && length(s$punifind_rescore) > 0 &&
+        tail(as.character(s$punifind_rescore), 1) == "1", logical(1)))
+    if (tq_rescore_want && !pf_arms[["open"]] && !open_avail0) {
+      Sys.setenv(ISOPSV_TQ_RESCORE_OFF = "1")
+      cat("[两队列] open-pFind 臂已关且无既有 open 结果——rescore 前提缺失，管家将跳过 rescore（denovo 照常）\n")
+      cat("[two-queue] open arm off and no existing open results - rescore ",
+          "precondition missing; the steward will skip rescore (denovo unaffected)\n")
+    }
     cat("\n==== [两队列调度器] GPU 管家启动（CPU 道随后在前台展开）====\n")
     cat("==== [two-queue scheduler] GPU steward launching (CPU lane follows in the foreground) ====\n")
     tq_launch_steward(cfg2, cfg2_path, code_dir)
@@ -1009,18 +1051,30 @@ for (src in list(cfg2, base_cfg)) {
     }
   }
 
-  for (nm in c("pfind_cfg_open", "pfind_cfg_restrict")) {
+  #：pFind 三臂循环（open / restrict / standard），臂开关见上方
+  # pf_arms（默认 1/1/0）；目录模板缺失或 config_step2 缺键时按臂名从内置
+  # 模板自动生成（无需停点手填）
+  #: three-arm pFind loop; see pf_arms above (defaults 1/1/0); a
+  # missing template (convention folder or config key) is auto-generated from
+  # the built-in copy per arm
+  for (arm in c("open", "restrict", "standard")) {
+    if (!pf_arms[[arm]]) {
+      cat("==== [自动搜库] pFind ", arm, " ——pfind_", arm, "=0，跳过该臂 ====\n", sep = "")
+      cat("==== [Auto search] pFind ", arm, " skipped (pfind_", arm, "=0) ====\n", sep = "")
+      next
+    }
+    nm <- paste0("pfind_cfg_", arm)
     tpl <- cfg2[[nm]]
     if (is.null(tpl) || length(tpl) == 0 || tpl[1] == "") {
-      kind <- if (nm == "pfind_cfg_open") "open" else "restrict"
-      tpl <- ensure_pfind_template(kind, fasta_path, cfg2$config_dir)
+      tpl <- ensure_pfind_template(arm, fasta_path, cfg2$config_dir)
     } else {
       tpl <- tail(resolve_cfg_paths(cfg2, nm), 1)
     }
-    tag <- if (nm == "pfind_cfg_open") "open" else "restrict"
+    tag <- arm
     cat("==== [自动搜库] pFind ", tag, " ====\n")
     cat("==== [Auto search] pFind ", tag, " ====\n")
     sp_auto <- run_pfind_auto(tpl)
+    if (identical(arm, "open")) open_available <- TRUE
     # pFind 结果后处理未过滤 pFind.spectra 全量替换
     # Filtered 参与竞争；其中 decoy 行用 qry.res 中最高分非 decoy 候选救援；
     # 处理结果写回 pFind-Filtered.spectra（官方原版备份 .origin），后续合并、
@@ -1058,8 +1112,7 @@ for (src in list(cfg2, base_cfg)) {
       if (pp_ok) pfind_postprocess_mark(pp_dir, fasta_path, pp_mark_file)
     }
     auto_files <- c(auto_files, sp_auto)
-    auto_types <- c(auto_types, if (nm == "pfind_cfg_open") "pfind_open"
-                    else "pfind_restrict")
+    auto_types <- c(auto_types, paste0("pfind_", arm))
     # v1.0 两队列：open 搜库＋后处理完成后写标记，GPU 管家据此解锁 rescore
     # （评审修复③：rescore 前置含后处理；标记幂等，off 模式不产生）
     # v1.0 two-queue: after the open search + post-processing complete, drop
@@ -1185,6 +1238,20 @@ for (src in list(cfg2, base_cfg)) {
   manual_rescore <- puni_rescore_mode == "2"
   auto_denovo    <- puni_denovo_mode == "1"
   manual_denovo  <- puni_denovo_mode == "2"
+  # （设计约定）：rescore 的前提＝open-pFind 存在——本轮 open 臂跑成
+  # 或已有 open 结果；pfind_open=0 且无既有结果时自动 rescore 跳过（两队列
+  # 管家已在启动点经 ISOPSV_TQ_RESCORE_OFF 同步跳过；手动模式 2 不受影响，
+  # GUI 产物发现段自会处理缺失）
+  #: rescore requires open-pFind results (this run's open arm or
+  # existing ones); with pfind_open=0 and nothing cached, auto rescore is
+  # skipped (the two-queue steward was told at launch via
+  # ISOPSV_TQ_RESCORE_OFF; manual mode 2 is unaffected)
+  if (auto_rescore && !open_available) {
+    auto_rescore <- FALSE
+    cat("[pUniFind] open-pFind 结果不存在（open 臂未跑且无既有结果），自动 rescore 跳过——rescore 的输入即 open 结果\n")
+    cat("[pUniFind] no open-pFind results (open arm off, nothing cached); ",
+        "auto rescore skipped - open results are its input\n")
+  }
   if ((auto_rescore || auto_denovo) && !nzchar(puni_exe)) {
     stop("punifind_rescore / punifind_denovo 设为 1（自动运行）时必须填写 punifind_exe（pUniFind 安装的 punifind 目录）\n",
          "auto mode (=1) for punifind_rescore / punifind_denovo requires punifind_exe (the installed pUniFind punifind folder)")

@@ -103,6 +103,17 @@ steward_main <- function(cfg2_path, code_dir) {
   if (nzchar(puni_py)) puni_py <- normalizePath(puni_py, winslash = "/", mustWork = FALSE)
   auto_rescore <- any(vapply(list(base_cfg, cfg2), function(s)
     steward_kv(s, "punifind_rescore") == "1", logical(1)))
+  #：master 侧判定 rescore 前提缺失（pfind_open=0 且无既有 open 结
+  # 果）时经 ISOPSV_TQ_RESCORE_OFF=1 关停本管家的 rescore——否则阶段门要空等
+  # 12h 的 open-pp 标记（denovo 不受影响，照常执行）
+  #: when the master found the rescore precondition missing (open
+  # arm off, no cached open results) it sets ISOPSV_TQ_RESCORE_OFF=1 - skip
+  # rescore here instead of waiting 12h at the marker gate (denovo unaffected)
+  if (identical(Sys.getenv("ISOPSV_TQ_RESCORE_OFF"), "1")) {
+    auto_rescore <- FALSE
+    cat("[GPU 管家] rescore 前提缺失（open 臂关且无既有结果），跳过 rescore\n")
+    cat("[GPU steward] rescore precondition missing (open arm off, no prior results); rescore skipped\n")
+  }
   auto_denovo <- any(vapply(list(base_cfg, cfg2), function(s)
     steward_kv(s, "punifind_denovo") == "1", logical(1)))
   knob <- function(key, default) {

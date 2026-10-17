@@ -119,6 +119,12 @@ all_mgf	<绝对路径 absolute path，无标记样本可留空 may be empty for 
 # auto_search: 第二步搜库方式（1=软件自动调 pFind 搜库；0=用户手动搜库）
 #              step-2 search mode (1=automatic pFind search; 0=manual, fill search_file)
 auto_search	1
+# pfind_open / pfind_restrict / pfind_standard: pFind 三臂开关（1=跑 0=跳过，默认 1/1/0）
+#   open=开放式搜库（rescore 的输入来源）；restrict=半酶切多参数限定式；standard=常规参数限定式
+#   （全特异酶切+闭合质量+Carbamidomethyl[C] 固定/Oxidation[M]、Acetyl[AnyN-term] 可变）。
+#   rescore 需 open 结果存在。
+# pFind arm switches (; 1=run 0=skip, defaults 1/1/0): open / restrict / standard;
+#   rescore requires open results (this run's open arm or cached ones).
 # pfind_exe: pFind 安装路径（以 bin 结尾；填版本目录如 pFind3.1 时软件自动补 bin）
 #            pFind install path (must end with bin; a version folder like pFind3.1 gets bin appended automatically)
 pfind_exe	<绝对路径 absolute path>
