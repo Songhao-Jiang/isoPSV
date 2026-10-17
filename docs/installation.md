@@ -22,7 +22,7 @@ No installation is required. Download the two packages from the
      Python environments.
 
 Steps: extract the main zip to any folder (an ASCII path is recommended),
-double-click `isoPSV.exe`, and the console opens automatically at
+double-click `isoPSV.exe` (or the equivalent `start_isoPSV.bat`), and the console opens automatically at
 http://127.0.0.1:8780. Search engines (pFind, pUniFind, MaxQuant,
 MSFragger, ...) are separate software (see Software_Manual.md); their
 result files can also be imported without a local installation.
@@ -48,7 +48,7 @@ result files can also be imported without a local installation.
      （`pip install ms2pip`）与 AlphaPeptDeep（`pip install peptdeep`）
      同模式、各自配 Python 环境。
 
-步骤：主包解压到任意文件夹（建议 ASCII 路径），双击 `isoPSV.exe`，控制台
+步骤：主包解压到任意文件夹（建议 ASCII 路径），双击 `isoPSV.exe`（或等价的 `start_isoPSV.bat`），控制台
 自动打开 http://127.0.0.1:8780。搜库引擎（pFind、pUniFind、MaxQuant、
 MSFragger 等）为独立软件（见 Software_Manual.md）；也可不装引擎、直接导入
 其结果文件。

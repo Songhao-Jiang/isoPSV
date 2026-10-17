@@ -8,7 +8,7 @@ isoPSV（isotope-labeled paired-spectrum verification）多引擎竞争验证软
 - 内嵌文件浏览器（支持多选）、软件环境自动检测、断点续跑与片级指纹
 - 理论谱图预测器接口（pDeep2/MS2PIP 等）、W8 权重快捷模板
 
-使用方法：解压后双击 `start_isoPSV.bat`，浏览器自动打开控制台。
+使用方法：解压后双击 `isoPSV.exe`（或 `start_isoPSV.bat`，两者等价），浏览器自动打开控制台。
 详见 `Software_Manual.md` 与 `README.md`。
 
 ---
@@ -23,5 +23,5 @@ isoPSV（同位素标记成对谱图验证）多引擎竞争验证软件 v1.0。
 - 内嵌文件浏览器（支持多选）、软件环境自动检测、断点续跑与片级指纹
 - 理论谱图预测器接口（pDeep2/MS2PIP 等）、W8 权重快捷模板
 
-使用方法：解压后双击 `start_isoPSV.bat`，浏览器自动打开控制台。
+使用方法：解压后双击 `isoPSV.exe`（或 `start_isoPSV.bat`，两者等价），浏览器自动打开控制台。
 详见 `Software_Manual.md` 与 `README.md`。

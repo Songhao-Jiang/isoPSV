@@ -337,7 +337,7 @@ py_detect <- function(hint = NULL) {
 }
 
 # 失败侧日志回贴引擎/步骤失败在主日志里只有一行
-# exit code 时，真正的错因藏在各自的侧日志里（Mch_TL 实测：sage 自动段逐文件
+# exit code 时，真正的错因藏在各自的侧日志里（外部测试机 实测：sage 自动段逐文件
 # "引擎失败（exit 1）"，而 sage_exe 指错这一事实只在侧日志里可见）。把侧日志
 # 尾部回贴主日志——与  的 renumber 回贴同格式、同诊断目的。日志可能是
 # GBK 输出，按字节读取直通（不做转码，避免多字节标点编码错配）。
@@ -361,6 +361,66 @@ log_fail_tail <- function(logf, tag = "", n = 8L) {
     }
   }, error = function(e) NULL)
   invisible(NULL)
+}
+
+# sage 配置参数 CLI 形式探测不同 sage 构建对配置
+# 文件参数的解析不同——本地 v0.15.0-beta.2 只收 file:///D:/... 形式（普通路径
+# 被 object_store 报 "Unable to recognise URL"）；外部测试机构建的则对 file:///
+# 报 os error 123（URL→Windows 路径转换产物非法）。用一份故意无效的 json
+# 一次性试三种形式：能过"读取层"（报错不是 "Failed to read parameters"）
+# 即为该构建可用形式，供 json 内路径与 CLI 参数统一采用。
+# Probe which config-arg form the installed sage build accepts (one shot,
+# invalid-json probe): passing the READ layer (error other than
+# "Failed to read parameters") marks the working form.
+sage_probe_arg_form <- function(exe, work_dir) {
+  probe_j <- file.path(work_dir, "_sage_argprobe.json")
+  writeLines("{", probe_j, useBytes = TRUE)
+  pj <- gsub("\\\\", "/", probe_j)
+  forms <- c(url = paste0("file:///", pj),
+             plain = pj,
+             urlenc = paste0("file:///", sub(":", "%3A", pj, fixed = TRUE)))
+  probe_log <- file.path(work_dir, "_sage_argprobe.log")
+  chosen <- ""
+  for (nm in names(forms)) {
+    unlink(probe_log)
+    suppressWarnings(system2(exe, shQuote(forms[[nm]]),
+                             stdout = probe_log, stderr = probe_log))
+    pl <- if (file.exists(probe_log))
+      paste(readLines(probe_log, warn = FALSE, encoding = "bytes"),
+            collapse = " ") else ""
+    # 判据＝只认路径层错误（URL 不识别 / os error 123 / 文件不存在）。
+    # serde 内容错误（expected value / invalid length 等）也算"读取层已通过"
+    # ——probe json 故意无效，形式正确时必然停在内容解析层。
+    path_err <- grepl("Unable to recognise URL|os error|cannot find the file|No such file",
+                      pl)
+    ok <- nzchar(pl) && !path_err
+    # 注：字符串字面量不得以全角字符收尾（紧贴闭引号会令 R 解析器吞引号）
+    cat("[sage 自动] 参数形式探测 ", nm, if (ok) " 可用 " else " 不可用 ", "\n", sep = "")
+    if (ok) { chosen <- nm; break }
+  }
+  unlink(c(probe_j, probe_log))
+  if (!nzchar(chosen)) {
+    cat("[sage 自动] 三种形式均未通过读取层，沿用 file:/// 缺省 ",
+        "(详见引擎日志; 可换装实测可用的 v0.15.0-beta.2 构建)\n")
+    chosen <- "url"
+  }
+  chosen
+}
+
+# Python 子进程环境净化机器级 PYTHONHOME/PYTHONPATH
+# 污染会让任何解释器以 initfsencoding / No module named 'encodings' 假死
+# （外部测试机 实测：PATH python 与附加包 python37 同症状；自带 3.12 因 python312
+# ._pth 全隔离免疫）。Windows 经 cmd 的 set VAR= 剥离后再启动；其余平台透传。
+# Launch a python child with PYTHONHOME/PYTHONPATH stripped (cmd set VAR= on
+# Windows); machine-wide pollution of those vars kills any interpreter with
+# initfsencoding / No module named 'encodings'. Returns the child exit code.
+py_system2 <- function(py, args = character(0)) {
+  if (.Platform$OS.type == "windows") {
+    cm <- paste0('set "PYTHONHOME="& set "PYTHONPATH="& ',
+                 shQuote(py),
+                 if (length(args)) paste0(" ", paste(args, collapse = " ")) else "")
+    shell(cm, wait = TRUE, translate = FALSE)
+  } else system2(py, args)
 }
 
 # 引擎适配器共用输入解析。

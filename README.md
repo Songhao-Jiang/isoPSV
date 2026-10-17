@@ -21,7 +21,7 @@ engine scores are never used.
 | Minimal demo (data -> config -> run) / 最小示例 | [Example/README.md](Example/README.md) |
 | Core R package / 核心 R 包 | [Songhao-Jiang/ReadMGF](https://github.com/Songhao-Jiang/ReadMGF) |
 
-Quick start: extract the release zip, double-click `isoPSV.exe` (bundled
+Quick start: extract the release zip, double-click `isoPSV.exe` (or the equivalent `start_isoPSV.bat`; bundled
 R/Python runtimes; console opens at http://127.0.0.1:8780), fill STEP 1-3,
 Run. Details: [docs/installation.md](docs/installation.md) /
 [Example/README.md](Example/README.md).
@@ -80,7 +80,7 @@ Sage、Comet 等）对同一谱图集的鉴定结果，经交换格式统一、�
 | 最小示例（数据→配置→运行） | [Example/README.md](Example/README.md) |
 | 核心 R 包 | [Songhao-Jiang/ReadMGF](https://github.com/Songhao-Jiang/ReadMGF) |
 
-快速开始：解压 Release 的 zip，双击 `isoPSV.exe`（自带 R/Python 运行时；
+快速开始：解压 Release 的 zip，双击 `isoPSV.exe`（或等价的 `start_isoPSV.bat`；自带 R/Python 运行时；
 控制台自动开 http://127.0.0.1:8780），填 STEP 1–3，Run。详见
 [docs/installation.md](docs/installation.md) 与 [Example/README.md](Example/README.md)。
 ### PTM 富集数据的鉴定校正

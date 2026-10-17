@@ -757,8 +757,11 @@ pep_txt <- file.path(result_dir, "merge", "peptide.txt")
       pd2_list <- pep_txt   # 复制失败（如只读盘）退回主表，不阻断
     old_wd2 <- getwd()
     setwd(dirname(pd_script))
-    st2 <- system2(py_exe, c(shQuote(pd_script), "-e", "0.3", "-i", pd2_inst,
-                             "-in", shQuote(pd2_list), "-out", shQuote(predict_out)))
+    #：py_system2 剥离 PYTHONHOME/PYTHONPATH 再启动——机器级污染
+    # 会让 python37 以 initfsencoding / No module named 'encodings' 假死
+    # （外部测试机 附加包实测）；输出仍直接进主日志
+    st2 <- py_system2(py_exe, c(shQuote(pd_script), "-e", "0.3", "-i", pd2_inst,
+                                 "-in", shQuote(pd2_list), "-out", shQuote(predict_out)))
     setwd(old_wd2)
     if (st2 != 0 || !file.exists(predict_out)) stop("pDeep2 运行失败\npDeep2 run failed")
     writeLines(predict_fingerprint_lines, paste0(predict_out, ".run_params"),

@@ -1602,6 +1602,11 @@ engine_auto_run <- function(engine, exe, params_tpl, mode, mgfs, work_dir,
     cat("[", engine, " auto] parameter change detected (enzyme sidecar mismatch), rerunning\n")
   }
   dir.create(work_dir, recursive = TRUE, showWarnings = FALSE)
+  #：sage 配置参数 CLI/json 路径形式按构建自适应（beta.2 只收
+  # file:///、部分构建对 file:/// 报 os error 123）——一次性探测，结果经
+  # 闭包带入 run_one_raw 的 sage 分支
+  sage_url_mode <- "url"
+  if (engine == "sage") sage_url_mode <- sage_probe_arg_form(exe, work_dir)
   # MaxQuant 单次全 raw 运行（一次读全部 raw，不走逐 MGF 循环）
   # MaxQuant single all-raw run (reads every raw at once, not the per-MGF loop)
   if (engine == "maxquant") {
@@ -1925,10 +1930,17 @@ engine_auto_run <- function(engine, exe, params_tpl, mode, mgfs, work_dir,
       jt <- readLines(params_tpl, warn = FALSE)
       # sage 0.15 的 object_store 不识别 Windows 盘符路径（小写/大写均报
       # "Unable to recognise URL"，实测 file:/// URL 形式可正确解析为
-      # Windows 路径）；json 内路径与 json 文件本身都转 file:/// 形式
+      # Windows 路径）；json 内路径与 json 文件本身都转 file:/// 形式。
+      #：不同构建行为相反（外部测试机 file:/// 报 os error 123），
+      # 形式由 engine_auto_run 入口的 sage_probe_arg_form 探测结果决定。
+      # sage's object_store rejects bare drive-letter paths; the URL form is
+      # resolved to a Windows path on v0.15.0-beta.2. Since other builds flip
+      # this (os error 123 on file:///), the form follows the one-shot probe.
       file_url <- function(p) {
         p <- gsub("\\\\", "/", p)
-        paste0("file:///", p)
+        if (sage_url_mode == "url") paste0("file:///", p)
+        else if (sage_url_mode == "urlenc") paste0("file:///", sub(":", "%3A", p, fixed = TRUE))
+        else p
       }
       rmgf <- file_url(rmgf); mzml <- file_url(mzml)
       fa_url <- file_url(fasta_path)
@@ -2206,7 +2218,7 @@ ul_ch_auto <- if (!is.null(base_cfg$unlabeled_channel) && length(base_cfg$unlabe
 label_mass_auto <- if (!identical(ul_ch_auto, "1"))
   label_mod_masses(parse_label_spec(base_cfg$label_type)$mods) else NULL
 for (eng in c("msfragger", "comet", "sage", "metamorpheus", "msfragger_boost", "maxquant")) {
-  #：引擎 exe 生效值与来源入日志（Mch_TL 实测：sage_exe 指向
+  #：引擎 exe 生效值与来源入日志（外部测试机 实测：sage_exe 指向
   # MaxQuantCmd.exe 时，旧日志只有逐文件"引擎失败（exit 1）"、配错不可见）
   r_e <- cfg_get_preferred(base_cfg, cfg2, paste0(eng, "_exe"), "")
   exe_v <- r_e$value
