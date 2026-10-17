@@ -613,6 +613,7 @@ def build_step1_config(fields):
     single = ("search_engine", "psm_file", "fasta", "enzyme",
               "auto_search", "pfind_exe", "use_punifind", "punifind_exe",
               "punifind_rescore", "punifind_denovo", "punifind_python",
+              "pfind_open", "pfind_restrict", "pfind_standard",
               "use_pdeep2", "pdeep2_exe", "instrument", "pdf_on",
               "denovo_lookback", "mem_guard_mb",
               "unlabeled_channel",
@@ -650,6 +651,11 @@ def build_step1_config(fields):
         "all_mgf\t" + all_mgf,
         "auto_search\t" + fields.get("auto_search", "1"),
         "pfind_exe\t" + fields.get("pfind_exe", ""),
+        #  R1：pFind 三臂开关（默认 1/1/0＝与旧双臂行为一致；
+        # 值仅 0/1，R 侧 cfg_get_preferred 校验后生效）
+        "pfind_open\t" + (fields.get("pfind_open", "1") or "1"),
+        "pfind_restrict\t" + (fields.get("pfind_restrict", "1") or "1"),
+        "pfind_standard\t" + (fields.get("pfind_standard", "0") or "0"),
         # v1.0python_exe 键不再生成——重编号解释器
         # 由 R 侧探测（PATH → py -3 → python3 → 软件自带 runtime/python）；
         # 旧 config 手写的 python_exe 键仍被兼容读取

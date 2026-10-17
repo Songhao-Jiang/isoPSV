@@ -12,18 +12,19 @@ orders the slots alphabetically and only the enabled slots carry columns.
 | c | pfind_restrict | none | |
 | d | punifind_rescore | terminal (13C drop + terminal loss) | |
 | e | punifind_denovo | none | yes |
-| f | maxquant | none | |
-| g | comet | none | |
-| h | msfragger | none | |
-| i | sage | none | |
-| j | msfragger_boost (MSBooster rescored MSFragger result; same pepXML/TSV format, same adapter) | none | |
-| k | xtandem | none | |
-| l | metamorpheus | none | |
+| f | comet | none | |
+| g | mascot | none | |
+| h | maxquant | none | |
+| i | metamorpheus | none | |
+| j | msfragger | none | |
+| k | msfragger_boost (MSBooster rescored MSFragger result; same pepXML/TSV format, same adapter) | none | |
+| l | msfragger_open | none | |
 | m | peaks | none | |
-| n | mascot | none | |
-| o | pnovo | none | |
-| p | msfragger_open | none | |
-| p-z | other (generic slots x12, reusable for any engine) | none | |
+| n | pnovo | none | |
+| o | sage | none | |
+| p | xtandem | none | |
+| q | pfind_standard | none | |
+| r-z | other (generic slots, reusable for any engine) | none | |
 
 - Slot letters appear in the merged table as column names `a.Sequence`,
   `b.Sequence`, ... (letter-leading names are valid R names - no X prefix is
@@ -250,18 +251,19 @@ Rscript code/user_run.R          (CONFIG env var points to config_step1.txt)
 | c | pfind_restrict | 无 | |
 | d | punifind_rescore | 末端（13C 剔除＋末端丢失归一） | |
 | e | punifind_denovo | 无 | 是 |
-| f | maxquant | 无 | |
-| g | comet | 无 | |
-| h | msfragger | 无 | |
-| i | sage | 无 | |
-| j | msfragger_boost（MSBooster 重打分的 MSFragger 结果；pepXML/TSV 格式与适配器同 h） | 无 | |
-| k | xtandem | 无 | |
-| l | metamorpheus | 无 | |
+| f | comet | 无 | |
+| g | mascot | 无 | |
+| h | maxquant | 无 | |
+| i | metamorpheus | 无 | |
+| j | msfragger | 无 | |
+| k | msfragger_boost（MSBooster 重打分的 MSFragger 结果；pepXML/TSV 格式与适配器同 j） | 无 | |
+| l | msfragger_open | 无 | |
 | m | peaks | 无 | |
-| n | mascot | 无 | |
-| o | pnovo | 无 | |
-| p | msfragger_open | 无 | |
-| p-z | other（通用槽位 ×12，可复用于任意引擎） | 无 | |
+| n | pnovo | 无 | |
+| o | sage | 无 | |
+| p | xtandem | 无 | |
+| q | pfind_standard | 无 | |
+| r-z | other（通用槽位，可复用于任意引擎） | 无 | |
 
 - 槽位字母即合并表列名 `a.Sequence`、`b.Sequence`……（字母开头的列名是合法
   R 名称，不像经典版的数字开头列名需要 X 前缀）。

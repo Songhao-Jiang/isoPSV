@@ -4007,10 +4007,12 @@ denovo_db_lookback <- function(datalist, fasta_file, slot = "e",
 #' @keywords internal
 STRATEGY_SLOT <- c(original = "a", pfind_open = "b", pfind_restrict = "c",
                    punifind_rescore = "d", punifind_denovo = "e",
-                   maxquant = "f", comet = "g", msfragger = "h",
-                   sage = "i", msfragger_boost = "j", xtandem = "k",
-                   metamorpheus = "l", peaks = "m", mascot = "n", pnovo = "o",
-                   msfragger_open = "p", pfind_standard = "q")
+                   #  R5pFind 系列槽位不动；
+                   # 其余引擎按软件名字典序重排 f–p（Comet→X!Tandem）
+                   comet = "f", mascot = "g", maxquant = "h",
+                   metamorpheus = "i", msfragger = "j", msfragger_boost = "k",
+                   msfragger_open = "l", peaks = "m", pnovo = "n",
+                   sage = "o", xtandem = "p", pfind_standard = "q")
 STRATEGY_REVISE <- c(pfind_open = "full", pfind_restrict = "none",
                      pfind_standard = "none",
                      punifind_rescore = "terminal", punifind_denovo = "none",

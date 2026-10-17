@@ -24,8 +24,11 @@ isoPSV 全部配置键、取值、默认值与作用。参数文件为制表符 
 | enzyme | trypsin / lysarginase / lysc / lysn / argc / gluc / aspn / chymotrypsin / none | trypsin | 酶切类型；写入各引擎模板并参与分类规则。Trypsin/LysargiNase 均 P 位不切 |
 | mgf | 多行/文件夹/raw | 必填 | MGF 列表：每行一个文件、或文件夹（展开 .mgf）、或 **raw 文件/文件夹（第一步自动经 pParse 转 MGF）** |
 | all_mgf | 文件夹 | — | 标记样本必填：原始 MGF 文件夹（含标记谱） |
-| auto_search | 1 / 0 | 1 | pFind 自动搜库开关；任何外部引擎选自动模式时自动置 1 |
+| auto_search | 1 / 0 | 1 | pFind 自动搜库总开关；网页策略行有 pFind 臂 Auto 行时自动派生为 1 |
 | pfind_exe | 安装文件夹 | 检测 | pFind 安装目录（含 bin\Searcher.exe 那一级） |
+| pfind_open | 1 / 0 | 1 | pFind 开放式臂（槽 b）开关；三臂可任意组合 |
+| pfind_restrict | 1 / 0 | 1 | pFind 限定式多参数臂（槽 c）开关 |
+| pfind_standard | 1 / 0 | 0 | pFind 常规限定式臂（槽 q，全特异＋闭合＋Carbamidomethyl[C] 固定、Oxidation[M]/Acetyl[AnyN-term] 可变）开关 |
 | use_pdeep2 | 1 / 2 / 0 | 1 | pDeep2：1＝自动运行；2＝手动（predict_file）；0＝关闭 |
 | pdeep2_exe | 安装文件夹 | 检测 | pDeep2 安装目录 |
 | instrument | Lumos / QE / Velos / Elite | Lumos | 质谱仪类型；预测器 params 留空时取此键 |
@@ -87,8 +90,11 @@ isoPSV 全部配置键、取值、默认值与作用。参数文件为制表符 
 | enzyme | trypsin / lysarginase / lysc / lysn / argc / gluc / aspn / chymotrypsin / none | trypsin | Enzyme; written into engine templates, drives classification rules. Trypsin/LysargiNase both blocked at P |
 | mgf | multi-row / folder / raw | required | MGF list: one file per line, a folder (expanded to .mgf), or raw files/folders (auto-converted to MGF via pParse at step 1) |
 | all_mgf | folder | - | Required for labeled samples: original MGF folder (labeled spectra) |
-| auto_search | 1 / 0 | 1 | pFind auto-search switch; set to 1 automatically when any external engine is in Auto mode |
+| auto_search | 1 / 0 | 1 | pFind auto-search master switch; derived as 1 by the web when a pFind arm row is in Auto mode |
 | pfind_exe | install folder | detected | pFind install directory (the level containing bin\Searcher.exe) |
+| pfind_open | 1 / 0 | 1 | pFind open-search arm (slot b) switch; arms combine freely |
+| pfind_restrict | 1 / 0 | 1 | pFind restricted multi-mod arm (slot c) switch |
+| pfind_standard | 1 / 0 | 0 | pFind standard closed-search arm (slot q; fully-specific, Carbamidomethyl[C] fixed, Oxidation[M]/Acetyl[AnyN-term] variable) switch |
 | use_pdeep2 | 1 / 2 / 0 | 1 | pDeep2: 1 = auto-run; 2 = manual (predict_file); 0 = off |
 | pdeep2_exe | install folder | detected | pDeep2 install directory |
 | instrument | Lumos / QE / Velos / Elite | Lumos | Mass spectrometer type; used by predictors when params empty |

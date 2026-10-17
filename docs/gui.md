@@ -21,9 +21,14 @@ default English, 🌐 toggles Chinese).
 
 ## STEP 2 多引擎策略
 
-每行引擎带 **Auto search / Manual result** 下拉：Auto＝填软件路径（仅
-MaxQuant 另需 raw 输入，其余自动用第一步 MGF）；Manual＝填结果文件。
-GUI 类引擎（PEAKS/Mascot/pNovo/X!Tandem 等）仅 Manual。
+所有策略（含 pFind 三臂与 pUniFind）统一为**槽位行**：下拉按槽位字母排序
+（b pFind open / c restrict / d pUniFind re-score / e de novo / f–p 外部
+引擎按软件名字典序 / q pFind standard）。每行 **Auto search / Manual
+result**：Auto＝填软件路径（pFind 臂填 pFind 安装目录，pUniFind 填 punifind
+目录——自动模式另需下方 punifind_python 字段；仅 MaxQuant 另需 raw 输入，
+其余自动用第一步 MGF）；Manual＝填结果文件。GUI 类引擎（PEAKS/Mascot/
+pNovo/X!Tandem 等）仅 Manual。默认预置 open＋restrict 两行 Auto。有
+pUniFind 矫正行而无 pFind open 行时显示前置提示（矫正输入＝open 结果）。
 
 ## STEP 3 理论谱图预测器
 

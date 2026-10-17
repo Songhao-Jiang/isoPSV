@@ -76,7 +76,7 @@ D:\Bioinformatics\pDeep2\py37\python.exe predict.py -e 0.3 -i Lumos -in peptide.
 
 `web\` 提供一个本地网页界面（双击 `start_web.bat` 即打开浏览器）：
 
-- **参数表单（四色分块）**：表单按大类分成四块浅色圆角卡片——①输入数据（浅蓝：项目文件夹 result_dir、psm_file、fasta、mgf）②样本标记类型（浅绿：label_type）③竞争性搜库（浅黄：auto_search＝pFind 竞争性搜库方法、pfind_exe、use_punifind；auto_search 选"0-用户手动搜库"时 pfind_exe 自动隐藏；use_punifind 选"1-启用"时显示 pUniFind 的四个选项——punifind_exe（pUniFind 安装目录选择）、punifind_rescore 与 punifind_denovo 两个三选项下拉框：0 不运行（默认）/ 1 自动运行（需填 punifind_exe，软件调官方 CLI 自动完成）/ 2 手动运行（自行提供结果，软件打印拷贝指引并停点）、punifind_python（运行 CLI 与转换器的 python，需 torch/numpy；自动 rescore 必填，留空退回手动模式））④pDeep2 预测（浅紫，每项独占一行纵向排布：use_pdeep2、pdeep2_exe、pdeep2_instrument）；所有路径均须填写绝对路径，可经系统文件对话框选择或直接输入；
+- **参数表单（四色分块）**：表单按大类分成四块浅色圆角卡片——①输入数据（浅蓝：项目文件夹 result_dir、psm_file、fasta、mgf）②样本标记类型（浅绿：label_type）③竞争性搜库（浅黄）：STEP 2 策略页所有策略（含 pFind 三臂与 pUniFind）统一为槽位行，下拉按槽位字母排序、每行 Auto（软件路径）/Manual（结果文件）——网页据此自动派生 config_step1 的 auto_search、pfind_exe、pfind_open/pfind_restrict/pfind_standard、use_punifind、punifind_exe、punifind_rescore/punifind_denovo 与 punifind_python；pUniFind 矫正的输入＝开放式搜库结果（有 d 行无 b 行时页面给出前置提示）④pDeep2 预测（浅紫，每项独占一行纵向排布：use_pdeep2、pdeep2_exe、pdeep2_instrument）；所有路径均须填写绝对路径，可经系统文件对话框选择或直接输入；
 - **mgf 只填一次**：阶段 B 的原始 MGF 文件夹 all_mgf 由服务器自动取自 ① 的 mgf——mgf 填单个文件夹时直接用该文件夹，填多个文件且同在一个文件夹时用该文件夹，否则留空（阶段 B 停点时用"停点续接"补 config_step1.txt 的 all_mgf）；
 - **use_pdeep2 三选项**：1＝使用 pDeep2，按 pdeep2_exe 安装目录自动运行（必填安装路径，第三步不再停点）；2＝使用 pDeep2，用户对第二步产出的 `result_*\merge\peptide.txt` 手动运行 pDeep2 生成 predict.txt 后填入（pdeep2_exe 留空）；0＝不使用 pDeep2（预测指标按缺省处理）；
 - **结果保存文件夹（result_dir＝项目文件夹）**：表单第一项 result_dir 指定项目文件夹——点"生成参数文件"会把 config_step1.txt 写进该文件夹；流程的全部产出写进该文件夹下的结果文件夹 `result_YYYYMMDDHHMMSS\`（仿 pGlycoQuant 时间戳命名，内含 `Competitive_search_result\`（诱饵清洗件＋SAP 索引）、`merge\`、`1.unlabeled_result\`（阶段 A）、`2.labeled_result\`（阶段 B＋主表＋PDF）），项目根另生成可复用件 unlabeled\、config_step2/3.txt（留空则退回客户端目录）。已存在 `result_*` 时取最新就地复用（断点续跑）；删除全部 `result_*` 后重跑即生成新的时间戳文件夹；
@@ -555,20 +555,20 @@ this appendix only lists each engine's role and its official download page.)
 
 | 软件 Software | 管线角色 Role | 下载 Download |
 |---|---|---|
-| pFind | 主搜库引擎（策略 a/b/c）primary search engine (strategies a/b/c) | http://www.pfind.net |
+| pFind | 主搜库引擎（策略 a/b/c/q）primary search engine (strategies a/b/c/q) | http://www.pfind.net |
 | pDeep2 | 理论谱图预测（predict 指标）theoretical spectrum prediction (predict metric) | https://github.com/pFindStudio/pDeep |
-| pUniFind | rescore / de novo 补充策略 supplementary strategies | http://www.pfind.net |
+| pUniFind | rescore / de novo 补充策略（d/e）supplementary strategies (d/e) | http://www.pfind.net |
 | Python + torch venv | pUniFind 运行环境 pUniFind runtime | https://www.python.org |
-| MSFragger | 搜库引擎策略 f search engine strategy f | https://msfragger.nesvilab.org |
-| Comet | 搜库引擎策略 g search engine strategy g | https://github.com/UWPR/Comet |
-| Sage | 搜库引擎策略 i search engine strategy i | https://github.com/lazear/sage |
-| MaxQuant | 搜库引擎（策略 f 槽，自动搜库需 raw）search engine (auto search needs raw) | https://www.maxquant.org |
-| MetaMorpheus | 搜库引擎策略 l search engine strategy l | https://github.com/smith-chem-wisc/MetaMorpheus |
+| MSFragger | 搜库引擎策略 j search engine strategy j | https://msfragger.nesvilab.org |
+| Comet | 搜库引擎策略 f search engine strategy f | https://github.com/UWPR/Comet |
+| Sage | 搜库引擎策略 o search engine strategy o | https://github.com/lazear/sage |
+| MaxQuant | 搜库引擎（策略 h 槽，自动搜库需 raw）search engine (strategy h, auto search needs raw) | https://www.maxquant.org |
+| MetaMorpheus | 搜库引擎策略 i search engine strategy i | https://github.com/smith-chem-wisc/MetaMorpheus |
 | ProteoWizard msconvert | RAW→MGF 转换 RAW-to-MGF conversion | https://proteowizard.sourceforge.io |
-| MSBooster | MSFragger 重打分（策略 j，可选）MSFragger rescoring (strategy j, optional) | https://github.com/Nesvilab/MSBooster |
+| MSBooster | MSFragger 重打分（策略 k，可选）MSFragger rescoring (strategy k, optional) | https://github.com/Nesvilab/MSBooster |
 | R runtime | 管线主体运行时（必需；≥4.1，推荐 4.5；软件自带可免装）pipeline runtime (required; bundled runtime may suffice) | https://cran.r-project.org |
-| X!Tandem | 搜库引擎策略 k（可选，手动结果）search engine strategy k (optional, manual) | https://www.thegpm.org/TANDEM/ |
-| Mascot | 搜库引擎策略 n（可选，手动结果）search engine strategy n (optional, manual) | https://www.matrixscience.com |
+| X!Tandem | 搜库引擎策略 p（可选，手动结果）search engine strategy p (optional, manual) | https://www.thegpm.org/TANDEM/ |
+| Mascot | 搜库引擎策略 g（可选，手动结果）search engine strategy g (optional, manual) | https://www.matrixscience.com |
 
 环境前提（实测归纳／prerequisites from live-fire notes）：
 
