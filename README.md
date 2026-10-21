@@ -12,7 +12,7 @@ engine scores are never used.
 
 | Topic / 主题 | File / 文件 |
 |---|---|
-| Installation & predictors / 安装与预测器 | [docs/installation.md](docs/installation.md) |
+| **Installation, all engines & predictors (links, env isolation, operation) / 安装指南（全部搜库软件与预测器：下载链接、环境隔离、操作）** | [docs/installation.md](docs/installation.md) |
 | GUI (web console) / 网页界面 | [docs/gui.md](docs/gui.md) |
 | Command line / 命令行 | [docs/cli.md](docs/cli.md) |
 | **All parameters (complete key reference) / 全部参数（键值速查表）** | [docs/parameters.md](docs/parameters.md) |
@@ -25,6 +25,12 @@ Quick start: extract the release zip, double-click `isoPSV.exe` (or the equivale
 R/Python runtimes; console opens at http://127.0.0.1:8780), fill STEP 1-3,
 Run. Details: [docs/installation.md](docs/installation.md) /
 [Example/README.md](Example/README.md).
+
+Search engines (pFind, pUniFind, Comet, MSFragger, Sage, MaxQuant,
+MetaMorpheus, X!Tandem) and predictors (pDeep2, pDeep3, AlphaPeptDeep,
+MS2PIP) are separate software; every official download link, the per-predictor
+Python environment isolation and the STEP-by-STEP operation guide are in
+[docs/installation.md](docs/installation.md).
 
 ### Predictor setup (concrete commands)
 
