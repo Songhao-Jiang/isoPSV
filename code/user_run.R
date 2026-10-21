@@ -564,6 +564,44 @@ if (!file.exists(cfg2_path)) {
   cat("regenerating the step-2 parameter file: ", cfg2_path, "\n")
   make_step2_config(cfg_path, cfg1, cfg2_path)
 }
+# ----  纯预测模式：竞争性搜库槽位一个都不选 ---------------------
+# ---- pure prediction mode: no competitive slot selected ------------------
+# 检出＝config_step2 的 pure_prediction=1（网页零策略行时写入；只认显式键，
+# 不做零 search_file 回退识别——手动模式等待填 search_file 的停点语义不变）。
+# 此模式：第二步竞争搜库与其停点跳过，基础鉴定表（cfg1 的 psm_file）直接
+# 生成预测输入（pure_prediction.R 的 peptides 段）；阶段 A/B、主表导出与
+# predict_file 停点跳过，预测器跑完后由 export 段把各预测器理论谱相似性列
+# 附加到输入表输出（result/pure_prediction.tsv）。
+# Detection = pure_prediction=1 in config_step2 (written by the web shell when
+# zero strategy rows are submitted; explicit key only - the manual-mode
+# stop-point awaiting search_file keeps its semantics). In this mode step 2
+# (competitive searching) and its stop point are skipped, the base
+# identification table (psm_file of cfg1) feeds the predictors directly
+# (peptides stage of pure_prediction.R); stage A/B, the master-table export and
+# the predict_file stop point are skipped, and after the predictors run the
+# export stage appends one theoretical-spectrum-similarity column per predictor
+# to the input table (result/pure_prediction.tsv).
+if (file.exists(cfg2_path)) {
+  cfg2 <- read_param_file(cfg2_path)
+  pm_key <- if (!is.null(cfg2$pure_prediction)) tail(cfg2$pure_prediction, 1) else ""
+  pure_mode <- identical(pm_key, "1")
+} else {
+  pure_mode <- FALSE
+}
+if (pure_mode) {
+  cat("[模式] 纯预测模式：无竞争性槽位——基础表→预测器→相似性列\n")
+  cat("[Mode] pure prediction: no competitive slot - base table -> predictors -> similarity columns\n")
+  # cfg3 不参与本模式（阶段 A 不跑），仅落一个最小文件供既有 cfg3 读取点
+  # 安全通过；predict_file 的写入对后续无影响。
+  if (!file.exists(cfg3_path))
+    writeLines(paste0("base_config\t", normalizePath(cfg_path, winslash = "/")),
+               cfg3_path, useBytes = TRUE)
+  run_step("[纯预测模式] 基础表→预测输入",
+           "[Pure prediction] base table -> predictor input",
+           file.path(script_dir, "pure_prediction.R"),
+           c(STAGE = "peptides", RESULT_DIR = result_dir, CFG1 = cfg_path))
+}
+if (!pure_mode) {
 # 统计用户已在第二步参数文件中填写的 search_file 条目数
 # Count the search_file entries the user has already filled into the step-2 parameter file
 if (file.exists(cfg2_path)) {
@@ -657,17 +695,18 @@ if (file.exists(peptide_txt)) {
            file.path(script_dir, "user_step2.R"),
            c(CONFIG2 = cfg2_path, RESULT_DIR = result_dir))
 }
+}  #: closes the non-pure wrapper around the step-2 block
 
 # ---- 第三步需要用户填写的 predict_file 条目 -----------------------
 # ---- step 3 needs the user-filled predict_file entry -----------------------
-if (!file.exists(cfg3_path)) {
+if (!pure_mode && !file.exists(cfg3_path)) {
   # 第二步被跳过且第三步参数文件缺失时：重新生成
   # （predict_file 占位），停下让用户填写
   # step 2 was skipped and the step-3 parameter file is missing: regenerate
   # it (predict_file placeholder) and stop for the user to fill it
   cfg2 <- read_param_file(cfg2_path)
   make_step3_config(cfg2_path, cfg2, cfg3_path)
-} else {
+} else if (!pure_mode) {
   # 参数文件存在但 merge_result/predict_file 指向已不存在的文件时（删除
   # result_* 文件夹重跑的典型场景）：按当前结果文件夹重建 cfg3，并保留已填的
   # weights_A/threshold_A；失效的 predict_file 行先清掉
@@ -872,9 +911,17 @@ if (length(pids) > 0 && file.exists(pep_txt)) {
     # nested addon python37.
     py_raw <- py
     if (nzchar(py) && !grepl("[.](exe|bat)$", tolower(py))) {
-      # 依次尝试：<path>/python.exe、<path>/python37、<path>/py37、
+      # 依次尝试：<path>/python.exe（conda 布局）、<path>/Scripts/python.exe
+      # （Windows venv 布局， 补——ms2pip/AlphaPeptDeep 的 pip
+      # 环境常为独立 venv）、<path>/python37、<path>/py37、
       # dirname(<path>)/python37、dirname(<path>)/pDeep2/py37
+      # try in order: <path>/python.exe (conda layout),
+      # <path>/Scripts/python.exe (Windows venv, added  - pip
+      # envs for ms2pip/AlphaPeptDeep are often standalone venvs),
+      # <path>/python37, <path>/py37, dirname(<path>)/python37,
+      # dirname(<path>)/pDeep2/py37
       py_cands <- c(file.path(py, "python.exe"),
+                    file.path(py, "Scripts", "python.exe"),
                     file.path(py, "python37", "python.exe"),
                     file.path(py, "py37", "python.exe"),
                     file.path(dirname(py), "python37", "python.exe"),
@@ -945,7 +992,10 @@ if (length(pids) > 0 && file.exists(pep_txt)) {
   # N-8回写只在自动模式（use_pdeep2=1）生效——手动模式
   # （=2）predict_file 是用户手填值，无条件替换会覆盖它；=0 时 predict 按缺失
   # 处理，照写 config_step3 与之口径不一。非自动模式只提示不写入。
-  pp <- cfg1$predictor_primary
+  #：纯预测模式无阶段 A，主预测器 predict_file 回写无意义，跳过
+  #: no stage A in pure prediction mode - the primary-predictor
+  # predict_file write-back is pointless, skip it
+  pp <- if (pure_mode) NULL else cfg1$predictor_primary
   if (!is.null(pp) && length(pp) > 0) {
     # P3-2pp 与 typ 同源消毒——既拼进
     # predict_<pp>.txt 路径又作 grepl 正则（^ 锚定）；gsub 后只剩 [a-z0-9_]，
@@ -975,6 +1025,14 @@ if (length(pids) > 0 && file.exists(pep_txt)) {
     }
   }
 }
+# ----  纯预测模式收尾：跳过 predict_file 停点与阶段 A/B/主表 ----
+# ---- pure prediction: skip the predict_file stop point and stage A/B -------
+if (pure_mode) {
+  run_step("[纯预测模式] 预测器相似性叠加",
+           "[Pure prediction] predictor-cosine overlay",
+           file.path(script_dir, "pure_prediction.R"),
+           c(STAGE = "export", RESULT_DIR = result_dir, CFG1 = cfg_path))
+} else {
 if (!identical(use_pd2, "0")) {
   pf <- cfg3$predict_file
   if (is.null(pf)) pf <- character(0)
@@ -1236,6 +1294,8 @@ if (exists("stb_out", inherits = FALSE) && label_type != "unlabeled" &&
              RESULT_DIR = result_dir))
 }
 
+}  #: closes the non-pure wrapper (predict_file stop point + stage A/B)
+
 # ---- SAP 索引留档到最终结果文件夹（用户 规格：SAP 单独记录、
 # 不影响理论谱预测、结果可还原）----
 # 第二步已在 merge/ 与 Competitive_search_result/ 写出 SAP_spectra_index.txt
@@ -1264,6 +1324,11 @@ if (file.exists(sap_idx)) {
 # ---- v1.0 多预测器余弦叠加------------------
 # 各预测器 predict.txt → 逐谱算余弦 → master_table 加 cand1_predict_<type> 列
 # 列名直接含软件名（cand1_predict_pdeep2 / cand1_predict_pdeep3）
+#：纯预测模式无 master_table（阶段 A/B 未跑），本块跳过——相似性
+# 列已由 pure_prediction.R 的 export 段直接写进 pure_prediction.tsv
+#: no master_table in pure prediction mode (stage A/B skipped) -
+# the similarity columns are written into pure_prediction.tsv instead
+if (!pure_mode) {
 tryCatch({
   ov_script <- file.path(getwd(), "predict_cosine_overlay.R")
   if (file.exists(ov_script)) {
@@ -1276,6 +1341,7 @@ tryCatch({
 }, error = function(e) {
   cat("[多预测器余弦] 跳过：", conditionMessage(e), "\n")
 })
+}
 
 cat("\n==== [总程序 / Master] 全部完成 @ ", format(Sys.time(), "%H:%M:%S"), " ====\n")
 cat("==== [Master] all done @ ", format(Sys.time(), "%H:%M:%S"), " ====\n")

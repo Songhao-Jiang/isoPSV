@@ -51,6 +51,7 @@ isoPSV 全部配置键、取值、默认值与作用。参数文件为制表符 
 | msconvert_exe | 路径 | ProteoWizard msconvert（Sage/MSFragger 的 MGF→mzML） |
 | msfragger_xmx | 如 8G | MSFragger JVM 堆上限 |
 | punifind_batch_size / _chunk_parallel / _chunk_cleanup | 64 / 1 / 0 | pUniFind GPU 供给三旋钮 |
+| pure_prediction | 1 | 纯预测模式（无任何策略行时由网页写入）：跳过竞争搜库与阶段 A/B，基础鉴定表直接送预测器，输出 `pure_prediction.tsv` |
 
 ## config_step3.txt（第三步：仲裁）
 
@@ -117,6 +118,7 @@ isoPSV 全部配置键、取值、默认值与作用。参数文件为制表符 
 | msconvert_exe | path | ProteoWizard msconvert (MGF->mzML for Sage/MSFragger) |
 | msfragger_xmx | e.g. 8G | MSFragger JVM heap cap |
 | punifind_batch_size / _chunk_parallel / _chunk_cleanup | 64 / 1 / 0 | pUniFind GPU supply knobs |
+| pure_prediction | 1 | Pure prediction mode (written by the web shell when no strategy row exists): skips competitive searching and stage A/B, feeds the base identification table to the predictors and writes `pure_prediction.tsv` |
 
 ## config_step3.txt (step 3: arbitration)
 

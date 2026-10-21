@@ -30,9 +30,15 @@ result**：Auto＝填软件路径（pFind 臂填 pFind 安装目录，pUniFind �
 pNovo/X!Tandem 等）仅 Manual。默认预置 open＋restrict 两行 Auto。有
 pUniFind 矫正行而无 pFind open 行时显示前置提示（矫正输入＝open 结果）。
 
+**纯预测模式**：策略行一个都不加并点生成，即进入纯预测模式——第二步不再竞争
+搜库，第一步的基础鉴定表直接作为预测输入，跳过阶段 A/B 仲裁与主表导出；预测器
+跑完后输出 `pure_prediction.tsv`（输入表原样＋每个预测器一列
+`predict_cosine_<预测器>`，无预测留空）。
+
 ## STEP 3 理论谱图预测器
 
-pDeep2/pDeep3 行填安装文件夹，MS2PIP/AlphaPeptDeep 行填 Python 环境文件夹；
+pDeep2/pDeep3 行填安装文件夹，MS2PIP/AlphaPeptDeep 行填 Python 环境文件夹
+（只填环境文件夹即可，自动解析到 `python.exe` 或 `Scripts\python.exe`；MS2PIP 需 Python ≥ 3.11）；
 参数全部默认自动；"⚡ 一键填写路径与参数"从检测缓存补空路径（不覆盖手填）。
 
 ## 参数汇总与生成（Parameters summary & generate）
@@ -74,10 +80,19 @@ the software path (only MaxQuant additionally needs raw input; other engines
 reuse the step-1 MGF); Manual = fill the result file. GUI-export engines
 (PEAKS/Mascot/pNovo/X!Tandem ...) are Manual-only.
 
+**Pure prediction mode**: add no strategy row at all and click generate. STEP 2
+then runs no competitive search; the STEP 1 base identification table feeds the
+predictors directly, stage A/B arbitration and the master-table export are
+skipped, and the run writes `pure_prediction.tsv` (the input table unchanged
+plus one `predict_cosine_<predictor>` column per predictor; missing predictions
+stay empty).
+
 ## STEP 3 Predictors
 
 pDeep2/pDeep3 rows take installation folders; MS2PIP/AlphaPeptDeep rows take
-Python environment folders; parameters all default automatically;
+Python environment folders (the folder alone is enough - it is resolved to
+`python.exe` or `Scripts\python.exe`; MS2PIP needs Python >= 3.11); parameters
+all default automatically;
 "Auto-fill paths & params" fills empty paths from the detection cache
 (never overwrites user-entered values).
 

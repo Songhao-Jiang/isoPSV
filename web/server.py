@@ -30,6 +30,7 @@ import threading
 import time
 import urllib.parse
 from collections import Counter, defaultdict, deque
+from datetime import datetime as _dt
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HOST, PORT = "127.0.0.1", 8780
@@ -497,42 +498,113 @@ def get_index_bytes():
     return _INDEX_BYTES
 
 
-def parse_timeline(text):
+class _TL(list):
+    """时间线列表，附带跨天解析元信息；序列化时与普通 list 等价。
+    A list subclass carrying day-crossing parse metadata; serializes as a
+    plain list."""
+    anchor_epoch = None   # 壳子启动行的完整日期纪元秒（无锚点时为 None，用相对日计数）
+    end_day = 0           # 最后一条 banner 所处的相对日
+    last_sec = -1         # 最后一条 banner 的当日秒数
+
+
+def parse_timeline(text, log_mtime=None):
     """解析运行日志为模块时间线：
     模块开始/完成横幅（带 @ HH:MM:SS 时间戳，中文行与英文行成对）、停点、失败，
     以及每个模块内的阶段计时行（[计时] tag：已用 Xs / CPU Ys 与 [timing] 英文行）。
     模块可嵌套（如 pUniFind 自动 rescore/denovo 嵌在用户第二步内）：用栈维护
     打开中的模块，结束/停点/失败横幅按标签回填到对应模块，计时行归当前栈顶。
+    跨天：banner 只带 HH:MM:SS；按日志顺序做跨天补偿——banner 当日
+    秒数小于前一条即视为已过午夜，相对日 +1。壳子启动行带完整日期时，各时刻
+    锚定为绝对纪元秒（anchor_epoch + 日偏移），因此模块时长在跨午夜与超过
+    24 小时的运行下均正确（旧前端按钟面差计算会把 25h 显示成 1h）。
     Parse the run log into a module timeline: module start/done banners with
     @ HH:MM:SS timestamps (the Chinese and English lines are paired), stop
     points, failures, and per-module phase timing lines ([计时] tag: elapsed Xs
     / CPU Ys plus the [timing] English line). Modules may nest (the pUniFind
     auto rescore/denovo runs nest inside user step 2): a stack tracks the open
     modules, done/stop/failed banners are matched back to their module by tag,
-    and timing lines attach to the stack top."""
+    and timing lines attach to the stack top. Day crossing (): banners
+    carry clock-only stamps; a banner whose seconds-of-day is smaller than the
+    previous one means midnight has passed, so a relative day counter is
+    incremented. When the web-shell "started:" line (full date) is present,
+    every stamp is anchored to absolute epoch seconds, keeping durations
+    correct across midnight and for runs longer than 24 h (the old frontend
+    computed clock-face differences and showed 25 h as 1 h)."""
     mods = []       # 所有模块，按首次出现顺序排列
     stack = []      # 当前打开中的模块（栈顶＝接收阶段计时行）
     last_phase = None
+    last_closed = None   # 最后一个被关闭横幅回填的模块（log_mtime 校正的落点）
+    day = 0         # 相对日计数（自最近一次壳子启动行起算）
+    prev_sec = -1   # 上一条 banner 的当日秒数（-1 表示尚未见任何钟面）
+    anchor_epoch = None
 
-    def close_by(tag, status, end_ts):
+    def clock_sec(hms):
+        h, mi, s = (int(x) for x in hms.split(":"))
+        return h * 3600 + mi * 60 + s
+
+    def advance_day(hms):
+        """把钟面转为绝对纪元秒（有锚点时）或 相对日×86400＋当日秒（无锚点时）；
+        途中按非单调钟面推进相对日计数。"""
+        nonlocal day, prev_sec
+        sec = clock_sec(hms)
+        if sec < prev_sec:
+            day += 1
+        prev_sec = sec
+        base = anchor_epoch if anchor_epoch is not None else 0
+        return base + day * 86400 + sec
+
+    def abs_sec(hms):
+        # Master banner 专用别名（与通用钟面行共用同一套推进逻辑）
+        return advance_day(hms)
+
+    def close_by(tag, status, end_ts, end_abs):
         """按中文标签关闭对应模块（自栈顶向下找；找不到则关栈顶以兼容旧日志）。
         Close the module whose Chinese tag matches, searching from the top of the
         stack down; fall back to the top module for older logs without the tag."""
+        nonlocal last_closed
         for i in range(len(stack) - 1, -1, -1):
             if stack[i]["name_zh"] == tag:
                 m = stack.pop(i)
                 m["status"] = status
                 m["end"] = end_ts
+                m["end_abs"] = end_abs
+                if end_abs is not None and m.get("start_abs") is not None:
+                    m["dur"] = end_abs - m["start_abs"]
+                last_closed = m
                 return
         if stack:
-            stack[-1]["status"] = status
-            stack[-1]["end"] = end_ts
+            top = stack[-1]
+            top["status"] = status
+            top["end"] = end_ts
+            top["end_abs"] = end_abs
+            if end_abs is not None and top.get("start_abs") is not None:
+                top["dur"] = end_abs - top["start_abs"]
+            last_closed = top
 
     for line in text.splitlines():
+        # 任何带 "@ HH:MM:SS" 的行都先参与跨天推进（GPU 管家/引擎回贴等非
+        # Master 行也算）；其后 Master banner 对同一时刻的重复调用不会二次
+        # 推进（同秒不小于前值）。
+        cm = re.search(r"@ (\d\d:\d\d:\d\d)", line)
+        if cm:
+            advance_day(cm.group(1))
+        m = re.search(r"==== 网页版壳子 web shell 启动时间 started: (\d{4}-\d\d-\d\d) (\d\d:\d\d:\d\d) ====", line)
+        if m:
+            # 新一轮运行：以完整日期锚定绝对纪元，相对日与钟面基准随之重置
+            try:
+                anchor_epoch = _dt.strptime(m.group(1) + " " + m.group(2),
+                                            "%Y-%m-%d %H:%M:%S").timestamp()
+            except ValueError:
+                anchor_epoch = None
+            day = 0
+            prev_sec = clock_sec(m.group(2)) if anchor_epoch is not None else -1
+            continue
         m = re.search(r"==== \[总程序 / Master\] (.+?) 开始 @ (\d\d:\d\d:\d\d) ====", line)
         if m:
             mod = {"tag": m.group(1), "name_zh": m.group(1), "name_en": m.group(1),
-                   "start": m.group(2), "end": "", "status": "running", "phases": []}
+                   "start": m.group(2), "start_abs": abs_sec(m.group(2)),
+                   "end": "", "end_abs": None, "dur": None,
+                   "status": "running", "phases": []}
             mods.append(mod)
             stack.append(mod)
             last_phase = None
@@ -543,17 +615,18 @@ def parse_timeline(text):
             continue
         m = re.search(r"==== \[总程序 / Master\] (.+?) 完成 @ (\d\d:\d\d:\d\d) ====", line)
         if m:
-            close_by(m.group(1), "done", m.group(2))
+            close_by(m.group(1), "done", m.group(2), abs_sec(m.group(2)))
             last_phase = None
             continue
         m = re.search(r"==== \[总程序 / Master\] (.+?) 停点（等待用户输入）@ (\d\d:\d\d:\d\d) ====", line)
         if m:
-            close_by(m.group(1), "stop", m.group(2))
+            close_by(m.group(1), "stop", m.group(2), abs_sec(m.group(2)))
             last_phase = None
             continue
         m = re.search(r"\[总程序 / Master\] (.+?) 失败 \(exit (\d+)\)", line)
         if m:
-            close_by(m.group(1), "failed", time.strftime("%H:%M:%S"))
+            now_hms = time.strftime("%H:%M:%S")
+            close_by(m.group(1), "failed", now_hms, abs_sec(now_hms))
             last_phase = None
             continue
         m = re.search(r"\[计时\] (.+?)：已用 ([\d.]+)s / CPU ([\d.]+)s", line)
@@ -566,7 +639,27 @@ def parse_timeline(text):
         m = re.search(r"\[timing\] (.+?): elapsed ([\d.]+)s / CPU ([\d.]+)s", line)
         if m and last_phase is not None:
             last_phase["name_en"] = m.group(1)
-    return mods
+    # mtime 校正（仅活动日志传 log_mtime）：末条 banner 的真实绝对日按文件
+    # 修改时间反推，若比顺序扫描所得多出整天，说明最后一个关闭的模块曾静默
+    # 跨天且期间无任何钟面行，把差数补到该模块的 end_abs/dur 上。
+    # mtime correction (live logs only): infer the true absolute day of the last
+    # banner from the file modification time; extra whole days beyond the
+    # sequential scan mean the last closed module silently spanned midnights
+    # with no clock-bearing lines, so add the deficit to its end_abs/dur.
+    if log_mtime is not None and anchor_epoch is not None and last_closed is not None \
+            and last_closed.get("end_abs") is not None and prev_sec >= 0:
+        true_day = int(round((log_mtime - anchor_epoch - prev_sec) / 86400.0))
+        deficit = true_day - day
+        if deficit > 0:
+            last_closed["end_abs"] += deficit * 86400
+            if last_closed.get("start_abs") is not None:
+                last_closed["dur"] = last_closed["end_abs"] - last_closed["start_abs"]
+            day = true_day
+    tl = _TL(mods)
+    tl.anchor_epoch = anchor_epoch
+    tl.end_day = day
+    tl.last_sec = prev_sec
+    return tl
 
 
 def current_timeline():
@@ -581,7 +674,7 @@ def current_timeline():
         return _TL_CACHE["timeline"]
     with open(LOG_FILE, "r", encoding="utf-8", errors="replace") as fh:
         text = fh.read()
-    tl = parse_timeline(text)
+    tl = parse_timeline(text, st.st_mtime)
     _TL_CACHE["size"] = st.st_size
     _TL_CACHE["mtime"] = st.st_mtime_ns
     _TL_CACHE["timeline"] = tl
@@ -883,7 +976,8 @@ def detect_environment(extra_roots=None):
     eng = dict.fromkeys(
         ["pfind_exe", "pdeep2_exe", "punifind_exe", "punifind_python",
          "msfragger", "comet", "sage", "maxquant", "metamorpheus", "msconvert",
-         "xtandem", "msbooster", "pdeep3", "alphapeptdeep", "predictor_python"], "")
+         "xtandem", "msbooster", "pdeep3", "alphapeptdeep", "ms2pip",
+         "predictor_python"], "")
     # 用户显式指定的扫描根（extra_roots）单独跟踪——这些目录
     # 走全量深搜（12 层/12 万节点/共享预算），即"输入路径的所有文件搜索"；
     # 内置根维持限深限量（深 Program Files 更紧）。
@@ -969,6 +1063,15 @@ def detect_environment(extra_roots=None):
                     eng["pdeep3"] = os.path.dirname(d2)
             elif not eng["alphapeptdeep"] and nm == "peptdeep" and dname.lower().endswith("site-packages"):
                 eng["alphapeptdeep"] = os.path.dirname(os.path.dirname(dname))
+            #：ms2pip（site-packages/ms2pip 包）——同样取环境根；
+            # R 侧自愈链再把环境根解析到 python.exe（conda）或 Scripts/python.exe
+            # （Windows venv）。ms2pip 需 Python>=3.11，通常装成独立 venv。
+            #: ms2pip (site-packages/ms2pip) - env root as well; the
+            # R-side heal chain then resolves the env root to python.exe (conda)
+            # or Scripts/python.exe (Windows venv). ms2pip needs Python >= 3.11
+            # and is usually a standalone venv.
+            elif not eng["ms2pip"] and nm == "ms2pip" and dname.lower().endswith("site-packages"):
+                eng["ms2pip"] = os.path.dirname(os.path.dirname(dname))
             #：附件包 python37 → predictor_python
             # 修：查父目录名（basename 含 python37）而非父目录内容——嵌套扫描
             # 时 dname=…/python37，basename 就是 python37，直接命中
@@ -2481,6 +2584,25 @@ class Handler(BaseHTTPRequestHandler):
             if running and tl_now:
                 last = tl_now[-1]
                 cur_phase = last["name_zh"] + " / " + last["name_en"]
+            # now_abs：当前时刻在与时间线同一坐标系下的绝对秒。
+            # 有壳子启动行锚点时直接用真实纪元（>24h 的进行中模块也正确）；
+            # 无锚点的旧日志退回相对日推断（当日钟面小于末条 banner 则 +1 日）。
+            # now_abs: the current instant in the timeline's own coordinate
+            # (). With a shell-start anchor this is the real epoch
+            # (correct even for a running module older than 24 h); old logs
+            # without an anchor fall back to relative-day inference (+1 day
+            # when the current clock is behind the last banner).
+            now_abs = None
+            if tl_now:
+                if getattr(tl_now, "anchor_epoch", None) is not None:
+                    now_abs = time.time()
+                else:
+                    hh, mm, ss = time.strftime("%H:%M:%S").split(":")
+                    nsec = int(hh) * 3600 + int(mm) * 60 + int(ss)
+                    d0 = getattr(tl_now, "end_day", 0)
+                    if nsec < getattr(tl_now, "last_sec", -1):
+                        d0 += 1
+                    now_abs = d0 * 86400 + nsec
             self._send(200, json.dumps({
                 "running": running,
                 "pid": proc.pid if running else None,
@@ -2491,6 +2613,7 @@ class Handler(BaseHTTPRequestHandler):
                 "rscript": RSCRIPT,
                 "runs": RUNS[-10:][::-1],
                 "timeline": tl_now or [],
+                "now_abs": now_abs,
                 "current_phase": cur_phase,
             }, ensure_ascii=False))
         elif path == "/spectrum.js":
@@ -2838,19 +2961,41 @@ class Handler(BaseHTTPRequestHandler):
                                         "content": txt}, ensure_ascii=False))
         elif path == "/api/generate_step2":
             strategies = body.get("strategies", [])
-            if not isinstance(strategies, list) or not strategies:
+            if not isinstance(strategies, list) or (strategies and not all(isinstance(s, dict) for s in strategies)):
                 self._send(200, json.dumps({"ok": False,
-                                            "msg": "策略列表为空\nstrategy list is empty"},
-                                           ensure_ascii=False))
+                                            "msg": "策略列表为空或格式不对\nstrategy list is empty or malformed",
+                                           }, ensure_ascii=False))
+                return
+            base = (body.get("result_dir") or "").strip() or CURRENT_RESULT or CLIENT_ROOT
+            cfg1 = os.path.join(base, "config_step1.txt")
+            if not strategies:
+                #  纯预测模式：竞争性槽位一个都不选——写 pure_prediction=1，
+                # user_run 据此跳过第二步竞争搜库与阶段 A/B，预测器跑完后把各
+                # 预测器理论谱相似性列附加到基础鉴定表输出 pure_prediction.tsv
+                #  pure prediction mode: zero competitive slots - write
+                # pure_prediction=1; user_run then skips competitive searching and
+                # stage A/B, and after the predictors run appends one
+                # similarity column per predictor to the base table
+                txt = ("base_config\t" + cfg1.replace("\\", "/") + "\n\n"
+                       "pure_prediction\t1\n")
+                try:
+                    os.makedirs(base, exist_ok=True)
+                    p = os.path.join(base, "config_step2.txt")
+                    with open(p, "w", encoding="utf-8", newline="") as fh:
+                        fh.write(txt)
+                except OSError as e:
+                    self._send(200, json.dumps({"ok": False,
+                                                "msg": "无法写入\ncannot write: %s" % e},
+                                               ensure_ascii=False))
+                    return
+                self._send(200, json.dumps({"ok": True, "path": p, "content": txt}, ensure_ascii=False))
                 return
             txt = build_step2_config(strategies, (body.get("msfragger_xmx") or "").strip())
-            base = (body.get("result_dir") or "").strip() or CURRENT_RESULT or CLIENT_ROOT
             # config_step2 必须带 base_config 键（user_step2 靠它定位步骤 1 参数；
             # 网页版此前只写 search_file 行，缺键使 read_param_file(NA) 崩溃）
             # the step-2 file must carry base_config (user_step2 resolves the
             # step-1 parameters through it; the old web output only wrote the
             # search_file lines and the missing key crashed read_param_file(NA))
-            cfg1 = os.path.join(base, "config_step1.txt")
             txt = ("base_config\t" + cfg1.replace("\\", "/") + "\n\n" + txt)
             try:
                 os.makedirs(base, exist_ok=True)

@@ -5907,10 +5907,19 @@ run_punifind_cli <- function(kind, punifind_dir, qry_res_dir, mgf_dir, out_dir,
 make_step2_config <- function(cfg1_path, cfg1, out_path) {
   keep <- character(0)
   keep_ty <- character(0)
+  #：纯预测模式键随既有配置保留（网页零策略行写入；第一步重生成
+  # 参数文件时不得冲掉——否则纯模式被静默降级为手动搜库停点）
+  #: the pure-prediction flag survives regeneration (written by the
+  # web shell on zero strategy rows; step 1 must not clobber it - otherwise
+  # pure mode silently degrades into the manual-search stop point)
+  keep_pure <- FALSE
   if (file.exists(out_path)) {
     old <- read_param_file(out_path)
     keep <- old$search_file
     keep <- keep[!is.na(keep) & keep != ""]
+    kp <- if (!is.null(old$pure_prediction)) old$pure_prediction else ""
+    keep_pure <- length(keep) == 0 && length(kp) > 0 && !is.na(kp[1]) &&
+      identical(trimws(tail(kp, 1)), "1")
     # 保留 search_file_type此前只保留路径、类型键被
     # 丢弃，step1 重跑后类型全部按文件名规则推成 pfind_open -> "策略类型重复"报错
     keep_ty <- old$search_file_type
@@ -6003,10 +6012,17 @@ make_step2_config <- function(cfg1_path, cfg1, out_path) {
       paste0("# pfind_cfg_open\t<absolute path of the pFind open-search template pFind.cfg>")),
     if (nzchar(pfr)) paste0("pfind_cfg_restrict\t", pfr) else c(
       paste0("# pfind_cfg_restrict\t<pFind 限定式搜库模板 pFind.cfg 绝对路径>"),
-      paste0("# pfind_cfg_restrict\t<absolute path of the pFind restricted-search template pFind.cfg>")))
+      paste0("# pfind_cfg_restrict\t<absolute path of the pFind restricted-search template pFind.cfg>")),
+    #：纯预测模式键回写（零策略行时保持；用户一旦填了 search_file
+    # 即自动清除——回到竞争搜库流程）
+    #: re-emit the pure-prediction flag (kept on zero strategy rows;
+    # automatically dropped once the user fills any search_file - back to the
+    # competitive-search flow)
+    if (keep_pure) paste0("pure_prediction\t1") else NULL)
   writeLines(lines, out_path, useBytes = TRUE)
   cat("[用户第一步] 已生成第二步参数文件：", out_path,
       if (length(keep) > 0) paste0("（保留已填 search_file ", length(keep), " 条）") else "",
+      if (keep_pure) "（纯预测模式保留）" else "",
       "\n")
   cat("[User Step 1] step-2 parameter file generated: ", out_path,
       if (length(keep) > 0) paste0(" (kept ", length(keep), " filled search_file entries)") else "",

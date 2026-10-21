@@ -46,7 +46,22 @@ python -c "import tensorflow; print(tensorflow.__version__)"
 
 In STEP 3 fill the installation folders (`D:\Bioinformatics\pDeep2`,
 `D:\Bioinformatics\pDeep3`); parameters stay empty (defaults apply).
-MS2PIP: `pip install ms2pip`; AlphaPeptDeep: `pip install peptdeep`.
+MS2PIP: `pip install ms2pip` (needs Python >= 3.11); AlphaPeptDeep: `pip install peptdeep`
+(Python 3.10 + torch). Each predictor keeps its own environment; fill the
+environment folder (auto-resolved to `python.exe` or `Scripts\python.exe`) and
+the built-in one-click detection fills it for you.
+
+### Pure prediction mode
+
+Submit STEP 2 with **no strategy row** (all competitive slots off) to run the
+pure prediction mode: the base identification table (STEP 1 `psm_file`) feeds
+the predictors directly, stage A/B arbitration and the master-table export are
+skipped, and the output `pure_prediction.tsv` is the input table unchanged plus
+one `predict_cosine_<predictor>` column per enabled predictor (observed vs
+predicted theoretical-spectrum cosine; missing predictions stay empty, never
+0). Short peptides below `min_pep_len` do not enter prediction. Any predictor
+fails individually without interrupting the run (see
+`merge/predictor_run_manifest.txt`).
 
 
 ### PTM-enrichment correction
@@ -108,5 +123,16 @@ python -c "import tensorflow; print(tensorflow.__version__)"
 
 STEP 3 里填安装文件夹（`D:\Bioinformatics\pDeep2`、
 `D:\Bioinformatics\pDeep3`）即可；参数留空＝全部默认。
-MS2PIP：`pip install ms2pip`；AlphaPeptDeep：`pip install peptdeep`。
+MS2PIP：`pip install ms2pip`（需 Python ≥ 3.11）；AlphaPeptDeep：`pip install peptdeep`
+（Python 3.10 ＋ torch）。各预测器各用独立环境，只填环境文件夹即可（自动解析到
+`python.exe` 或 `Scripts\python.exe`），也可用一键检测自动回填。
+
+### 纯预测模式
+
+第二步**不加任何策略行**（竞争槽位全关）即进入纯预测模式：第一步的基础鉴定表
+（`psm_file`）直接作为预测输入，跳过阶段 A/B 仲裁与主表导出，输出
+`pure_prediction.tsv` ＝ 输入表原样 ＋ 每个启用预测器一列
+`predict_cosine_<预测器>`（观测谱对理论谱余弦；无预测留空、不填 0）。低于
+`min_pep_len` 的短肽不进入预测。任一预测器失败不打断整轮（见
+`merge/predictor_run_manifest.txt`）。
 

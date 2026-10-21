@@ -64,7 +64,13 @@ pfind_mods_to_peprec <- function(mod, warn = TRUE) {
       cat("未知修饰名（跳过）:", mod_token, "\n")
     }
   }
-  if (length(mapped_mods)) paste(mapped_mods, collapse = ";") else "-"
+  #：多修饰以 "|" 扁平连接（ms2pip 4.x/psm_utils 的 PEPREC 语法＝
+  # 位置|名称|位置|名称…；分号连接会被当成单个标签名解析失败）。位置 0＝N 端
+  # （psm_utils peprec_to_proforma 的 peptide_list[0] 即 N-term）。
+  #: join multiple mods with "|" (ms2pip 4.x / psm_utils PEPREC
+  # grammar = flat position|name|position|name...; the previous "; " join was
+  # parsed as one giant label and failed). Position 0 = N-terminus.
+  if (length(mapped_mods)) paste(mapped_mods, collapse = "|") else "-"
 }
 
 #' peptide.txt → MS2PIP peprec 数据框（spec_id / modifications / peptide / charge /
@@ -210,6 +216,15 @@ main <- function() {
   required_cols2 <- c("peptide", "modification", "charge")
   missing_cols2 <- setdiff(required_cols2, colnames(pep_df))
   if (length(missing_cols2)) stop("peptide.txt 缺列: ", paste(missing_cols2, collapse = ","))
+  #：modification 列全空时 read.delim 推断为 logical 全 NA（与
+  # merge_search_results 的列类型守卫同源坑）——orig_mod 拼出 "seq|NA|z" 键，
+  # 下游 seq||z 查键全部落空、ms2pip 列整列丢失。此处统一 NA/字面 "NA" → ""。
+  #: an all-empty modification column is inferred as logical NA by
+  # read.delim (the same trap as the column-type guard in merge_search_results)
+  # - orig_mod then builds "seq|NA|z" keys and every downstream seq||z lookup
+  # misses, dropping the whole ms2pip column. Normalize NA / literal "NA" here.
+  pep_df$modification[is.na(pep_df$modification)] <- ""
+  pep_df$modification[pep_df$modification == "NA"] <- ""
   threads <- if (!is.null(cli_args$threads)) as.integer(cli_args$threads) else 8L
   if (is.na(threads) || threads < 1) threads <- 8L
 
