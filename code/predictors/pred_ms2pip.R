@@ -207,9 +207,18 @@ parse_ms2pip_long <- function(tsv_file) {
 main <- function() {
   cli_args <- parse_cli()
   if (isTRUE(cli_args$`self-test`)) return(if (self_test()) 0L else 1L)
-  required_args <- c("in", "out", "python", "params")
+  #：--params 改为可选——网页的 MS2PIP 行按设计留空（默认取适配器
+  # 内置 HCD 模型），此前把它列入必填，导致"网页填参数→跑"这条路径上 ms2pip
+  # 恒失败（exit 1，缺 --params），该列整列丢失。空/缺省一律按 HCD 处理。
+  #: --params is optional - the web form intentionally leaves the
+  # MS2PIP row empty (default = the adapter's built-in HCD model). Requiring it
+  # made ms2pip fail on every form-driven run (exit 1, missing --params) and
+  # dropped the whole column. Missing/empty now means HCD.
+  required_args <- c("in", "out", "python")
   missing_args <- setdiff(required_args, names(cli_args))
   if (length(missing_args)) stop("缺参数: ", paste(paste0("--", missing_args), collapse = " "))
+  if (is.null(cli_args$params)) cli_args$params <- "HCD"
+  if (!nzchar(cli_args$params)) cli_args$params <- "HCD"
 
   pep_df <- read.delim(cli_args$`in`, sep = "\t", check.names = FALSE,
                        stringsAsFactors = FALSE)
