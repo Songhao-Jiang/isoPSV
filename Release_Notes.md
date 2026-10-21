@@ -8,6 +8,7 @@ isoPSV（isotope-labeled paired-spectrum verification）multi-engine competitive
 - **Pure prediction mode (new)**: submit STEP 2 with no strategy row and the base identification table feeds the predictors directly; the output `pure_prediction.tsv` is the input table plus one `predict_cosine_<predictor>` column per enabled predictor (observed vs predicted theoretical-spectrum cosine)
 - **Four bundled predictor integrations (new)**: pDeep2, pDeep3, AlphaPeptDeep and MS2PIP in the same run; each keeps its own Python environment (pDeep2 3.7/TF1.15, AlphaPeptDeep 3.10/torch, MS2PIP >= 3.11) and only the environment folder needs to be filled (auto-resolved to `python.exe` or `Scripts\python.exe`); one-click detection fills it automatically
 - Unified strategy slots (pFind three arms and pUniFind as peer rows, slot letters alphabetical); pFind standard arm; re-score precondition guard
+- Fix: the MS2PIP adapter now accepts a missing `--params` (default = built-in HCD model); previously a form-filled MS2PIP row left it empty, the adapter exited 1 and the whole ms2pip column was lost
 - Bundled demo dataset (PRIDE PXD003236 Chlamydomonas fraction) + reproduction guide; crosstalk-safe Python subprocess environment; pre-check cache
 - **Complete installation guide (new)**: official download links and settings for every supported search engine and predictor, the mandatory per-predictor Python environment isolation (3.7/TF1.15, 3.10/torch, >=3.11) with environment-folder auto-resolution, and a step-by-step operation guide — see `docs/installation.md`
 
@@ -26,6 +27,7 @@ isoPSV（同位素标记成对谱图验证）多引擎竞争验证软件 v1.1（
 - **纯预测模式（新增）**：第二步不加任何策略行，基础鉴定表直接作为预测输入；输出 `pure_prediction.tsv` ＝ 输入表原样 ＋ 每个启用预测器一列 `predict_cosine_<预测器>`（观测谱对理论谱余弦）
 - **四预测器同轮集成（新增）**：pDeep2、pDeep3、AlphaPeptDeep、MS2PIP 可同轮运行；各用独立 Python 环境（pDeep2 3.7/TF1.15、AlphaPeptDeep 3.10/torch、MS2PIP ≥ 3.11），只需填环境文件夹（自动解析到 `python.exe` 或 `Scripts\python.exe`），一键检测可自动回填
 - 策略槽位行统一（pFind 三臂与 pUniFind 同构行、槽位字母字典序）；pFind standard 新臂；re-score 前置守卫
+- 修复：MS2PIP 适配器的 `--params` 改为可选（缺省取内置 HCD 模型）——网页表单给该行留空时此前必失败、ms2pip 列整列丢失
 - 内置演示数据集（PRIDE PXD003236 衣藻馏分）＋复现指南；python 子进程环境净化；预检缓存
 - **完整安装指南（新增）**：全部支持的搜库软件与预测器的官方下载链接与填写方式、各预测器独立的 Python 环境隔离（3.7/TF1.15、3.10/torch、≥3.11）与环境文件夹自动解析、逐步操作指南——见 `docs/installation.md`
 
