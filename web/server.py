@@ -1083,6 +1083,22 @@ def detect_environment(extra_roots=None):
     for _k in cand:
         if cand[_k]:
             eng[_k] = _pick_latest_version(cand[_k])
+    #：msconvert 特例——ProteoWizard 的安装目录名可能带版本号，也可能
+    # 不带（例如 D:/Bioinformatics/ProteoWizard）。纯路径版本比较会把不带版本号
+    # 的新装副本排到最后、让旧副本胜出；改为在候选里取 msconvert.exe 修改时间
+    # 最新者（安装越新越新），其余引擎仍按路径版本号。
+    #: msconvert special case - ProteoWizard install folders may or may
+    # not carry a version token (e.g. D:/Bioinformatics/ProteoWizard). Pure path-
+    # version comparison ranks an unversioned fresh install last and lets an old
+    # copy win; pick the candidate with the newest msconvert.exe mtime instead.
+    # Other engines keep the path-version rule.
+    if cand.get("msconvert"):
+        def _mc_mtime(_p):
+            try:
+                return os.path.getmtime(_p)
+            except OSError:
+                return 0.0
+        eng["msconvert"] = max(cand["msconvert"], key=_mc_mtime)
     # 定向兜底：torch 虚拟环境（walk 深度不够时直接探测 *venv* 目录）
     # targeted fallback: torch venv probed directly (below the walk depth)
     if not eng["punifind_python"]:

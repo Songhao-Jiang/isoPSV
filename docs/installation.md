@@ -97,8 +97,20 @@ you; it reads their result files. Two modes are supported per row in STEP 2:
 | MSFragger | https://msfragger.nesvilab.org/ (`MSFragger.jar`, Java 11+) | `msfragger_exe` + `msconvert_exe` | JVM heap via `msfragger_xmx` |
 | MaxQuant | https://maxquant.org/ (`MaxQuantCmd.exe`) | `maxquant_exe` + `search_file_raw` | MaxQuant reads `.raw`, not MGF |
 
-- MSConvert (ProteoWizard): https://proteowizard.sourceforge.io/download.html -
-  fill `msconvert_exe` once; isoPSV converts MGF to mzML for Sage/MSFragger.
+- MSConvert (ProteoWizard): download page
+  https://proteowizard.sourceforge.io/download.html — take the Windows
+  installer (verified working: **ProteoWizard 4.0.26293**, build `f1156f1`,
+  `ProteoWizard-Setup-4.0.26293-f1156f1.exe`, mirror
+  https://mc-tca-01.s3.us-west-2.amazonaws.com/ProteoWizard/bt83/4227942/ProteoWizard-Setup-4.0.26293-f1156f1.exe),
+  install it (default folder `D:\Bioinformatics\ProteoWizard`), then verify:
+  ```bat
+  D:\Bioinformatics\ProteoWizard\msconvert.exe --help
+  ```
+  Fill `msconvert_exe` once (`D:\Bioinformatics\ProteoWizard\msconvert.exe`);
+  isoPSV converts MGF to mzML for Sage/MSFragger. The one-click detection also
+  finds it under a scanned root and fills the empty field; when several
+  ProteoWizard copies exist it picks the newest `msconvert.exe`, so a fresh
+  install without a version token in its folder name still wins over an old one.
 - PEAKS Studio (https://www.bioinfor.com/peaks-studio/) and Mascot
   (https://www.matrixscience.com/) are GUI-only: export the result tables
   yourself and use **Manual result** rows (engine score formats: see
@@ -308,8 +320,20 @@ A worked example (data -> config -> run -> expected outputs) is in
 | MSFragger | https://msfragger.nesvilab.org/（`MSFragger.jar`，Java 11+） | `msfragger_exe`＋`msconvert_exe` | JVM 堆用 `msfragger_xmx` |
 | MaxQuant | https://maxquant.org/（`MaxQuantCmd.exe`） | `maxquant_exe`＋`search_file_raw` | 只吃 `.raw`，不吃 MGF |
 
-- MSConvert（ProteoWizard）：https://proteowizard.sourceforge.io/download.html
-  ——填一次 `msconvert_exe`，Sage／MSFragger 的 MGF→mzML 由软件自动完成。
+- MSConvert（ProteoWizard）：下载页
+  https://proteowizard.sourceforge.io/download.html，取 Windows 安装包
+  （实测可用版本：**ProteoWizard 4.0.26293**，build `f1156f1`，
+  `ProteoWizard-Setup-4.0.26293-f1156f1.exe`，镜像
+  https://mc-tca-01.s3.us-west-2.amazonaws.com/ProteoWizard/bt83/4227942/ProteoWizard-Setup-4.0.26293-f1156f1.exe），
+  安装（本地装在 `D:\Bioinformatics\ProteoWizard`），验证：
+  ```bat
+  D:\Bioinformatics\ProteoWizard\msconvert.exe --help
+  ```
+  然后填一次 `msconvert_exe`
+  （`D:\Bioinformatics\ProteoWizard\msconvert.exe`），Sage／MSFragger 的
+  MGF→mzML 由软件自动完成；一键检测扫到该安装根时也会自动回填，存在多个
+  ProteoWizard 副本时按 `msconvert.exe` 修改时间取最新（目录名不带版本号的
+  新装副本同样优先于旧副本）。
 - PEAKS Studio（https://www.bioinfor.com/peaks-studio/）与 Mascot
   （https://www.matrixscience.com/）只能 GUI 导出，用 **Manual result** 行
   导入（分数格式见 `docs/parameters.md`）。
