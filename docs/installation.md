@@ -212,7 +212,11 @@ CPU. Without a CUDA build, install the CPU wheels (as in section 4.3).
 
 1. **STEP 1** - result table (`psm_file`, any tab-separated table with a
    `File_Name` column), MGF folder, sampling mode (labeled / unlabeled),
-   `result_dir`. Click *Generate config*.
+   `result_dir`. Click *Generate config*. The MGF folder must hold one file
+   per raw, named `<raw>.mgf` or `<raw>_HCDFT.mgf`, where `<raw>` equals the
+   raw name in `File_Name` (before the first dot); a merged multi-raw
+   collection under one filename is not matched ( stops with an
+   explicit stem-mismatch error).
 2. **STEP 2** - add one row per search strategy (Auto = engine path, Manual =
    result file). Default seeding is pFind open + restrict.
    **Pure prediction mode**: add **no row at all** and click *Generate* - the
@@ -243,6 +247,20 @@ A worked example (data -> config -> run -> expected outputs) is in
 | MaxQuant row skipped | MGF given instead of `.raw` | fill `search_file_raw` with the raw files |
 | pUniFind re-score blocked | open-pFind arm missing | enable the `b` row first |
 | Chinese path errors | external tools read GBK | extract isoPSV and put data under an ASCII path |
+| predictor adapter "cannot open the connection" | adapter `--in/--out` paths pass through the Windows command line | keep the result folder and project paths ASCII (same rule as above) |
+| pure-prediction columns empty on labeled samples | `label_type` not registered in the export stage, or combined label+ordinary modifications fell outside the key fallback (both fixed in ) | update to >=; keep `unlabeled_channel` at the non-1 value so label modifications are stripped for the predictor input while observation-side matching uses the labeled masses |
+| `"NaN"` strings in `predict_cosine_*` | observed and predicted vectors both all-zero (fixed in ) |  writes empty and reports NaN rows separately |
+
+### 7.1 Labeled samples in pure prediction mode
+
+For labeled samples (e.g. NeuCode), register the labels in `config_step1` (`label_type`) and keep `unlabeled_channel` at the non-1 value: the predictor input is then the label-stripped peptide (ordinary theoretical spectra), while observation-side matching uses the labeled masses via the original modification strings. A verified four-label example (E. coli NeuCode; masses agree with the pFind modification definitions within 5e-6 Da):
+
+```
+label_type	NeuCode_K602|ANY|K|C(-6)13C(6)N(-2)15N(2)
+label_type	NeuCode_K080|ANY|K|2H(8)
+label_type	NeuCode_R004|ANY|R|N(-4)15N(4)
+label_type	NeuCode_R040|ANY|R|2H(4)
+```
 
 ---
 
@@ -414,7 +432,10 @@ Python 3.7＋TF 1.15，AlphaPeptDeep 要 3.10＋torch，MS2PIP 要 ≥3.11。混
 ## 6. 操作流程
 
 1. **第一步**：结果表（`psm_file`，任何带 `File_Name` 列的制表符表）、MGF
-   文件夹、采样模式（标记／无标记）、`result_dir`，点“生成参数文件”。
+   文件夹、采样模式（标记／无标记）、`result_dir`，点“生成参数文件”。MGF
+   文件夹须每个 raw 一个文件，命名 `<raw>.mgf` 或 `<raw>_HCDFT.mgf`，`<raw>`
+   等于 `File_Name` 中第一个点号前的 raw 名；多 raw 合并成单文件的合集不被
+   匹配（ 起显式报 stem 不匹配错误）。
 2. **第二步**：每个策略一行（Auto＝填引擎路径，Manual＝填结果文件），默认
    预置 pFind open＋restrict。**纯预测模式**：一行都不加直接生成——基础表直送
    预测器。
@@ -442,3 +463,17 @@ Python 3.7＋TF 1.15，AlphaPeptDeep 要 3.10＋torch，MS2PIP 要 ≥3.11。混
 | MaxQuant 行被跳过 | 给的是 MGF 不是 `.raw` | 用 `search_file_raw` 填 raw 文件 |
 | pUniFind re-score 被挡 | 缺开放式 pFind 行 | 先启用 `b` 行 |
 | 中文路径报错 | 外部工具按 GBK 读路径 | isoPSV 与数据放 ASCII 路径 |
+| 预测器适配器 "cannot open the connection" | 适配器 `--in/--out` 经 Windows 命令行传参 | 结果文件夹与项目路径保持 ASCII（同上） |
+| 标记样品纯预测列全空 | export 段未注册 `label_type`，或「标记＋常规修饰」组合行超出键回退链（ 均已修复） | 升级到  及以上；`unlabeled_channel` 保持非 1——预测器输入剥标记，观测侧按标记质量匹配 |
+| `predict_cosine_*` 出现 "NaN" 字符串 | 观测与理论向量全零（ 已修复） |  起写空串并单独报 NaN 行数 |
+
+### 7.1 标记样品的纯预测口径
+
+标记样品（如 NeuCode）在 `config_step1` 注册 `label_type` 并保持 `unlabeled_channel` 非 1：预测器输入为剥标记后的普通肽段（常规理论谱），观测侧匹配经原样修饰串按标记质量计算。课题组实测可用的四标记示例（E. coli NeuCode；组成式质量与 pFind 修饰定义一致，偏差 ≤5×10⁻⁶ Da）：
+
+```
+label_type	NeuCode_K602|ANY|K|C(-6)13C(6)N(-2)15N(2)
+label_type	NeuCode_K080|ANY|K|2H(8)
+label_type	NeuCode_R004|ANY|R|N(-4)15N(4)
+label_type	NeuCode_R040|ANY|R|2H(4)
+```

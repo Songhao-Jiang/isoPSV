@@ -365,6 +365,7 @@ ispsv_bootstrap_cluster <- function(cl) {
     parallel::clusterEvalQ(cl, {
       source("compat.R")
       suppressMessages(source("acs_core.R"))
+      suppressMessages(source("arbiter_v3.R"))
       suppressMessages(source("paired_params.R"))
       suppressMessages(source("ReadMGF_script.R"))
       invisible(NULL)
@@ -375,6 +376,7 @@ ispsv_bootstrap_cluster <- function(cl) {
     parallel::clusterEvalQ(cl, {
       source(file.path(ispsv_code_dir, "compat.R"))
       suppressMessages(source(file.path(ispsv_code_dir, "acs_core.R")))
+      suppressMessages(source(file.path(ispsv_code_dir, "arbiter_v3.R")))
       suppressMessages(source(file.path(ispsv_code_dir, "paired_params.R")))
       suppressMessages(source(file.path(ispsv_code_dir, "ReadMGF_script.R")))
       invisible(NULL)
@@ -3606,6 +3608,28 @@ extract_unlabeled_per_mgf <- function(psm_file, mgf_files, out_dir, max_cores = 
   stems <- vapply(mgf_files, function(f) sub("_HCDFT$", "",
                     sub("\\.mgf$", "", basename(f))), character(1))
   need_idx <- which(stems %in% wanted_stems)
+  # gf 文件按 <raw>.mgf / <raw>_HCDFT.mgf 的
+  # stem 与 psm raw 名匹配；合集单文件（如 needed.mgf）stem 不匹配任何
+  # raw → 此前静默零读、下游才报"无 Label 首字符为 1 的谱图"，完全误导。
+  # 空 need_idx 立即中止并点名原因与修法。
+  #  (P1-4 live-fire): MGF files are matched to psm raw names by
+  # stem (<raw>.mgf / <raw>_HCDFT.mgf). A merged collection file (e.g.
+  # needed.mgf) matches nothing; the old code silently read zero files and
+  # the failure surfaced later as a misleading "no Label=1 spectra" error.
+  # Abort here with the real cause and the fix.
+  if (length(need_idx) == 0L) {
+    stop("[step 1] mgf 文件名与 psm raw 名无一匹配（0/", length(mgf_files),
+         " 个文件被读取）：mgf 目录要求 <raw>.mgf 或 <raw>_HCDFT.mgf 命名，",
+         "stem 须等于 psm File_Name 的 raw 名。psm raw 例：",
+         paste(utils::head(wanted_stems, 3), collapse = ", "),
+         "；mgf stem 例：", paste(utils::head(stems, 3), collapse = ", "),
+         "。合集单文件请按 title 前缀拆成每 raw 一个文件。\n",
+         "[step 1] no mgf file stem matches any psm raw name (0/",
+         length(mgf_files), " files read): the mgf folder requires one ",
+         "<raw>.mgf or <raw>_HCDFT.mgf per raw, stem equal to the raw name ",
+         "in psm File_Name. Split merged collection files by title prefix ",
+         "into one file per raw.")
+  }
   # 一次并行读取全部所需文件（每文件一个 worker；墙钟时间＝最慢文件）——后续循环只从内存选择/补齐
   # load ALL needed files in one parallel pass (one worker per file; wall
   # time = slowest file) - the loop below only selects/patches from memory
@@ -6461,6 +6485,32 @@ stageA_evaluate <- function(merged_file, unlabeled_mgf_files,
       best_seq <- cand[[best_group]]$seq
       flag <- if (!("a" %in% cand[[best_group]]$idx)) "candidate_misidentification" else "consistent"
 
+      #  — arbiter v3（判据体系固化版，benchmark (ii)/(iii) 逐谱审查
+      # /29 裁定凝练；R 移植＝arbiter_v3.R）。ACS 加权胜者之上叠加
+      # 结构判决：同分子记法／竞争准入门（交集定量>50%＝进入评估而非判决）／
+      # 包含／竞争者低质／单边锚／少特异性／双完整梯平衡——原判仅在 v3 判
+      # "annotated competition" 时换选，其余情形保留原槽（含嵌合确认与折叠）。
+      #  - arbiter v3 (fixed doctrine) layered over the ACS winner:
+      # switch away from the original slot ONLY on an annotated-competition
+      # verdict; same-molecule / containment / competitor-low-quality /
+      # confirmed-chimera verdicts keep the original. decision_A keeps its
+      # legacy vocabulary; the v3 class/rule/gate go to new report columns.
+      arb3 <- tryCatch(
+        arbitrate_v3(spec, spec_sorted, spec_ord, cand, a_pos[1], aa, aa_tab),
+        error = function(e) NULL)
+      if (!is.null(arb3) && isTRUE(arb3$competitor_wins) &&
+          length(cand) >= 2 && !is.null(arb3$winner_seq)) {
+        w3 <- which(vapply(cand, function(x)
+            identical(x$seq, arb3$winner_seq) &&
+            identical(if (is.null(x$mod)) "" else x$mod,
+                      if (is.null(arb3$winner_mod)) "" else arb3$winner_mod),
+          logical(1)))
+        if (length(w3)) best_group <- w3[1]
+        best_seq <- cand[[best_group]]$seq
+        flag <- if (!("a" %in% cand[[best_group]]$idx))
+          "candidate_misidentification" else "consistent"
+      }
+
       # 逐候选列以 "|" 连接（候选＝序列＋修饰）
       # "|"-joined per-candidate columns (candidate = sequence + modification)
       cnd_show <- vapply(cand, function(x) {
@@ -6492,7 +6542,12 @@ stageA_evaluate <- function(merged_file, unlabeled_mgf_files,
           predict_missing = if (any(is.na(u_pred))) 1L else 0L,
           vote_metrics = paste(c("ul_by", "ul_all", "ul_cov", "predict")[avail], collapse = ";"),
           ACS_A_gap = if (is.na(acs_gap)) "" else as.character(round(acs_gap, 4)),
-          decision_A = flag))
+          decision_A = flag,
+          #  仲裁新列（去 _v3 后缀）：仲裁类／规则／门槛交集定量
+          decision = if (is.null(arb3)) "" else arb3$class,
+          rule = if (is.null(arb3)) "" else arb3$rule,
+          gate_shared = if (is.null(arb3) || is.na(arb3$gate_shared)) ""
+            else as.character(arb3$gate_shared)))
       rep_rows[[j]] <- as.data.frame(rep_row, stringsAsFactors = FALSE)
 
       dts <- vector("list", n)
@@ -6583,8 +6638,7 @@ stageA_evaluate <- function(merged_file, unlabeled_mgf_files,
     write.table(sm_row, file.path(out_dir, "summary_A.rowlevel.txt"), sep = "	",
                 row.names = FALSE, quote = FALSE)
     cat("stage A reported rows:", nrow(report),
-        "| spectra:", sum(sm$Freq), "| detail rows:", nrow(detail), "
-")
+        "| spectra:", sum(sm$Freq), "| detail rows:", nrow(detail), "\n")
     print(sm)
     mark("写出报告", "write outputs")
   } else {

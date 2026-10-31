@@ -172,6 +172,24 @@ if (!file.exists(rscript)) rscript <- file.path(R.home("bin"), "Rscript.exe")
 
 # 载入库文件（兼容层 + MGF 读取模块），随后解析第一步参数文件
 # Load the library files (compatibility layer + MGF reader), then parse the step-1 parameter file
+#  (P1-3 live-fire): probe LC_CTYPE BEFORE sourcing UTF-8 sources - a
+# system R whose locale fell back to C silently drops function definitions
+# inside source(..., encoding="UTF-8") (symptom: "could not find function"
+# much later). ASCII-only block; bundled runtime R is UTF-8 by default.
+#: match both "UTF-8" and UCRT's hyphenless ".utf8" - Git Bash with
+# LC_CTYPE=C.UTF-8 injected leaves R on a .utf8 locale that the old pattern
+# missed, so the probe fired spuriously and both candidates were OS-rejected.
+.isopsv_utf8_locale <- function()
+  grepl("utf-?8", Sys.getlocale("LC_CTYPE"), ignore.case = TRUE)
+if (!.isopsv_utf8_locale()) {
+  for (.lc in c("English_United States.UTF-8", "C.UTF-8")) {
+    try(Sys.setlocale("LC_CTYPE", .lc), silent = TRUE)
+    if (.isopsv_utf8_locale()) break
+  }
+  if (!.isopsv_utf8_locale())
+    warning("LC_CTYPE is not UTF-8 and no UTF-8 locale could be set - ",
+            "sourcing UTF-8 sources may fail silently (use the bundled R)")
+}
 source("compat.R")
 source("ReadMGF_script.R")
 
@@ -902,6 +920,39 @@ if (length(pids) > 0 && file.exists(pep_txt)) {
     typ <- gsub("[^a-z0-9_]", "", tolower(getp("type"))); mode <- getp("mode")
     if (!nzchar(typ) || !identical(mode, "1") || identical(typ, "pdeep2")) next
     py <- getp("python"); params <- getp("params")
+    #：pdeep3 的 python 为空时回退到本轮 pDeep2 已验证可用的
+    # python37并把
+    # PDEEP3_ROOT 直指其兄弟 pDeep3。杨瀚机实测：pdeep3 行 python 留空时
+    # 适配器以"缺参数 --python"exit 1，主日志只见一行 exit 1 无从排查。
+    #: pdeep3 with an empty python falls back to the pDeep2 python
+    # already proven this run (the addon ships both in one env; standalone
+    # installs share the py37/TF1.15 family); PDEEP3_ROOT points at the
+    # sibling pDeep3 folder when present.
+    if (identical(typ, "pdeep3") && !nzchar(py) &&
+        exists("py_exe", inherits = TRUE) && is.character(py_exe) &&
+        length(py_exe) == 1 && nzchar(py_exe) && file.exists(py_exe)) {
+      py <- py_exe
+      pd3_fb <- file.path(dirname(dirname(py_exe)), "pDeep3")
+      if (dir.exists(pd3_fb)) {
+        Sys.setenv(PDEEP3_ROOT = normalizePath(pd3_fb, winslash = "/"))
+        cat("[预测器] pdeep3 python 为空，回退 pDeep2 环境：", py,
+            "；PDEEP3_ROOT=", pd3_fb, "\n", sep = "")
+      } else {
+        cat("[预测器] pdeep3 python 为空，回退 pDeep2 环境：", py, "\n", sep = "")
+      }
+    }
+    #：python 仍为空的行显式跳过——不再让适配器以"缺参数
+    # --python"exit 1（主日志只见 exit 1，错因不可见）。
+    #: rows still lacking a python are skipped explicitly instead
+    # of dying inside the adapter with an invisible missing-argument error.
+    if (!nzchar(py)) {
+      manifest <- c(manifest, sprintf("%s\tFAIL\tpython 路径为空", typ))
+      cat("[预测器] ", typ, " 的 python 路径为空，跳过——请在 config_predictor.txt 的 predictor",
+          pid, "_python 填预测器安装文件夹或 python.exe\n[Skip] predictor ", typ,
+          ": empty python path - fill predictor", pid,
+          "_python in config_predictor.txt\n", sep = "")
+      next
+    }
     # （设计约定）：预测器路径一律"软件安装文件夹"级，不到 python.exe
     # 级——自愈链扩展两级：pDeep3 安装夹的同级 pDeep2/py37（本地
     # D:\Bioinformatics 布局）与附件包嵌套 python37。
@@ -984,6 +1035,17 @@ if (length(pids) > 0 && file.exists(pep_txt)) {
     } else {
       manifest <- c(manifest, sprintf("%s\tFAIL\texit %s", typ, predictor_status))
       cat("[预测器] ", typ, " 失败（exit ", predictor_status, "），该预测列按缺失处理\n", sep = "")
+      #：失败侧日志回贴（复用  的 log_fail_tail）。预测器
+      # 适配器的 stdout/stderr 一直在 merge/predictors/<type>/run.log，
+      # driver 级错因在 predict.txt.driver.log——此前主日志只有一行
+      # exit 1（杨瀚机 pdeep3 排障无从下手）。
+      #: echo the failure-side tails into the main log (reuses the
+      #  log_fail_tail). Adapter stdout/stderr lives in
+      # merge/predictors/<type>/run.log and driver-level errors in
+      # predict.txt.driver.log; a bare exit 1 hid both.
+      log_fail_tail(predictor_log, paste0("预测器/", typ), n = 10L)
+      log_fail_tail(paste0(out_pred, ".driver.log"),
+                    paste0("预测器/", typ, "/driver"), n = 10L)
     }
   }
   writeLines(manifest, file.path(result_dir, "merge", "predictor_run_manifest.txt"),

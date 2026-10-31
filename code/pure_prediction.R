@@ -41,6 +41,24 @@ if (!file.exists(file.path(CODE, "ReadMGF_script.R"))) {
   d2 <- dirname(CODE)
   if (file.exists(file.path(d2, "code", "ReadMGF_script.R"))) CODE <- file.path(d2, "code")
 }
+#  (P1-3 live-fire): probe LC_CTYPE BEFORE sourcing UTF-8 sources - on a
+# system R whose locale fell back to C, source(..., encoding="UTF-8") drops
+# function definitions silently (symptom: "could not find function" much later).
+# ASCII-only block by design; bundled runtime R is UTF-8 by default.
+#: match both "UTF-8" and UCRT's hyphenless ".utf8" - Git Bash with
+# LC_CTYPE=C.UTF-8 injected leaves R on a .utf8 locale that the old pattern
+# missed, so the probe fired spuriously and both candidates were OS-rejected.
+.isopsv_utf8_locale <- function()
+  grepl("utf-?8", Sys.getlocale("LC_CTYPE"), ignore.case = TRUE)
+if (!.isopsv_utf8_locale()) {
+  for (.lc in c("English_United States.UTF-8", "C.UTF-8")) {
+    try(Sys.setlocale("LC_CTYPE", .lc), silent = TRUE)
+    if (.isopsv_utf8_locale()) break
+  }
+  if (!.isopsv_utf8_locale())
+    warning("LC_CTYPE is not UTF-8 and no UTF-8 locale could be set - ",
+            "sourcing UTF-8 sources may fail silently (use the bundled R)")
+}
 suppressMessages(source(file.path(CODE, "compat.R"), encoding = "UTF-8"))
 suppressMessages(source(file.path(CODE, "ReadMGF_script.R"), encoding = "UTF-8"))
 suppressMessages(source(file.path(CODE, "paired_params.R"), encoding = "UTF-8"))
@@ -130,6 +148,22 @@ if (STAGE == "PEPTIDES") {
 }
 
 if (STAGE == "EXPORT") {
+  # xport 以子进程运行，
+  # peptides 段注册进 options(isopsv_custom_labels) 的自定义修饰在本进程为空，
+  # 带标记修饰串的 spectrum_params 全部返回 NULL、
+  # 四列静默丢空。此处无条件注册，与 peptides 段对齐；strip_mods 供键回退
+  # 链复用。
+  #  (P0-1 live-fire): the export stage is a separate process - the
+  # custom-label option registered by the peptides stage does not carry over,
+  # so labeled modification strings made spectrum_params return NULL and all
+  # predictor columns came out empty. Register unconditionally here.
+  strip_mods <- character(0)
+  if (!is.null(base_cfg$label_type) && length(base_cfg$label_type) > 0) {
+    strip_mods <- parse_label_spec(base_cfg$label_type)$mods
+  }
+  ul_ch <- if (!is.null(base_cfg$unlabeled_channel) && length(base_cfg$unlabeled_channel) > 0)
+    tail(base_cfg$unlabeled_channel, 1) else "1"
+  if (identical(ul_ch, "1")) strip_mods <- character(0)
   inp_path <- file.path(RESULT_DIR, "merge", "pure_input.path")
   in_file <- if (file.exists(inp_path)) readLines(inp_path, warn = FALSE)[1] else psm_file
   if (!file.exists(in_file)) in_file <- psm_file
@@ -195,6 +229,7 @@ if (STAGE == "EXPORT") {
     vals <- rep("", nrow(dat))
     pr <- preds[[pt]]
     n_hit <- 0L
+    n_nan <- 0L
     if (length(mgf_files) > 0) {
       for (i in seq_len(nrow(dat))) {
         sq <- seqv[i]
@@ -209,6 +244,23 @@ if (STAGE == "EXPORT") {
         # trailing semicolon - try that third key before giving up
         if (is.na(pi) && nzchar(modv[i]))
           pi <- unname(pr$idx[paste0(sq, "|", modv[i], "|", chv[i])])
+        # nlabeled_channel≠1 时 peptides 段已剥
+        # 标记，predict.txt 的键＝剥后修饰——纯标记行剥后为空、seq||z 可命中，
+        # 但「标记＋常规修饰」组合行剥后残余非空修饰（如
+        # KYCELL|3,Carbamidomethyl[C]|2），原样三级键全 miss（LL 实测丢
+        # 6,752/93,000 行）。补剥标记键（无分号/带分号两式）后全覆盖。
+        #  (P0-2 live-fire): with label stripping on, predict.txt keys
+        # hold the STRIPPED modification; combined rows (label + ordinary mod)
+        # keep a non-empty residue that none of the as-is keys match. Try the
+        # stripped key (both semicolon variants) before giving up.
+        if (is.na(pi) && length(strip_mods) > 0) {
+          mds <- sub(";+$", "", strip_label_mods(modv[i], strip_mods))
+          if (!is.na(mds) && !identical(mds, md)) {
+            pi <- unname(pr$idx[paste0(sq, "|", mds, "|", chv[i])])
+            if (is.na(pi) && nzchar(mds))
+              pi <- unname(pr$idx[paste0(sq, "|", paste0(mds, ";"), "|", chv[i])])
+          }
+        }
         if (is.na(pi)) next
         #：get() 未命中会中止整段——改 tryCatch 计数后继续
         # （真实数据里 File_Name 与 MGF title 错位时不再全表崩掉）
@@ -225,13 +277,24 @@ if (STAGE == "EXPORT") {
         pv <- pr$int[[pi]]
         nmin <- min(length(pv), length(v))
         if (nmin <= 0) next
-        vals[i] <- sprintf("%.4f", cosine(v[seq_len(nmin)], pv[seq_len(nmin)]))
+        # 理论/观测向量全零时 cosine()=0/0=NaN，
+        # 早期实现写出字面 "NaN" 且计入覆盖——改与缺失同形（空串）并单列计数。
+        #  (P2-1 live-fire): all-zero vectors give cosine()=NaN; the
+        # old code wrote a literal "NaN" string and counted it as covered -
+        # write "" (same shape as missing) and count NaN rows separately.
+        cv <- cosine(v[seq_len(nmin)], pv[seq_len(nmin)])
+        if (is.na(cv)) { n_nan <- n_nan + 1L; next }
+        vals[i] <- sprintf("%.4f", cv)
         n_hit <- n_hit + 1L
       }
     }
     dat[[col_name]] <- vals
-    cat("  ", col_name, ": ", n_hit, "/", nrow(dat), " 覆盖\n", sep = "")
-    cat("  ", col_name, ": ", n_hit, "/", nrow(dat), " covered\n", sep = "")
+    cat("  ", col_name, ": ", n_hit, "/", nrow(dat), " 覆盖",
+        if (n_nan > 0) paste0("（NaN ", n_nan, " 行按缺失处理）") else "",
+        "\n", sep = "")
+    cat("  ", col_name, ": ", n_hit, "/", nrow(dat), " covered",
+        if (n_nan > 0) paste0(" (NaN ", n_nan, " rows written as empty)") else "",
+        "\n", sep = "")
   }
   out_tsv <- file.path(RESULT_DIR, "pure_prediction.tsv")
   write.table(dat, out_tsv, sep = "\t", row.names = FALSE, quote = FALSE, na = "")

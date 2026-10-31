@@ -4,6 +4,7 @@ isoPSV（isotope-labeled paired-spectrum verification）multi-engine competitive
 
 - Multi-engine competitive searching (pFind/pUniFind family + Comet/MaxQuant/MSFragger/Sage/MetaMorpheus and more)
 - Two-stage arbitration (spectrum-level competition + paired-isotope verification), eight weighted indicators with locked weights
+- **Per-spectrum conflict adjudication (new)**: competing candidates are adjudicated by a fixed doctrine - the shared-ion quantitative fraction (>50%) acts as an entry gate rather than a verdict, and structural tests decide (same-molecule isobaric notation, independent ladders, containment, one-sided anchors, dual balanced ladders, dominant contrast); the Stage-A report carries decision / rule / gate_shared columns per spectrum
 - Web console (English by default, switchable to Chinese): parameter generation, live log, stop-point resume, result browser
 - **Pure prediction mode (new)**: submit STEP 2 with no strategy row and the base identification table feeds the predictors directly; the output `pure_prediction.tsv` is the input table plus one `predict_cosine_<predictor>` column per enabled predictor (observed vs predicted theoretical-spectrum cosine)
 - **Four bundled predictor integrations (new)**: pDeep2, pDeep3, AlphaPeptDeep and MS2PIP in the same run; each keeps its own Python environment (pDeep2 3.7/TF1.15, AlphaPeptDeep 3.10/torch, MS2PIP >= 3.11) and only the environment folder needs to be filled (auto-resolved to `python.exe` or `Scripts\python.exe`); one-click detection fills it automatically
@@ -23,6 +24,7 @@ isoPSV（同位素标记成对谱图验证）多引擎竞争验证软件 v1.1（
 
 - 多引擎竞争搜库（pFind/pUniFind 生态＋Comet/MaxQuant/MSFragger/Sage/MetaMorpheus 等）
 - 两阶段竞争仲裁（谱图级竞争＋成对同位素验证），八指标加权评分与锁定权重
+- **逐谱冲突仲裁（新增）**：竞争候选按固定判据体系裁决——交集离子定量比例（>50%）只是进入评估的门槛而非判决，结构判决包括同分子等重记法、独立梯、包含、单边锚、双完整梯平衡、强度对比；Stage-A 报告逐谱输出 decision / rule / gate_shared 三列
 - 网页控制台（默认英文，可切换中文）：参数生成、实时日志、停点续接、结果浏览
 - **纯预测模式（新增）**：第二步不加任何策略行，基础鉴定表直接作为预测输入；输出 `pure_prediction.tsv` ＝ 输入表原样 ＋ 每个启用预测器一列 `predict_cosine_<预测器>`（观测谱对理论谱余弦）
 - **四预测器同轮集成（新增）**：pDeep2、pDeep3、AlphaPeptDeep、MS2PIP 可同轮运行；各用独立 Python 环境（pDeep2 3.7/TF1.15、AlphaPeptDeep 3.10/torch、MS2PIP ≥ 3.11），只需填环境文件夹（自动解析到 `python.exe` 或 `Scripts\python.exe`），一键检测可自动回填
