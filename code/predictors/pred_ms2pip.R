@@ -41,11 +41,25 @@ parse_cli <- function(args = commandArgs(TRUE)) {
 }
 
 # ---- pFind 修饰名 → MS2PIP/Unimod 名 ----
+#  #7：词表扩张——pFind 名与 Unimod 标题基本同名（psm_utils 直接认），
+# 常见修饰直通补齐（现场曾点名 Carbamyl/Formyl/ICPL_13C(6) 等"未知名跳过"）；
+# 引擎槽特有名（非 Unimod 标题形态）仍走跳过＋警告。
+#  #7: vocabulary expansion - pFind names are mostly Unimod titles
+# (accepted by psm_utils directly); common mods pass through. Engine-slot-only
+# names (non-Unimod-looking) keep the skip-and-warn path.
 mod_name_map <- c(Oxidation = "Oxidation", Deamidated = "Deamidated",
                   Carbamidomethyl = "Carbamidomethyl", Acetyl = "Acetyl",
                   Phospho = "Phospho", Methyl = "Methyl", Dimethyl = "Dimethyl",
                   Trimethyl = "Trimethyl", `Gln->pyro-Glu` = "Gln->pyro-Glu",
-                  `Glu->pyro-Glu` = "Glu->pyro-Glu")
+                  `Glu->pyro-Glu` = "Glu->pyro-Glu",
+                  Carbamyl = "Carbamyl", Formyl = "Formyl",
+                  Crotonyl = "Crotonyl", Succinyl = "Succinyl",
+                  Malonyl = "Malonyl", Butyryl = "Butyryl",
+                  Propionyl = "Propionyl", Propionamide = "Propionamide",
+                  `Pyro-carbamidomethyl` = "Pyro-carbamidomethyl",
+                  GG = "GG", Amidated = "Amidated", Biotin = "Biotin",
+                  `Sodium` = "Sodium", `Potassium` = "Potassium",
+                  `Cysteine->Selenocysteine` = "Cysteine->Selenocysteine")
 #' pFind 修饰串（"3,Oxidation[M];0,Acetyl[AnyN-term];"）→ peprec modifications 串
 #' （"3|Oxidation;0|Acetyl"）。未知名丢弃并警告（与 pDeep2 路径的 sanitize 同理）。
 #' 无修饰返回 "-"（N-11：MS2PIP peprec 对未修饰肽要求写 "-"，空串会解析失败）。

@@ -116,6 +116,42 @@ you; it reads their result files. Two modes are supported per row in STEP 2:
   yourself and use **Manual result** rows (engine score formats: see
   `docs/parameters.md`).
 
+### Casanovo / PrimeNovo de novo (r, s slots; )
+
+Two open-source de novo sequencing engines integrate as **user-added,
+off-by-default** strategy rows. Both run on the STEP-1 MGF directly and their
+candidates enter the merge exactly like pUniFind de novo (slot e), including
+the database look-back.
+
+| Engine | Install | STEP 2 fields | Notes |
+|---|---|---|---|
+| Casanovo (Apache-2.0, https://github.com/Noble-Lab/casanovo) | `conda create -n casanovo python=3.10` then `pip install casanovo` (v5.2.x verified) | `casanovo_exe` = the env folder or `casanovo.exe`; `casanovo_params` = local `.ckpt` (recommended); `casanovo_mode=1` | model checkpoint from GitHub releases (`casanovo_orbitrap_v5-2-0.ckpt`, 575 MB) - pass it via `casanovo_params` because the default auto-download often breaks on weak networks; **CPU is slow (~3 s/spectrum) - a GPU is strongly recommended for real datasets**; output mzTab is converted automatically |
+| PrimeNovo (MIT, https://github.com/BEAM-Labs/pi-PrimeNovo) | clone the repo, create a Python 3.10 env, `pip install -r requirements.txt`, then build `ctcdecode` (https://github.com/WayenVan/ctcdecode) from source | `primenovo_exe` = the repo root (contains `PrimeNovo/`); `primenovo_python` = that env's `python.exe`; `primenovo_params` = `model_massive.ckpt` (required); `primenovo_mode=1` | **ctcdecode has no official Windows support** (bundles openfst with POSIX-only headers); on Windows use WSL or a Linux host - verified flow: repo root + env + `model_massive.ckpt` (387 MB, Google Drive); CPU inference is practical (non-autoregressive); output `denovo.tsv` is converted automatically |
+
+Manual result rows: a PrimeNovo `denovo.tsv` converts automatically when
+registered with `search_file_type=primenovo`; a Casanovo mzTab holds only
+spectrum indices, so register the **converted** `.spectra` (command:
+`Rscript search_adapter_denovo.R --convert casanovo --in <mztab> --mgf <source
+MGF> --out <out.spectra>`; the automatic run does this for you).
+
+**SSH/VM bridge for PrimeNovo ().** Set `primenovo_python` to
+`ssh:user@host` (public-key auth required: `ssh-keygen` on the Windows host,
+append the pubkey to the Linux side `~/.ssh/authorized_keys`) and
+`primenovo_exe` to the remote repo root (`~/pi-PrimeNovo`). isoPSV then pushes
+each MGF to the remote, runs PrimeNovo there and pulls the result back
+automatically (`code/predictors/primenovo_ssh_driver.py`; the model checkpoint
+is pushed once and cached). Verified end-to-end on a VMware Ubuntu 24.04 VM
+(150 spectra in 5 s on CPU).
+
+**PMC decoding on CPU-only hosts.** PrimeNovo's PMC (Post-Merlin Control)
+mass-control decoding requires a GPU (cupy kernel). On CPU-only hosts set
+`PMC_enable: False` in the repo's `PrimeNovo/config.yaml` and install the
+15-line cupy stub (recipe in the project handover docs); inference runs the
+pure attention decoder - slightly lower amino-acid precision, fully
+functional. To restore PMC on a GPU host: remove the stub (install real
+`cupy-cuda12x`), set `PMC_enable: True`, and revert the single-device pins
+(`_get_devices()` and `n_workers` in the repo).
+
 ## 4. Theoretical-spectrum predictors
 
 Each predictor writes a `predict.txt` in the same shape, and isoPSV adds one
@@ -355,6 +391,36 @@ label_type	NeuCode_R040|ANY|R|2H(4)
 - PEAKS Studio（https://www.bioinfor.com/peaks-studio/）与 Mascot
   （https://www.matrixscience.com/）只能 GUI 导出，用 **Manual result** 行
   导入（分数格式见 `docs/parameters.md`）。
+
+### Casanovo / PrimeNovo de novo（r、s 槽）
+
+两个开源 de novo 测序引擎，以**用户自添加、默认不启用**的策略行接入。
+均直接用第一步 MGF，候选进合并的口径与 pUniFind de novo（e 槽）完全一致
+（含数据库回帖）。
+
+| 引擎 | 安装 | 第二步字段 | 备注 |
+|---|---|---|---|
+| Casanovo（Apache-2.0，https://github.com/Noble-Lab/casanovo） | `conda create -n casanovo python=3.10` 后 `pip install casanovo`（实测 5.2.x） | `casanovo_exe`＝环境文件夹或 casanovo.exe；`casanovo_params`＝本地 `.ckpt`（建议填）；`casanovo_mode=1` | 权重从 GitHub release 下载（`casanovo_orbitrap_v5-2-0.ckpt`，575 MB）——**务必用 `casanovo_params` 指本地文件**（默认自动下载弱网必断）；**CPU 约 3 秒/谱，真实数据集强烈建议 GPU**；输出 mzTab 自动转换 |
+| PrimeNovo（MIT，https://github.com/BEAM-Labs/pi-PrimeNovo） | clone 仓库＋Python 3.10 环境＋`pip install -r requirements.txt`＋源码编译 ctcdecode（https://github.com/WayenVan/ctcdecode） | `primenovo_exe`＝仓库根目录（内含 `PrimeNovo/`）；`primenovo_python`＝该环境 python.exe；`primenovo_params`＝`model_massive.ckpt`（必填）；`primenovo_mode=1` | **ctcdecode 无官方 Windows 支持**（内置 openfst 仅 POSIX 头），Windows 用 WSL 或 Linux 主机——验证过的组合＝仓库根＋环境＋`model_massive.ckpt`（387 MB，Google Drive）；CPU 推理可用（非自回归）；输出 `denovo.tsv` 自动转换 |
+
+手动登记：PrimeNovo 的 `denovo.tsv` 以 `search_file_type=primenovo` 登记时自动
+转换；Casanovo 的 mzTab 只有谱序号，须登记**转换后**的 `.spectra`（命令：
+`Rscript search_adapter_denovo.R --convert casanovo --in <mztab> --mgf <源
+MGF> --out <输出.spectra>`；自动运行时软件代做）。
+
+**PrimeNovo 的 SSH/VM 桥。** `primenovo_python` 填
+`ssh:user@host`（须公钥免密——宿主 `ssh-keygen`，公钥追加到 Linux 侧
+`~/.ssh/authorized_keys`），`primenovo_exe` 填远端仓库根（`~/pi-PrimeNovo`）。
+isoPSV 自动把 MGF 推到远端、远端跑 PrimeNovo、拉回结果（驱动＝
+`code/predictors/primenovo_ssh_driver.py`；模型 ckpt 仅首次推送缓存）。已在
+VMware Ubuntu 24.04 VM 上端到端验证（150 谱 CPU 5 秒）。
+
+**CPU 主机的 PMC 关闭。** PrimeNovo 的 PMC（Post-Merlin Control）质量控制
+解码需要 GPU（cupy kernel）。纯 CPU 主机在仓库 `PrimeNovo/config.yaml` 设
+`PMC_enable: False` 并装 15 行 cupy stub（配方见项目交接文档）；推理走纯注
+意力解码器——氨基酸精度略降、功能完整。GPU 主机恢复 PMC 三步：卸 stub 装
+真 `cupy-cuda12x`、`PMC_enable: True`、还原仓库内两处单进程钉
+（`_get_devices()` 与 `n_workers`）。
 
 ## 4. 理论谱图预测器
 

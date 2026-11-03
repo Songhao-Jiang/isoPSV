@@ -4036,7 +4036,10 @@ STRATEGY_SLOT <- c(original = "a", pfind_open = "b", pfind_restrict = "c",
                    comet = "f", mascot = "g", maxquant = "h",
                    metamorpheus = "i", msfragger = "j", msfragger_boost = "k",
                    msfragger_open = "l", peaks = "m", pnovo = "n",
-                   sage = "o", xtandem = "p", pfind_standard = "q")
+                   sage = "o", xtandem = "p", pfind_standard = "q",
+                   #：两个外部 de novo 引擎（用户自添加槽、默认无行）
+                   # 追加 r/s——字母序让位于既有槽位的兼容性（改字母会废旧配置）
+                   casanovo = "r", primenovo = "s")
 STRATEGY_REVISE <- c(pfind_open = "full", pfind_restrict = "none",
                      pfind_standard = "none",
                      punifind_rescore = "terminal", punifind_denovo = "none",
@@ -4044,8 +4047,12 @@ STRATEGY_REVISE <- c(pfind_open = "full", pfind_restrict = "none",
                      msfragger = "none", sage = "none", comet = "none",
                      xtandem = "none", metamorpheus = "none", peaks = "none",
                      mascot = "none", pnovo = "none", msfragger_boost = "none",
+                     casanovo = "none", primenovo = "none",
                    other = "none")
-STRATEGY_LOOKBACK <- c(punifind_denovo = TRUE, pnovo = TRUE)
+STRATEGY_LOOKBACK <- c(punifind_denovo = TRUE, pnovo = TRUE,
+                       #：de novo 外部引擎与 pUniFind denovo 同口径
+                       # （库外序列交合并层数据库回帖）
+                       casanovo = TRUE, primenovo = TRUE)
 #' 由策略类型向量求槽位字母：固定类型按目录表取字母（重复报错）；
 #' other 类型依次占用 q..z 通用槽。original 只属于策略 1（psm_file），
 #' 不允许出现在补充策略类型中。

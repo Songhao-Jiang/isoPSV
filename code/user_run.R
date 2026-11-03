@@ -104,6 +104,9 @@ if (!file.exists(cfg_path)) {
     "# pdeep2_exe: pDeep2 安装路径（use_pdeep2=1 时必填，软件自动执行 pDeep2 生成 predict.txt，第三步不再停点；use_pdeep2=2 时留空）",
     "#             pDeep2 install path (required with use_pdeep2=1: the software runs pDeep2 automatically and step 3 does not stop; leave empty with use_pdeep2=2)",
     "pdeep2_exe\t<绝对路径 absolute path>",
+    "# predict_required: 自动模式下预测不可得（pdeep2_exe 未填/安装不完整/运行失败且无预测器成功）时是否仍停点等人工（1=停点，0=自动降级——预测指标按缺失处理继续跑，部署层判定不受影响；手动模式 use_pdeep2=2 不受此键影响）",
+    "#                   with auto mode, whether to still stop for manual input when no prediction is available (; 1=stop, 0=auto-degrade - the predict metric is treated as missing and the run continues; manual mode use_pdeep2=2 is unaffected)",
+    "predict_required\t0",
     "# instrument: 仪器类型（QE / Lumos / Velos / Elite，默认 Lumos）",
     "#                   instrument type (QE / Lumos / Velos / Elite; default Lumos)",
     "instrument\tLumos"
@@ -776,6 +779,14 @@ if (nzchar(pd2_exe)) {
 }
 pd2_inst <- if (!is.null(cfg1$instrument)) tail(cfg1$instrument,1)[1] else "Lumos"
 pd2_inst <- if (!is.null(pd2_inst) && length(pd2_inst) > 0 && nzchar(tail(pd2_inst, 1))) tail(pd2_inst, 1) else "Lumos"
+#：自动 pDeep2 不可得的原因标记（""=无；"install_incomplete"=安装
+# 不完整；"run_failed"=运行失败）。use_pdeep2=1 且 pdeep2_exe 为空时保持 ""
+# （下方停点闸把原因归为"pdeep2_exe 未填"）。停点闸据此决定降级或（predict_
+# required=1 时）停点。
+#: reason flag for an unavailable auto pDeep2 (""=none;
+# "install_incomplete"; "run_failed"). Stays "" when use_pdeep2=1 has an
+# empty pdeep2_exe (the gate below reports it as 'pdeep2_exe not filled').
+pd2_fail_reason <- ""
 # N-1/P0pep_txt 此前只在自动 pDeep2 块内定义，手动模式/
 # use_pdeep2=0/断点续跑时下游预测器循环（length(pids)>0 分支）引用即
 # object 'pep_txt' not found。提升到块外无条件定义。
@@ -845,13 +856,20 @@ pep_txt <- file.path(result_dir, "merge", "peptide.txt")
     pd_script <- file.path(pd2_exe, "pDeep", "pDeep2", "predict.py")
     if (!file.exists(pd_script)) pd_script <- file.path(pd2_exe, "predict.py")
     if (!file.exists(py_exe) || !file.exists(pd_script)) {
-      stop("[总程序 / Master] pDeep2 安装目录不完整：", pd2_exe,
-           "（python 3.7：", py_exe, "；predict.py：", pd_script,
-           "）。请按安装文档的标准布局安装，或设置环境变量 PDEEP2_PYTHON 指向 python 3.7。\n",
-           "[Master] pDeep2 install incomplete under: ", pd2_exe,
-           " (python 3.7: ", py_exe, "; predict.py: ", pd_script,
-           "). Follow the standard install layout, or set the PDEEP2_PYTHON environment variable to the python 3.7 executable.")
+      #：安装不完整由 stop 改为记录原因＋双语警示——停点闸按
+      # predict_required 决定降级继续（默认）或停点（=1），不再卡死流程。
+      #: an incomplete install records the reason instead of
+      # stopping; the gate below degrades by default (predict_required=1
+      # keeps the manual stop), so the run no longer dead-ends here.
+      pd2_fail_reason <- "install_incomplete"
+      cat("[警告] pDeep2 安装目录不完整：", pd2_exe,
+          "（python 3.7：", py_exe, "；predict.py：", pd_script,
+          "）——本轮不生成预测，稍后按降级处理\n")
+      cat("[Warn] pDeep2 install incomplete under: ", pd2_exe,
+          " (python 3.7: ", py_exe, "; predict.py: ", pd_script,
+          ") - no prediction this run, degrading later\n")
     }
+    if (!nzchar(pd2_fail_reason)) {
     cat("==== [自动执行 pDeep2] 对以下文件运行预测：", pep_txt, " ====\n")
     cat("==== [Auto pDeep2] predict on: ", pep_txt, " ====\n")
     cat("python:", py_exe, "\n")
@@ -869,26 +887,40 @@ pep_txt <- file.path(result_dir, "merge", "peptide.txt")
     st2 <- py_system2(py_exe, c(shQuote(pd_script), "-e", "0.3", "-i", pd2_inst,
                                  "-in", shQuote(pd2_list), "-out", shQuote(predict_out)))
     setwd(old_wd2)
-    if (st2 != 0 || !file.exists(predict_out)) stop("pDeep2 运行失败\npDeep2 run failed")
+    if (st2 != 0 || !file.exists(predict_out)) {
+      #：运行失败由 stop 改为记录原因＋双语警示（同安装不完整口径）
+      #: a failed run records the reason instead of stopping
+      pd2_fail_reason <- "run_failed"
+      cat("[警告] pDeep2 运行失败（exit ", st2, "）——本轮不生成预测，稍后按降级处理\n")
+      cat("[Warn] pDeep2 run failed (exit ", st2, ") - no prediction this run, degrading later\n")
+    } else {
     writeLines(predict_fingerprint_lines, paste0(predict_out, ".run_params"),
                useBytes = TRUE)   # P1-2 肽表指纹侧车（ 修复：predict_sidecar_file 已内联）
+    }
+    }  #：关闭 !nzchar(pd2_fail_reason) 运行护栏
   } else {
     cat("[跳过] pDeep2 predict.txt 已存在且肽表未变 -> ", predict_out, "\n")
     cat("[Skip] pDeep2 predict.txt exists and peptide table unchanged -> ", predict_out, "\n")
   }
-  # 把 predict_file 自动写入第三步参数文件（已有键替换、缺键追加）
-  # patch predict_file into the step-3 parameter file (replace or append)
-  cfg3_lines <- readLines(cfg3_path, warn = FALSE)
-  i_pf <- which(grepl("^predict_file\t", cfg3_lines))
-  if (length(i_pf) > 0) {
-    cfg3_lines[i_pf[1]] <- paste0("predict_file\t", predict_out)
-  } else {
-    cfg3_lines <- c(cfg3_lines, paste0("predict_file\t", predict_out))
+  # 把 predict_file 自动写入第三步参数文件（已有键替换、缺键追加）——
+  #：仅在自动 pDeep2 成功产出时回写；失败（pd2_fail_reason 非空）
+  # 不写，留空给停点闸降级（主预测器成功时仍会回写自己的产物）。
+  # patch predict_file into the step-3 parameter file (replace or append) -
+  #: only on a successful auto run; on failure nothing is patched and
+  # the gate below degrades (a successful primary predictor still writes its own).
+  if (!nzchar(pd2_fail_reason)) {
+    cfg3_lines <- readLines(cfg3_path, warn = FALSE)
+    i_pf <- which(grepl("^predict_file\t", cfg3_lines))
+    if (length(i_pf) > 0) {
+      cfg3_lines[i_pf[1]] <- paste0("predict_file\t", predict_out)
+    } else {
+      cfg3_lines <- c(cfg3_lines, paste0("predict_file\t", predict_out))
+    }
+    writeLines(cfg3_lines, cfg3_path, useBytes = TRUE)
+    cfg3 <- read_param_file(cfg3_path)
+    cat("[自动执行 pDeep2] predict_file 已写入：", cfg3_path, "\n")
+    cat("[Auto pDeep2] predict_file written to: ", cfg3_path, "\n")
   }
-  writeLines(cfg3_lines, cfg3_path, useBytes = TRUE)
-  cfg3 <- read_param_file(cfg3_path)
-  cat("[自动执行 pDeep2] predict_file 已写入：", cfg3_path, "\n")
-  cat("[Auto pDeep2] predict_file written to: ", cfg3_path, "\n")
 }
 # v1.0多理论谱图预测器——每个启用的额外预测器（config_step1
 # predictorN_* 键）跑其 L1 适配器（code/predictors/pred_<type>.R），产物与
@@ -1019,6 +1051,41 @@ if (length(pids) > 0 && file.exists(pep_txt)) {
     pred_list <- file.path(pred_dir, "peptides.txt")
     if (!file.copy(pep_txt, pred_list, overwrite = TRUE)) pred_list <- pep_txt
     out_pred <- file.path(pred_dir, "predict.txt")
+    #  #6 预测器预检（preflight）：正式跑全量肽表前，用 3 行小表
+    # （1 无修饰＋1 Oxidation[M]＋1 短肽）先试适配器——3 秒级提前暴露环境/
+    # 词表/契约问题，失败即在本段点名"本组将按缺失处理"，不再让全量跑
+    # 到 90% 才崩（11-02 双项目 AlphaPeptDeep 半程 KeyError 的教训）。
+    #  #6 predictor preflight: before the full peptide table, run the
+    # adapter on a 3-row mini table (unmodified + Oxidation[M] + a short
+    # peptide) - environment/vocabulary/contract problems surface in seconds
+    # and this group is flagged as missing up front, instead of dying 90% into
+    # the full run (the 11-02 dual-project AlphaPeptDeep mid-run KeyError).
+    pf_dir <- file.path(pred_dir, "preflight")
+    dir.create(pf_dir, recursive = TRUE, showWarnings = FALSE)
+    pf_in <- file.path(pf_dir, "peptides.txt")
+    writeLines(c("peptide\tmodification\tcharge",
+                 "PEPTIDEK\t\t2", "PEPTIDEMK\t7,Oxidation[M];\t2",
+                 "PEPTIDE\t\t2"), pf_in, useBytes = TRUE)
+    pf_out <- file.path(pf_dir, "predict.txt")
+    pf_log <- file.path(pf_dir, "run.log")
+    a_pf <- c(adapter, "--in", pf_in, "--out", pf_out)
+    if (nzchar(py)) a_pf <- c(a_pf, "--python", py)
+    if (nzchar(params)) a_pf <- c(a_pf, "--params", params)
+    pf_st <- iso_system2(rscript, a_pf, stdout = pf_log, stderr = pf_log)
+    if (pf_st != 0 || !file.exists(pf_out) ||
+        length(readLines(pf_out, warn = FALSE)) == 0L) {
+      manifest <- c(manifest, sprintf("%s\tFAIL\tpreflight exit %s", typ, pf_st))
+      cat("[预检 FAIL] ", typ, " 预检失败（exit ", pf_st,
+          "）——本组将按缺失处理；正式运行跳过。日志：", pf_log, "\n", sep = "")
+      cat("[Preflight FAIL] predictor ", typ, " failed the 3-peptide preflight (exit ",
+          pf_st, ") - this column will be treated as missing; full run skipped. Log: ",
+          pf_log, "\n", sep = "")
+      log_fail_tail(pf_log, paste0("预检/", typ), n = 10L)
+      next
+    } else {
+      cat("[预检 OK] ", typ, "（3 肽冒烟通过）\n", sep = "")
+      cat("[Preflight OK] ", typ, " (3-peptide smoke passed)\n", sep = "")
+    }
     # N-3iso_system2 内部对每个参数再 shQuote，这里
     # 再包一层 shQuote 会让含空格路径（如 C:\Program Files\...）双重引号坏掉。
     # 一律传原样路径，交给 iso_system2 统一加引号。
@@ -1100,24 +1167,53 @@ if (!identical(use_pd2, "0")) {
   if (is.null(pf)) pf <- character(0)
   pf <- pf[!is.na(pf) & pf != ""]
   if (length(pf) == 0L) {
-    if (identical(use_pd2, "1")) {
-      # use_pdeep2=1（自动模式）但未填 pdeep2_exe：提示两种解法
-      # use_pdeep2=1 (auto mode) without pdeep2_exe: suggest both fixes
-      cat("\n[等待输入] 请填写 ", cfg_path,
-          " 的 pdeep2_exe（use_pdeep2=1 自动模式需要 pDeep2 安装目录）；或把 use_pdeep2 改为 2，再填写 ", cfg3_path,
-          " 的 predict_file（手动运行 pDeep2 生成的 predict.txt 绝对路径），然后重新运行本程序。\n")
-      cat("[Awaiting input] fill in ", cfg_path,
-          " pdeep2_exe (the auto mode use_pdeep2=1 needs the pDeep2 install folder); or set use_pdeep2 = 2 and fill in ", cfg3_path,
-          " predict_file (absolute path of the predict.txt generated by running pDeep2 manually), then rerun this program.\n")
+    #：预测不可得时的闸门分叉。predict_required（config_step1，
+    # 默认 0）＝1 或手动模式 use_pdeep2=2 保持旧停点等人工；默认（自动模式）
+    # 降级继续——预测指标按缺失处理（等价 use_pdeep2=0：predict_missing
+    # 标注、投票降级、预测救援分支不触发），部署层判定（预测权重 0）不受
+    # 影响，流程不再卡死等放行。
+    #: gate fork when no prediction is available. predict_required
+    # (=1, config_step1) or manual mode use_pdeep2=2 keeps the old manual
+    # stop; by default (auto mode) the run degrades - the predict metric is
+    # treated as missing (same as use_pdeep2=0: predict_missing flag, vote
+    # demotion, no prediction-rescue branch), the deployed decision layer
+    # (predict weight 0) is unaffected, and the run no longer dead-ends.
+    pr_req <- if (!is.null(cfg1$predict_required) && length(cfg1$predict_required) > 0)
+      tail(cfg1$predict_required, 1) else "0"
+    if (identical(use_pd2, "2") || identical(pr_req, "1")) {
+      if (identical(use_pd2, "1")) {
+        # use_pdeep2=1（自动模式）且 predict_required=1：停点提示两种解法
+        # use_pdeep2=1 (auto mode) with predict_required=1: suggest both fixes
+        cat("\n[等待输入] 请填写 ", cfg_path,
+            " 的 pdeep2_exe（use_pdeep2=1 自动模式需要 pDeep2 安装目录）；或把 use_pdeep2 改为 2，再填写 ", cfg3_path,
+            " 的 predict_file（手动运行 pDeep2 生成的 predict.txt 绝对路径），然后重新运行本程序。\n")
+        cat("[Awaiting input] fill in ", cfg_path,
+            " pdeep2_exe (the auto mode use_pdeep2=1 needs the pDeep2 install folder); or set use_pdeep2 = 2 and fill in ", cfg3_path,
+            " predict_file (absolute path of the predict.txt generated by running pDeep2 manually), then rerun this program.\n")
+      } else {
+        # use_pdeep2=2（手动模式）：等待用户对 merge\peptide.txt 运行 pDeep2 后填写 predict_file
+        # use_pdeep2=2 (manual mode): await predict_file after the user runs pDeep2 on merge\peptide.txt
+        cat("\n[等待输入] 请填写 ", cfg3_path,
+            " 的 predict_file（对 merge\\peptide.txt 手动运行 pDeep2 生成的 predict.txt 绝对路径），然后重新运行本程序。\n")
+        cat("[Awaiting input] fill in ", cfg3_path,
+            " predict_file (absolute path of the predict.txt generated by running pDeep2 on merge\\peptide.txt manually), then rerun this program.\n")
+      }
+      quit(status = 0)
     } else {
-      # use_pdeep2=2（手动模式）：等待用户对 merge\peptide.txt 运行 pDeep2 后填写 predict_file
-      # use_pdeep2=2 (manual mode): await predict_file after the user runs pDeep2 on merge\peptide.txt
-      cat("\n[等待输入] 请填写 ", cfg3_path,
-          " 的 predict_file（对 merge\\peptide.txt 手动运行 pDeep2 生成的 predict.txt 绝对路径），然后重新运行本程序。\n")
-      cat("[Awaiting input] fill in ", cfg3_path,
-          " predict_file (absolute path of the predict.txt generated by running pDeep2 on merge\\peptide.txt manually), then rerun this program.\n")
+      pd2_reason <- if (identical(pd2_fail_reason, "run_failed")) "pDeep2 运行失败 / pDeep2 run failed"
+        else if (identical(pd2_fail_reason, "install_incomplete")) "pDeep2 安装不完整 / pDeep2 install incomplete"
+        else "pdeep2_exe 未填 / pdeep2_exe not filled"
+      cat("\n[降级] 自动模式下预测不可得（", pd2_reason,
+          "，且无预测器成功产出）——预测指标按缺失处理（predict_missing 标注、投票降级），",
+          "部署层判定不受影响，流程继续。\n", sep = "")
+      cat("      事后补法：在 ", cfg_path, " 填好 pdeep2_exe（或改 use_pdeep2=2 并手填 ", cfg3_path,
+          " 的 predict_file）后重跑——断点续跑自动衔接，已完成段不重算。\n", sep = "")
+      cat("[Degrade] no prediction available in auto mode (", pd2_reason,
+          "; no predictor succeeded): the predict metric is treated as missing (predict_missing flag, vote demotion); the deployed decision layer is unaffected. Continuing.\n", sep = "")
+      cat("        To add predictions later: fill pdeep2_exe in ", cfg_path,
+          " (or set use_pdeep2=2 and fill predict_file in ", cfg3_path,
+          ") and rerun - resume reuses the finished stages.\n", sep = "")
     }
-    quit(status = 0)
   }
 } else {
   cat("[跳过] pDeep2 理论预测谱未启用（use_pdeep2=0）：预测指标按缺省处理\n")

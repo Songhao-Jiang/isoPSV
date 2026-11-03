@@ -791,7 +791,7 @@ function detectAndFill(){  const st=document.getElementById("detectState"),rep=d
     // v1.0 PowerShell native dialog); apply writes core items straight
     // into the STEP 1 form fields and external engines into a new STEP 2 row.
     const CORE_LABEL={pfind_exe:"pFind",punifind_exe:"pUniFind",punifind_python:"pUniFind Python",pdeep2_exe:"pDeep2"};
-    const nm={msfragger:"MSFragger",comet:"Comet",sage:"Sage",maxquant:"MaxQuant",metamorpheus:"MetaMorpheus",msconvert:"ProteoWizard msconvert"};
+    const nm={msfragger:"MSFragger",comet:"Comet",sage:"Sage",maxquant:"MaxQuant",metamorpheus:"MetaMorpheus",msconvert:"ProteoWizard msconvert",casanovo:"Casanovo",primenovo:"PrimeNovo"};
     let mf="";
     miss.forEach(id=>{mf+="<div style='margin:2px 0'><b>"+(CORE_LABEL[id]||id)+"</b> <input id='mf_"+id+"' style='width:44%;min-width:220px;padding:3px 6px' placeholder='"+L("路径","path")+"'> <button class='pick' style='padding:3px 10px' onclick=\"mfBrowse('"+id+"','dir')\">&#128193; <span class='zh'>浏览</span><span class='pe'>Browse</span></button> <button class='pick' style='padding:3px 10px' onclick=\"mfApplyCore('"+id+"')\">&#10133; <span class='zh'>写入表单</span><span class='pe'>Apply</span></button></div>"});
     let extra="";
@@ -991,7 +991,7 @@ function stopPoll(){if(pollTimer){clearInterval(pollTimer);pollTimer=null}}
 // auto_search (open/restrict) and use_punifind (rescore/denovo) keys in the
 // pFind / pUniFind ecosystem block and are no longer added here, avoiding
 // duplicate-slot conflicts with the automatic registration.
-const ENGINE_TYPES=[{value:"pfind_open",label:"pFind open (b)"},{value:"pfind_restrict",label:"pFind restrict (c)"},{value:"punifind_rescore",label:"pUniFind re-score (d)"},{value:"punifind_denovo",label:"pUniFind de novo (e)"},{value:"comet",label:"Comet (f)"},{value:"mascot",label:"Mascot (g)"},{value:"maxquant",label:"MaxQuant (h)"},{value:"metamorpheus",label:"MetaMorpheus (i)"},{value:"msfragger",label:"MSFragger (j)"},{value:"msfragger_boost",label:"MSFragger boost (k)"},{value:"msfragger_open",label:"MSFragger open (l)"},{value:"peaks",label:"PEAKS (m)"},{value:"pnovo",label:"pNovo (n)"},{value:"sage",label:"Sage (o)"},{value:"xtandem",label:"X!Tandem (p)"},{value:"pfind_standard",label:"pFind standard (q)"}];
+const ENGINE_TYPES=[{value:"pfind_open",label:"pFind open (b)"},{value:"pfind_restrict",label:"pFind restrict (c)"},{value:"punifind_rescore",label:"pUniFind re-score (d)"},{value:"punifind_denovo",label:"pUniFind de novo (e)"},{value:"comet",label:"Comet (f)"},{value:"mascot",label:"Mascot (g)"},{value:"maxquant",label:"MaxQuant (h)"},{value:"metamorpheus",label:"MetaMorpheus (i)"},{value:"msfragger",label:"MSFragger (j)"},{value:"msfragger_boost",label:"MSFragger boost (k)"},{value:"msfragger_open",label:"MSFragger open (l)"},{value:"peaks",label:"PEAKS (m)"},{value:"pnovo",label:"pNovo (n)"},{value:"sage",label:"Sage (o)"},{value:"xtandem",label:"X!Tandem (p)"},{value:"pfind_standard",label:"pFind standard (q)"},{value:"casanovo",label:"Casanovo de novo (r)"},{value:"primenovo",label:"PrimeNovo de novo (s)"}];
 //  R2pFind 三臂与 pUniFind 两项改为与其他
 // 引擎同构的可选槽位行——旧"pFind/pUniFind 生态"块退场；Auto 行经
 // pfUniRowState() 派生 config_step1 键，Manual 行进 config_step2
@@ -1027,7 +1027,7 @@ const SLOT_NAMES={a:["pFind 原始","pFind original"],b:["pFind 开放式","pFin
 // auto-search-capable engines: their rows carry a software-path input, the
 // detected path can be one-click filled, and generation writes <engine>_exe
 // plus <engine>_mode=1 (parameters fall back to bundled templates)
-const AUTO_EXE_TYPES={maxquant:"maxquant",msfragger:"msfragger",comet:"comet",sage:"sage",metamorpheus:"metamorpheus",pfind_open:"pfind_exe",pfind_restrict:"pfind_exe",pfind_standard:"pfind_exe",punifind_rescore:"punifind_exe",punifind_denovo:"punifind_exe"};
+const AUTO_EXE_TYPES={maxquant:"maxquant",msfragger:"msfragger",comet:"comet",sage:"sage",metamorpheus:"metamorpheus",pfind_open:"pfind_exe",pfind_restrict:"pfind_exe",pfind_standard:"pfind_exe",punifind_rescore:"punifind_exe",punifind_denovo:"punifind_exe",casanovo:"casanovo",primenovo:"primenovo"};
 let detectCache=null;
 function getDetect(){if(detectCache)return Promise.resolve(detectCache);const st=document.getElementById("step2Msg");if(st)st.textContent=L("正在扫描本地安装位置（约 10–30 秒）…","scanning local installs (10–30 s)…");return detectFetch().then(r=>{detectCache=r||{ok:false};if(st&&st.textContent.indexOf("扫描")>=0)st.textContent=(r&&r.ok)?L("检测完成，已按类型回填软件路径","detection done, software paths filled by engine type"):L("检测失败","detection failed");return detectCache}).catch(()=>{detectCache={ok:false};if(st&&st.textContent.indexOf("扫描")>=0)st.textContent=L("检测失败","detection failed");return detectCache})}
 function fillDetectedExes(){const st=document.getElementById("step2Msg");getDetect().then(r=>{const e=(r&&r.engines)||{};let n=0;document.querySelectorAll("#extRows .srow").forEach(row=>{const sel=row.querySelector("select");const inp=row.querySelector(".ext-exe");if(!sel||!inp)return;const k=AUTO_EXE_TYPES[sel.value];if(k&&e[k]){inp.value=e[k];n++}});if(st)st.textContent=r&&r.ok?(n?(L("已填充 ","filled ")+n+L(" 个软件路径"," software path(s)")):L("未检出可自动搜库的软件路径","no auto-search software paths detected")):L("检测失败","detection failed");saveExtRows()})}
@@ -1038,7 +1038,7 @@ function initExtRows(){const saved=JSON.parse(localStorage.getItem("isopsv_ext_e
 function getActiveSlots(){const s={a:true};
   document.querySelectorAll("#extRows .srow").forEach(row=>{const sel=row.querySelector("select");if(sel&&sel.value){const l=extTypeToSlot(sel.value);if(l)s[l]=true}});
   updateRescoreHint();return s}
-function extTypeToSlot(t){const f={pfind_open:"b",pfind_restrict:"c",punifind_rescore:"d",punifind_denovo:"e",comet:"f",mascot:"g",maxquant:"h",metamorpheus:"i",msfragger:"j",msfragger_boost:"k",msfragger_open:"l",peaks:"m",pnovo:"n",sage:"o",xtandem:"p",pfind_standard:"q"};return f[t]||null}
+function extTypeToSlot(t){const f={pfind_open:"b",pfind_restrict:"c",punifind_rescore:"d",punifind_denovo:"e",comet:"f",mascot:"g",maxquant:"h",metamorpheus:"i",msfragger:"j",msfragger_boost:"k",msfragger_open:"l",peaks:"m",pnovo:"n",sage:"o",xtandem:"p",pfind_standard:"q",casanovo:"r",primenovo:"s"};return f[t]||null}
 function renderSlots(active){const bar=document.getElementById("slotBar");if(!bar)return;bar.innerHTML=SLOT_LETTERS.split("").map(l=>{const isOn=active&&active[l];return"<div class='slot "+(isOn?l:"off")+"'>"+l+"<span class='tip'>"+(SLOT_NAMES[l]?SLOT_NAMES[l][LANG==="zh"?0:1]:l)+(isOn?"":L(" (未配置)"," (unset)"))+"</span></div>"}).join("")}
 // v1.0每行引擎统一 Auto search / Manual search
 // 下拉——Auto 显示软件路径（MaxQuant 另需 raw，其余引擎自动用第一步 MGF），

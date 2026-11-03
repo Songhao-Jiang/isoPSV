@@ -125,6 +125,11 @@ infer_strategy_type <- function(sf) {
   if (grepl("pnovo", sf_dir, fixed = TRUE)) return("pnovo")
   if (grepl("restrict", sf_dir, fixed = TRUE)) return("pfind_restrict")
   if (grepl("standard", sf_dir, fixed = TRUE)) return("pfind_standard")
+  #：外部 de novo 引擎按目录名推断（casanovo/primenovo 文件夹）
+  if (grepl("casanovo", sf_dir, fixed = TRUE)) return("casanovo")
+  if (grepl("primenovo", sf_dir, fixed = TRUE)) return("primenovo")
+  if (grepl("primenovo", sf_name, fixed = TRUE)) return("primenovo")
+  if (grepl("casanovo", sf_name, fixed = TRUE)) return("casanovo")
   if (grepl("_punifind", sf_name, fixed = TRUE)) return("punifind_rescore")
   "pfind_open"
 }
@@ -155,6 +160,9 @@ resolve_per_type <- function(sf, ty) {
       peaks = "(\\.csv$|\\.tsv$)",
       mascot = "(\\.csv$|\\.dat$)",
       pnovo = "\\.csv$",
+      #：外部 de novo 引擎的产物（mzTab / denovo.tsv / 已转换 .spectra）
+      casanovo = "(\\.mztab$|casanovo.*\\.spectra$)",
+      primenovo = "(denovo\\.tsv$|primenovo.*\\.spectra$)",
       "\\.spectra$")
     fs <- unique(list.files(sf, pattern = pat, recursive = TRUE, full.names = TRUE))
     fs <- fs[!dir.exists(fs)]
@@ -216,6 +224,39 @@ for (k in seq_along(search_files)) {
       search_files[[k]] <- converted_spectra
       cat("punifind_denovo csv -> spectra:", search_files[[k]], "\n")
     }
+  }
+  #：手动登记的外部 de novo 结果转换——primenovo 的 denovo.tsv
+  # 自带 MGF 标题可直接转换；casanovo 的 mzTab 只有谱序号（需源 MGF 回映射），
+  # 手动模式要求直接登记转换好的 .spectra（转换命令见 installation.md）。
+  #: manual external de novo conversions - a primenovo denovo.tsv
+  # carries MGF titles and converts standalone; a casanovo mzTab holds only
+  # spectrum indices (source-MGF remap needed), so manual casanovo entries
+  # must point at the converted .spectra (command in installation.md).
+  if (identical(as.character(search_types[[k]]), "primenovo") &&
+      grepl("denovo\\.tsv$", search_files[[k]], ignore.case = TRUE)) {
+    conv_f <- file.path(rev_dir, paste0("primenovo_", basename(search_files[[k]]),
+                                        ".spectra"))
+    st_c <- suppressWarnings(system2(
+      file.path(R.home("bin"), "Rscript"),
+      # 本块 cwd 即 code_dir（L66 起）——转换件用 ASCII 相对名，免疫中文路径
+      # this block already runs with cwd = code_dir - ASCII relative name
+      c(shQuote("search_adapter_denovo.R"),
+        "--convert", "primenovo",
+        "--in", shQuote(search_files[[k]]), "--out", shQuote(conv_f))))
+    if (identical(st_c, 0L) && file.exists(conv_f)) {
+      search_files[[k]] <- conv_f
+      cat("primenovo tsv -> spectra:", conv_f, "\n")
+    } else {
+      cat("primenovo tsv 转换失败，跳过：", search_files[[k]], "\n")
+      drop_indices <- c(drop_indices, k)
+    }
+  }
+  if (identical(as.character(search_types[[k]]), "casanovo") &&
+      grepl("\\.mztab$", search_files[[k]], ignore.case = TRUE)) {
+    cat("[待办] casanovo 手动登记需 .spectra（mzTab 只有谱序号，须用源 MGF 转换）：\n",
+        "  Rscript search_adapter_denovo.R --convert casanovo --in <mztab> --mgf <源mgf> --out <out.spectra>\n",
+        "[Todo] manual casanovo entries need the converted .spectra (an mzTab only has spectrum indices): command above\n")
+    drop_indices <- c(drop_indices, k)
   }
 }
 if (length(drop_indices)) {
@@ -2284,7 +2325,189 @@ ul_ch_auto <- if (!is.null(base_cfg$unlabeled_channel) && length(base_cfg$unlabe
   tail(base_cfg$unlabeled_channel, 1) else "1"
 label_mass_auto <- if (!identical(ul_ch_auto, "1"))
   label_mod_masses(parse_label_spec(base_cfg$label_type)$mods) else NULL
-for (eng in c("msfragger", "comet", "sage", "metamorpheus", "msfragger_boost", "maxquant")) {
+
+#：外部 de novo 引擎（Casanovo / PrimeNovo）自动运行——与搜库引擎
+# 不同，无 fasta/酶切/参数模板概念：exe＝引擎可执行体或安装文件夹
+# （casanovo：casanovo.exe 或其环境文件夹，自动找 Scripts/casanovo.exe；
+# primenovo：repo 根目录，实际命令为 python -m PrimeNovo.PrimeNovo，python
+# 取 primenovo_python 键、缺省 python），params＝模型 ckpt 路径
+# （casanovo 可空＝默认模型会联网下载，建议填本地 .ckpt）。逐 MGF 运行后经
+# search_adapter_denovo.R 转成三列 .spectra；指纹侧车（exe/ckpt/mgf 数）复用。
+#: auto-run for the external de novo engines - no fasta/enzyme/
+# template notion: exe = executable or install folder (casanovo: casanovo.exe
+# or its env folder, Scripts\casanovo.exe auto-found; primenovo: the repo
+# root, invoked as python -m PrimeNovo.PrimeNovo with primenovo_python,
+# defaulting to python); params = model checkpoint path (empty for casanovo
+# means the default model, which downloads online - a local .ckpt is
+# recommended). Each MGF is converted by search_adapter_denovo.R into the
+# three-column .spectra; an exe/ckpt/mgf-count sidecar gates reuse.
+denovo_engine_auto_run <- function(engine, exe, ckpt, mode, mgfs, work_dir,
+                                   code_dir, python_exe = "python") {
+  if (!identical(mode, "1")) return(character(0))
+  if (length(exe) == 0 || !nzchar(exe) || !length(mgfs)) return(character(0))
+  dir.create(work_dir, recursive = TRUE, showWarnings = FALSE)
+  out_spec <- file.path(work_dir, paste0(engine, "_auto.spectra"))
+  newest_mgf <- max(file.mtime(mgfs))
+  ck <- if (length(ckpt) > 0 && nzchar(ckpt) && file.exists(ckpt)) ckpt else ""
+  rp_file <- file.path(work_dir, paste0(engine, "_auto.run_params"))
+  ck_stat <- if (nzchar(ck)) file.info(ck) else NULL
+  rp_want <- c(paste0("engine=", engine),
+               paste0("exe=", normalizePath(exe, winslash = "/")),
+               if (!is.null(ck_stat))
+                 paste0("ckpt=", format(ck_stat$mtime, "%Y-%m-%d %H:%M:%OS3"), "|", ck_stat$size) else "ckpt=",
+               paste0("nmgf=", length(mgfs)))
+  rp_ok <- file.exists(rp_file) &&
+    identical(trimws(readLines(rp_file, warn = FALSE)), rp_want)
+  if (file.exists(out_spec) && file.mtime(out_spec) >= newest_mgf && rp_ok) {
+    cat("[", engine, " 自动] 产物存在且较新，复用：", out_spec, "\n", sep = "")
+    cat("[", engine, " auto] output exists and is fresh, reuse: ", out_spec, "\n", sep = "")
+    return(out_spec)
+  }
+  adapter <- file.path(code_dir, "search_adapter_denovo.R")
+  if (!file.exists(adapter)) {
+    cat("[", engine, " 自动] 转换件缺失：", adapter, "\n", sep = "")
+    cat("[", engine, " auto] converter missing: ", adapter, "\n", sep = "")
+    return(character(0))
+  }
+  # ---- 引擎可执行解析 / command resolution ----
+  run_cmd <- ""; repo_dir <- ""; pn_args <- character(0)
+  if (identical(engine, "casanovo")) {
+    run_cmd <- exe
+    if (dir.exists(exe)) {
+      cand <- c(file.path(exe, "Scripts", "casanovo.exe"),
+                file.path(exe, "casanovo.exe"))
+      hit <- cand[file.exists(cand)]
+      if (length(hit) == 0) {
+        cat("[casanovo 自动] 文件夹内未找到 casanovo.exe（找过 Scripts\\casanovo.exe）：", exe, "\n")
+        cat("[casanovo auto] casanovo.exe not found under (Scripts\\casanovo.exe tried): ", exe, "\n")
+        return(character(0))
+      }
+      run_cmd <- hit[1]
+    }
+  } else {
+    repo_dir <- exe
+    py_exe_dn <- python_exe
+    repo_dn <- ""
+    #：ssh 形态时 exe 即远端 repo 根（~/pi-PrimeNovo）——本地目录
+    # 校验跳过；本地形态仍要求 repo 目录存在
+    #: with the ssh form exe IS the remote repo root - the local
+    # directory check is skipped; the local form still requires the repo dir
+    if (!startsWith(paste0(py_exe_dn, ""), "ssh:") &&
+        !dir.exists(file.path(repo_dir, "PrimeNovo"))) {
+      cat("[primenovo 自动] exe 应为 pi-PrimeNovo 仓库根目录（内含 PrimeNovo/ 包）：", repo_dir, "\n")
+      cat("[primenovo auto] exe must be the pi-PrimeNovo repo root (containing PrimeNovo/): ", repo_dir, "\n")
+      return(character(0))
+    }
+    if (!nzchar(ck)) {
+      cat("[primenovo 自动] 需在 primenovo_params 填模型 ckpt 路径（model_massive.ckpt）\n")
+      cat("[primenovo auto] fill primenovo_params with the model ckpt path (model_massive.ckpt)\n")
+      return(character(0))
+    }
+    # ssh 形态：repo_dn 从 exe 取（远端路径字符串，非本地路径）
+    if (startsWith(paste0(py_exe_dn, ""), "ssh:")) repo_dn <- repo_dir
+    run_cmd <- python_exe
+    pn_args <- c("-m", "PrimeNovo.PrimeNovo")
+  }
+  # ---- 逐 MGF 运行＋转换 / per-MGF run + convert ----
+  conv_files <- character(0); n_fail <- 0L
+  for (mi in seq_along(mgfs)) {
+    mgf_abs <- normalizePath(mgfs[mi], winslash = "/")
+    stem <- paste0(engine, "_", sub("\\.[^.]*$", "", basename(mgfs[mi])))
+    # 捕获日志用 .run.log——casanovo 自己会在 -d 目录写 <stem>.log（输出根名
+    # 同名），同名会被本侧 stdout 重定向锁住、引擎端 PermissionError
+    # capture log uses .run.log - casanovo itself writes <stem>.log in -d with
+    # the same root name, and a shared name is locked by our own redirection
+    log_f <- file.path(work_dir, paste0(stem, ".run.log"))
+    conv_f <- file.path(work_dir, paste0(stem, ".spectra"))
+    if (identical(engine, "casanovo")) {
+      args <- c("sequence", shQuote(mgf_abs), "-d", shQuote(work_dir),
+                "-o", stem, "--force_overwrite")
+      if (nzchar(ck)) args <- c(args, c("-m", shQuote(normalizePath(ck, winslash = "/"))))
+      st <- suppressWarnings(system2(run_cmd, args, stdout = log_f, stderr = log_f))
+      raw <- file.path(work_dir, paste0(stem, ".mztab"))
+    } else {
+      #：primenovo_python 以 ssh:user@host 形态时走 SSH 驱动桥
+      # （PrimeNovo 部署在 Linux 主机/VM；MGF 推远端→远端跑→tsv 拉回，
+      # 公钥免密；本地 python 路线不变）。驱动＝predictors/primenovo_ssh_driver.py
+      #: an ssh:user@host primenovo_python takes the SSH driver bridge
+      # (PrimeNovo on a Linux host/VM; MGF pushed, run remotely, tsv pulled
+      # back via pubkey auth; the local-python route is unchanged).
+      if (startsWith(paste0(py_exe_dn, ""), "ssh:")) {
+        ssh_host <- substring(py_exe_dn, 5)
+        drv <- file.path(code_dir, "predictors", "primenovo_ssh_driver.py")
+        py_host <- if (nzchar(python_exe) && !startsWith(python_exe, "ssh:"))
+                     python_exe else "~/miniconda3/envs/primenovo/bin/python"
+        args <- c("--host", ssh_host,
+                  "--mgf", shQuote(mgf_abs),
+                  "--model", shQuote(normalizePath(ck, winslash = "/")),
+                  "--out", shQuote(normalizePath(
+                    file.path(work_dir, paste0(stem, ".tsv")), winslash = "/")),
+                  "--repo", shQuote(if (nzchar(repo_dn)) repo_dn else "~/pi-PrimeNovo"),
+                  "--python", shQuote(py_host))
+        st <- suppressWarnings(system2(
+          file.path(R.home("bin"), "Rscript"),
+          c("--vanilla", "-e", shQuote(paste0(
+            "system2(command='", normalizePath(Sys.which("python"), winslash="/"),
+            "', args=c(", paste0("'", gsub("'", "\\\\'", args), "'", collapse=","), "))"))),
+          stdout = log_f, stderr = log_f))
+        raw <- file.path(work_dir, paste0(stem, ".tsv"))
+      } else {
+      old_wd <- getwd(); setwd(repo_dir)
+      args <- c(pn_args, "--mode=denovo",
+                "--peak_path", shQuote(mgf_abs),
+                "--model", shQuote(normalizePath(ck, winslash = "/")))
+      st <- suppressWarnings(system2(run_cmd, args, stdout = log_f, stderr = log_f,
+                                      env = "PYTHONNOUSERSITE=1"))
+      setwd(old_wd)
+      raw <- file.path(work_dir, paste0(stem, ".tsv"))
+      if (file.exists(file.path(repo_dir, "denovo.tsv")))
+        file.rename(file.path(repo_dir, "denovo.tsv"), raw)
+      }
+    }
+    if (!identical(st, 0L) || !file.exists(raw)) {
+      n_fail <- n_fail + 1L
+      cat("[", engine, " 自动] ", basename(mgfs[mi]), " 运行失败（exit ", st, "），日志：", log_f, "\n", sep = "")
+      cat("[", engine, " auto] ", basename(mgfs[mi]), " failed (exit ", st, "), log: ", log_f, "\n", sep = "")
+      next
+    }
+    cargs <- c("--convert", engine, "--in", shQuote(normalizePath(raw, winslash = "/")),
+               "--out", shQuote(normalizePath(conv_f, winslash = "/")))
+    if (identical(engine, "casanovo"))
+      cargs <- c(cargs, c("--mgf", shQuote(mgf_abs)))
+    # 转换件以纯 ASCII 相对名传入（setwd 到 code_dir）——安装路径可能含中文，
+    # C locale 会话里 UTF-8 标记的命令行无法译成原生编码（system2 直接报
+    # unable to translate）；相对名对任意 locale 免疫。
+    # the converter is passed as a pure-ASCII relative name (setwd to
+    # code_dir): install paths may hold Chinese, and a UTF-8-marked command
+    # line cannot translate to a C-locale native encoding (system2 raises
+    # "unable to translate"); the relative name is immune to any locale.
+    old_wd2 <- getwd(); setwd(code_dir)
+    cst <- suppressWarnings(system2(file.path(R.home("bin"), "Rscript"),
+                                    c(shQuote(basename(adapter)), cargs),
+                                    stdout = log_f, stderr = log_f))
+    setwd(old_wd2)
+    if (identical(cst, 0L) && file.exists(conv_f)) conv_files <- c(conv_files, conv_f)
+    else n_fail <- n_fail + 1L
+  }
+  if (length(conv_files) == 0) {
+    cat("[", engine, " 自动] 全部 MGF 失败（", n_fail, "），本引擎不参与本轮合并\n", sep = "")
+    cat("[", engine, " auto] all MGF runs failed (", n_fail, "), engine excluded from this merge\n", sep = "")
+    return(character(0))
+  }
+  # 合并各 MGF 的三列表为一个策略件 / combine per-MGF tables into one strategy file
+  comb <- do.call(rbind, lapply(conv_files, function(f)
+    read.delim(f, stringsAsFactors = FALSE, check.names = FALSE, na.strings = character(0))))
+  comb <- comb[!duplicated(comb$File_Name),, drop = FALSE]
+  write.table(comb, out_spec, sep = "\t", row.names = FALSE, quote = FALSE)
+  writeLines(rp_want, rp_file, useBytes = TRUE)
+  cat("[", engine, " 自动] 完成：", nrow(comb), " 谱（失败 MGF ", n_fail,
+      "）-> ", out_spec, "\n", sep = "")
+  cat("[", engine, " auto] done: ", nrow(comb), " spectra (failed MGFs ", n_fail,
+      ") -> ", out_spec, "\n", sep = "")
+  out_spec
+}
+for (eng in c("msfragger", "comet", "sage", "metamorpheus", "msfragger_boost", "maxquant",
+              "casanovo", "primenovo")) {
   #：引擎 exe 生效值与来源入日志（外部测试机 实测：sage_exe 指向
   # MaxQuantCmd.exe 时，旧日志只有逐文件"引擎失败（exit 1）"、配错不可见）
   r_e <- cfg_get_preferred(base_cfg, cfg2, paste0(eng, "_exe"), "")
@@ -2295,6 +2518,19 @@ for (eng in c("msfragger", "comet", "sage", "metamorpheus", "msfragger_boost", "
   cat("[", eng, " 自动] ", eng, "_exe = ", exe_v,
       if (nzchar(r_e$source)) paste0("（来源：", r_e$source, "）") else "",
       " / mode = ", mod_v, "\n", sep = "")
+  #：de novo 外部引擎走专用路线（无模板概念），转换后并入合并
+  #: de novo engines take the dedicated route (no template notion)
+  if (eng %in% c("casanovo", "primenovo")) {
+    wd_dn <- file.path(cfg2$config_dir, paste0(eng, "_auto"))
+    py_pn <- cfg_get("primenovo_python", "")
+    sp_dn <- denovo_engine_auto_run(eng, exe_v, prm_v, mod_v, mgfs_auto, wd_dn,
+                                    code_dir, python_exe = if (nzchar(py_pn)) py_pn else "python")
+    if (length(sp_dn) > 0) {
+      auto_files <- c(auto_files, sp_dn)
+      auto_types <- c(auto_types, eng)
+    }
+    next
+  }
   # 网页版只填 <engine>_exe 时按内置模板回退
   # fall back to the bundled template when the web only filled <engine>_exe
   if (!nzchar(prm_v)) {
@@ -2505,7 +2741,10 @@ pt_mark("自动提取 SAP 清单", "extract SAP index")
 # letter naturally; denovo slots (punifind_denovo) get the database look-back
 # at merge time.
 slot_letters <- strategy_slots(search_types)
-denovo_slots <- slot_letters[search_types == "punifind_denovo"]
+#：casanovo/primenovo 与 pUniFind denovo 同为 denovo 槽（库回帖）
+#: casanovo/primenovo join punifind_denovo as look-back slots
+denovo_slots <- slot_letters[search_types %in%
+  c("punifind_denovo", "casanovo", "primenovo")]
 # denovo 回帖模式keep＝仅保留能回帖的（默认）；
 # all＝放开全部（no_match 的 denovo 序列带标记参与竞争，SAP 类变异可进仲裁）
 # denovo look-back mode keep = only matching survive
