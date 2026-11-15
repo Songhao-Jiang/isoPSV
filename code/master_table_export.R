@@ -145,6 +145,20 @@ if (nzchar(tb_raw)) {
   cat("[per-label] threshold_B override: ", tau_v, "\n")
 }
 
+# （工作站 171 报告 #1）：主表段阶段标记——该段多轮 3h+ 静默、
+# 两次无声死亡（T@168/13:30 L），各阶段边界打一行进度＋内存，下次静默
+# 死亡可定位到段。
+#  (workstation 171-round #1): stage marks for the master-table
+# segment - multiple 3h+ silent runs and two soundless deaths; one
+# progress+memory line per stage boundary localizes the next one.
+.mt_t0 <- proc.time()[3]
+mt_stage <- function(nm) {
+  cat(sprintf("[主表/阶段] %s（已用 %.0fs，R 占用 %.1f GB）
+",
+              nm, proc.time()[3] - .mt_t0, sum(gc()[, 2]) / 1024))
+  flush.console()
+}
+mt_stage("读谱图全集")
 # ---- 谱图全集：阶段 A 报告（每张已鉴定谱一行，含候选与无标记指标）----
 # ---- the spectrum universe: the stage-A report (one row per identified
 # spectrum with the candidates and the unlabeled metrics)
@@ -174,6 +188,7 @@ NSLOT <- length(grep("^[a-z]\\.Sequence$", names(p), value = TRUE))
 if (NSLOT == 0) NSLOT <- 1L
 n <- nrow(p)
 
+mt_stage("冲突行定位")
 # ---- 冲突行定位：成对报告（阶段 B）与冲突报告按 File_Name 对齐 ----
 # ---- conflict-row mapping: align the paired report (stage B) and the conflict
 # report by File_Name onto the stage-A rows
@@ -198,6 +213,7 @@ cval <- function(df, cn, dflt = "-") {                         # 缺失列/行�
   x
 }
 
+mt_stage("指标解析")
 # ---- 指标解析（无标记指标来自阶段 A 报告；标记指标来自成对报告）----
 # ---- metric parsing (unlabeled metrics from the stage-A report; labeled
 # metrics from the paired report)
@@ -308,6 +324,7 @@ labL <- lapply(seq_len(n), function(i) {
       character(0)
 })
 
+mt_stage("逐谱打分判定")
 # ---- 逐谱打分与判定（仅冲突行；无差异行结论留空、保持原始）----
 # ---- per-spectrum scoring and judgment (conflict rows only; non-conflict rows
 # keep the original with blank conclusion columns)
@@ -357,6 +374,7 @@ cov_below20 <- vapply(seq_len(n), function(i) {
 }, logical(1))
 
 
+mt_stage("蛋白定位")
 # ---- 蛋白与前后氨基酸定位（I/L 等价去重＋搜库 FASTA 直接定位＋互换前继承）----
 # ---- protein and flanking-residue mapping (I/L-equivalence dedup + direct
 # search in the search FASTA + pre-swap inheritance)
@@ -443,6 +461,7 @@ inherit_loc <- function(a, b, loc1) {
   loc1
 }
 
+mt_stage("diff_type 分类")
 # ---- diff_type 分类树（与 5.全谱主表v2.R 同口径）----
 # ---- the diff_type classification tree (same definition as the panel-f
 # master-table script)
@@ -525,6 +544,7 @@ aa_cancel <- function(s1, s2) {
   list(l = sort(unname(k1)), r = sort(unname(k2)))
 }
 
+mt_stage("嵌合特异比例")
 # ---- 嵌合特异比例（ALL_MGF 可用且行标记为 chimeric 时计算）----
 # ---- chimeric specific-ratio (computed when ALL_MGF is available and the row
 # is flagged chimeric)
@@ -626,6 +646,7 @@ spec_ratio <- function(i, k) {                                 # 与 cand1 相�
   sprintf("%.4f", min(rk, r1))
 }
 
+mt_stage("逐行组装")
 # ---- 逐行组装 94 列主表 ----
 # ---- assemble the 94-column master table row by row
 cand_raw <- strsplit(as.character(p$candidates), "|", fixed = TRUE)
@@ -661,6 +682,7 @@ if (nzchar(fasta_file) && file.exists(fasta_file)) {
     cat(sprintf("[主表导出] 蛋白定位预计算 %d 条唯一序列完成\n", length(all_sq)))
   }
 }
+mt_stage("分道竞争")
 # ---- 混合谱与非混合谱分道竞争--------------------
 # 把每个冲突行的候选按"与 cand1 的特异离子比例"分成两道：比例 ≥0.1 的候选
 # 为混合谱竞争者（D/E 道），其余为非混合谱竞争者（B/C 道）。两道各自按同一
@@ -956,6 +978,7 @@ for (i in seq_len(n)) {
 }
 mt <- do.call(rbind, rows)
 
+mt_stage("最小特异比例列")
 # ---- 最小特异子离子比例列（cand2..5 与 cand1 相比的最小值；无竞争为空）----
 # ---- the minimum specific-ion-ratio column (minimum of the cand2..5 vs cand1
 # specific ratios; blank when there is no competitor)
@@ -965,6 +988,7 @@ if (length(spec_cols) > 0) mt$min_specific_ratio <- apply(mt[, spec_cols, drop =
   if (length(x) == 0) "" else sprintf("%.4f", min(as.numeric(x)))
 })
 
+mt_stage("列序定稿")
 # ---- 列序定稿（与 8.衣藻全谱主表.txt 一致）----
 # ---- finalize the column order (identical to 8.衣藻全谱主表.txt)
 cand_block <- function(k) {
@@ -1007,6 +1031,7 @@ for (j in which(loc_cols)) {
   mt[[j]] <- gsub("-", "_", mt[[j]], fixed = TRUE)
 }
 
+mt_stage("新肽五列")
 # ---- 新肽段五列证据/状态----
 # 对原始鉴定蛋白不在用户 FASTA 内的行（新肽段部分）计算并随主表写出：
 #   n_frag＝新肽段匹配子离子数（b/y 位点 1..n-1 中有命中的位数）；
@@ -1239,6 +1264,7 @@ if (!is.null(fa_path2) && file.exists(fa_path2)) {
 }
 
 out_f <- file.path(result_dir, "2.labeled_result", "master_table.tsv")
+mt_stage("写出 master_table")
 write.table(mt, out_f, sep = "\t", row.names = FALSE, quote = FALSE,
             fileEncoding = "UTF-8", na = "")
 cat(sprintf("[主表导出] master_table.tsv：%d 行 %d 列（冲突行 %d；无差异行 %d；%s）\n",

@@ -47,9 +47,32 @@ source(file.path(sd0, "boot.R"))
 # pf_run undefined and faking an auto-rescore failure. readLines+parse+eval is
 # semantically identical.
 source_utf8 <- function(path) {
+  # （D8，NTM 实测）：Mch 子集在动态 parse 阶段
+  # "invalid multibyte character in parser" 整体退出且无法定位（只有
+  # <input>:28:46）——readLines(encoding="UTF-8") 对含 GBK 字节的源产出
+  # 非法 UTF-8 字符串。兜底：逐行 iconv GBK→UTF-8 清洗（ASCII 恒等），
+  # parse 失败时打印源文件与出错行上下文再抛错。
+  #  (D8, NTM live fire): the Mch subsets died at the dynamic parse
+  # stage with "invalid multibyte character" and no locatable context - 
+  # readLines(encoding="UTF-8") yields invalid UTF-8 strings for sources
+  # carrying GBK bytes. Fallback: per-line iconv GBK->UTF-8 (ASCII identical),
+  # and on parse failure print the source file and the offending lines.
   l <- readLines(path, warn = FALSE, encoding = "UTF-8")
-  eval(parse(text = paste(l, collapse = "
-")), envir = globalenv())
+  l <- vapply(l, function(x) {
+    x2 <- iconv(x, from = "GBK", to = "UTF-8")
+    if (is.na(x2)) x else x2
+  }, character(1), USE.NAMES = FALSE)
+  txt <- paste(l, collapse = "\n")
+  p <- tryCatch(parse(text = txt), error = function(e) {
+    ln <- sub("^<input>:(\\d+):.*$", "\\1", conditionMessage(e))
+    li <- suppressWarnings(as.integer(ln))
+    ctx <- if (!is.na(li) && li >= 1 && li <= length(l))
+      paste0("line ", li, ": ", substr(l[max(1, li - 2):min(length(l), li + 2)],
+                                     1, 120), collapse = "\n") else ""
+    stop("[source_utf8] parse 失败：", path, "\n[source_utf8] parse failed: ",
+         conditionMessage(e), "\n", ctx, "\n")
+  })
+  eval(p, envir = globalenv())
 }
 
 
@@ -410,14 +433,47 @@ run_pfind_auto <- function(cfg_tpl) {
   #: fingerprint now includes label_type (fixmod source) - label edits
   # must force a re-search; enzyme/fasta/template alone reused stale fixmod.
   lt_fp <- { v <- base_cfg$label_type
-             if (!is.null(v) && length(v) > 0)
-               paste(trimws(as.character(v)), collapse = "|") else "" }
+    if (!is.null(v) && length(v) > 0)
+      paste(trimws(as.character(v)), collapse = "|") else "" }
+  # 指纹加 FASTA 内容 md5——
+  # restrict 臂的 FASTA＝候选肽库每轮重建，旧指纹只存路径：同路径换候选集
+  # 时**陈旧复用**旧结果（上错证据进仲裁），换路径时全量重搜（性能抱怨）。
+  # md5 同时实现意见诉求的"候选集 hash 缓存"（改卡值不改候选集→秒级复用）。
+  # 迁移安全：存量项目的旧侧车无 fasta_md5 行——其余字段全等且产物不旧于
+  # fasta 时放行并原地升级侧车，不付一次性重搜。
+  #  (NTM opinion P1-2 rework, correctness first): the fingerprint
+  # gains the FASTA content md5 - the restrict arm's FASTA is the candidate
+  # library rebuilt every run, and the old path-only fingerprint silently
+  # reused STALE results when candidates changed at the same path, or forced
+  # a full re-search when the path changed. The md5 also delivers the
+  # requested candidate-set caching (threshold tweaks reuse instantly).
+  # Migration-safe: legacy sidecars without fasta_md5 pass when every other
+  # field matches and the products are not older than the fasta; the sidecar
+  # is upgraded in place with no one-time re-search.
+  fa_md5 <- if (nzchar(fasta_path) && file.exists(fasta_path))
+    unname(tools::md5sum(fasta_path)) else "missing"
+  fa_stat <- if (nzchar(fasta_path) && file.exists(fasta_path))
+    file.info(fasta_path) else NULL
   fp_lines <- c(paste0("enzyme=", en_fp),
                 paste0("fasta=", fasta_path),
+                paste0("fasta_md5=", fa_md5),
                 paste0("label=", lt_fp),
                 paste0("tpl=", format(tpl_stat$mtime, "%Y-%m-%d %H:%M:%OS3"), "|", tpl_stat$size))
-  rp_ok <- file.exists(rp_file) &&
-    identical(trimws(readLines(rp_file, warn = FALSE)), fp_lines)
+  rp_old <- if (file.exists(rp_file)) trimws(readLines(rp_file, warn = FALSE)) else character(0)
+  rp_ok <- identical(rp_old, fp_lines)
+  if (!rp_ok && length(rp_old) > 0 && !any(grepl("^fasta_md5=", rp_old))) {
+    # 旧格式迁移放行（其余字段全等＋产物 mtime ≥ fasta mtime）
+    # legacy-format pass-through (all other fields equal + product mtime >= fasta)
+    core_ok <- setequal(rp_old, fp_lines[!grepl("^fasta_md5=", fp_lines)])
+    fresh_ok <- is.null(fa_stat) || is.na(fa_stat$mtime) ||
+      (length(cand0) > 0 &&
+       max(file.info(cand0)$mtime) >= fa_stat$mtime - 1)
+    if (core_ok && fresh_ok) {
+      rp_ok <- TRUE
+      cat("[pFind] 指纹侧车迁移：旧格式匹配（其余字段全等、产物新于库），补 fasta_md5 放行\n")
+      cat("[pFind] fingerprint sidecar migration: legacy format matched, fasta_md5 added\n")
+    }
+  }
   # N-18MGF 新鲜度（容差 1s）——MGF 比产物新则不复用
   mgf_newest <- if (length(mgfs)) max(file.info(mgfs)$mtime) else NA
   cand_mtime <- if (length(cand0)) max(file.info(cand0)$mtime) else NA
@@ -427,7 +483,19 @@ run_pfind_auto <- function(cfg_tpl) {
     flt0 <- cand0[grepl("Filtered", basename(cand0))]
     cat("pFind 结果已存在，直接复用：", out_dir_auto, "\n")
     cat("reusing existing pFind result: ", out_dir_auto, "\n")
-    return(if (length(flt0) > 0) tail(flt0, 1) else tail(cand0, 1))
+    # 复用路径同样判空——零行产物曾被无限复用
+    # （上游坏跑留下的毒件）；首两行 O(1) 读，只拦"表头孤件"。
+    #  (NTM opinion P2-1): the reuse path checks emptiness too - a
+    # zero-row product left by a broken run was being reused forever; an O(1)
+    # two-line read catches the header-only case.
+    pick0 <- if (length(flt0) > 0) flt0 else cand0
+    res0 <- pick0[length(pick0)]
+    h0 <- readLines(res0, n = 2L, warn = FALSE)
+    if (length(h0) < 2L)
+      stop("[pFind] 复用件为空（0 PSM，疑上游坏跑残留）：", res0,
+           "\n[pFind] reuse candidate is empty (0 PSM, likely a broken-run leftover): ",
+           res0, "\n删除该产物后重跑可强制重新搜库")
+    return(res0)
   }
   if (length(cand0) > 0 && !rp_ok) {
     cat("pFind 检测到参数变化（enzyme/fasta/模板），将重新搜库\n")
@@ -476,12 +544,23 @@ run_pfind_auto <- function(cfg_tpl) {
   if (length(i_out) == 1) lines[i_out] <- paste0("outputpath=", out_dir_auto, "\\")
   i_name <- which(grepl("^outputname=", lines))
   if (length(i_name) == 1) lines[i_name] <- paste0("outputname=", outputname)
-  # 线程数写死为总核数-1（覆盖模板 cfg 里的 thread 值）：留一核给系统与交互
-  # （GUI/网页壳子/其他程序），pFind 搜库期间机器保持可用、不会满负荷卡死
-  # threads are pinned to total cores - 1 (overriding the template cfg's thread
-  # value): one core stays free for the OS and interactivity (GUI / web shell /
-  # other programs), so the machine stays usable during the pFind search
-  thread_n <- max(parallel::detectCores() - 1L, 1L)
+  # 线程数：默认总核数-1（覆盖模板 cfg 里的 thread 值）——留一核给系统与交互；
+  # 不再写死——pfind_workers>1 时自动摊薄
+  # ((cores-1)/workers)，pfind_thread 键显式覆盖（用户自担不留核）。
+  # threads default to total cores - 1 (overriding the template's thread value,
+  # keeping one core for the OS);  (NTM opinion P0-2): no longer pinned -
+  # divided across workers when pfind_workers>1, or overridden by the
+  # pfind_thread key (the no-core-left tradeoff then belongs to the user).
+  pw_thr <- suppressWarnings(as.integer(tail(c("1", base_cfg$pfind_workers), 1)))   # （D2）：默认值在前，tail(,1) 才能取到键值
+  if (is.na(pw_thr) || pw_thr < 1L) pw_thr <- 1L
+  thr_exp <- suppressWarnings(as.integer(tail(c("", base_cfg$pfind_thread), 1)))   # （D2）
+  thread_n <- if (!is.na(thr_exp) && thr_exp >= 1L) thr_exp else
+    if (pw_thr > 1L) max(2L, (parallel::detectCores() - 1L) %/% pw_thr) else
+      max(parallel::detectCores() - 1L, 1L)
+  cat("[pFind] threads=", thread_n, " workers=", pw_thr, "（来源：",
+      if (!is.na(thr_exp) && thr_exp >= 1L) "pfind_thread 键" else
+        if (pw_thr > 1L) "自动摊薄 (cores-1)/workers" else "默认 cores-1",
+      "）\n", sep = "")
   i_thr <- which(grepl("^thread=", lines))
   if (length(i_thr) == 1) {
     lines[i_thr] <- paste0("thread=", thread_n)
@@ -551,6 +630,26 @@ run_pfind_auto <- function(cfg_tpl) {
   # ② maxmod = 4
   i_mm <- which(grepl("^maxmod=", lines))
   if (length(i_mm) == 1) lines[i_mm] <- "maxmod=4"
+  # estrict_maxmod 键——限定式臂可降 maxmod 提速
+  # （NTM 实测 restrict ~181min/18 MGF 为全流程瓶颈）；科学参数默认 4 不动，
+  # 启用前须按意见的 A/B 协议验证：已完成子集用新值重跑，KEEP/DROP 判定
+  # 翻转必须 = 0，有翻转则列出多修饰肽复核。open 臂不受此键约束。
+  #  (NTM opinion P1-1): the restrict_maxmod key lets the restricted
+  # arm lower maxmod for speed (restrict is the whole-pipeline bottleneck in
+  # the NTM measurement); the scientific default stays 4 - enabling requires
+  # their A/B protocol first: rerun a finished subset, KEEP/DROP flips must be
+  # zero, any flip gets its multi-mod peptides listed for review. The open arm
+  # ignores this key.
+  if (grepl("restrict", outputname, ignore.case = TRUE)) {
+    rm_v <- suppressWarnings(as.integer(tail(c("", base_cfg$restrict_maxmod), 1)))   # （D2）
+    if (!is.na(rm_v) && rm_v >= 0L && rm_v <= 4L && length(i_mm) == 1L) {
+      lines[i_mm] <- paste0("maxmod=", rm_v)
+      cat("[pFind] restrict maxmod -> ", rm_v,
+          "（restrict_maxmod 键；默认 4，启用前先按 A/B 协议验证 KEEP/DROP 翻转=0）\n", sep = "")
+      cat("[pFind] restrict maxmod -> ", rm_v,
+          " (restrict_maxmod key; default 4, verify zero KEEP/DROP flips via the A/B protocol first)\n", sep = "")
+    }
+  }
   # ③ min_pep_len / ms1_ppm / ms2_ppm
   val_len <- if (!is.null(base_cfg$min_pep_len) && length(base_cfg$min_pep_len) > 0)
     suppressWarnings(as.integer(tail(base_cfg$min_pep_len, 1))) else NA_integer_
@@ -619,16 +718,52 @@ unknown enzyme type: ", trimws(en_v[1]))
   con <- file(cfg_run, open = "w", encoding = "GBK")
   writeLines(lines, con)
   close(con)
+  #：探活上提（原定义在单实例分支内）——并行分支同样需要（统一
+  # 轮询的完成判据＝任何 Searcher/PSSearcher 退出且产物在场；launcher 先退
+  # 而子进程仍在跑的孤儿形态已被覆盖）。shell 整条命令（v1.0 tasklist 拆参
+  # 坑同口径）。
+  #: the liveness probe hoisted (previously inside the single-instance
+  # branch) - the parallel branch needs it too (the unified poll's completion
+  # test is "no Searcher/PSSearcher alive AND products present", covering the
+  # orphan shape where the launcher exits while children still run).
+  pfind_alive <- function() {
+    o <- suppressWarnings(shell('tasklist /NH | findstr /I /C:"earcher.exe"',
+                                intern = TRUE, mustWork = FALSE))
+    length(o) > 0 && any(grepl("earcher", o))
+  }
   # ---- ----
   # pfind_workers（config_step1 键，默认 1=旧行为）>1 时：按 raw 分组，每组一份
   # cfg（msmspath 只含该组 mgf、outputname=<name>_w<k>、线程按 worker 数摊薄），
-  # PSOCK 并行跑 Searcher，完成后把各组产物按 raw 顺序合并回 <outputname>.spectra
+  # 并行跑 Searcher，完成后把各组产物按 raw 顺序合并回 <outputname>.spectra
   # 与 <outputname>-Filtered.spectra（与旧单 cfg 产物等价，下游合并不变）。
-  pw <- suppressWarnings(as.integer(tail(c(base_cfg$pfind_workers, "1"), 1)))
+  # 三处升级：①分组按 MGF
+  # 大小贪心均衡（原按个数均分，大文件挤同 worker 拖尾）；②PSOCK 阻塞改
+  # shell(wait=FALSE) 分离启动＋统一轮询（master 不再卡死、进度对两模式
+  # 同口径）——双实例并行已被本地 T0 实验证实（同 outputpath 不同
+  # outputname 共存、真并行）；③写 progress.json（与 ORFscape 事件流对齐）。
+  #  (NTM opinion P0-1/P2-2/P2-3 + the local T0 experiment): groups
+  # are size-balanced (greedy, largest first), workers launch detached with a
+  # unified poll loop (the master is no longer blocked inside parLapply, and
+  # progress reporting matches the single-instance mode), and progress.json
+  # feeds the ORFscape event stream. T0 proved concurrent Searcher instances
+  # genuinely run in parallel when outputnames differ.
+  pw <- suppressWarnings(as.integer(tail(c("1", base_cfg$pfind_workers), 1)))   # （D2）
   if (is.na(pw) || pw < 1L) pw <- 1L
   if (pw > 1L && length(mgfs) > 1L) {
-    groups <- split(seq_along(mgfs), rep(seq_len(pw), length.out = length(mgfs)))
-    thread_w <- max(floor(thread_n / pw), 1L)
+    # ① 大小贪心均衡（组内保持 raw 序，合并语义不变）
+    # size-greedy balancing (raw order kept inside each group)
+    sz_m <- file.size(mgfs)
+    ord_sz <- order(-sz_m)
+    gvec <- integer(length(mgfs)); loads <- numeric(pw)
+    for (gi in ord_sz) {
+      w <- which.min(loads); gvec[gi] <- w
+      loads[w] <- loads[w] + sz_m[gi]
+    }
+    groups <- lapply(seq_len(pw), function(w) sort(which(gvec == w)))
+    groups <- groups[lengths(groups) > 0]
+    # （D3）：thread_n 已按 workers 摊薄（(cores-1)/workers），此处
+    # 不再二次除——176 把 19 核摊成每 worker 1 线程，提速大打折扣
+    thread_w <- max(thread_n, 1L)
     cfg_files <- character(length(groups))
     i_ms0 <- which(grepl("^msmspath", lines))
     i_num0 <- which(grepl("^msmsnum=", lines))
@@ -646,78 +781,114 @@ unknown enzyme type: ", trimws(en_v[1]))
       }
       if (length(i_name0) == 1) lw[i_name0] <- paste0("outputname=", outputname, "_w", w)
       if (length(i_thr0) == 1) lw[i_thr0] <- paste0("thread=", thread_w)
+      # （D4）：分片独立 outputpath（w<k>/ 子目录）——Searcher 的
+      # Filtered/spectra 产物名固定（pFind-Filtered.spectra / pFind.spectra，
+      # 不随 outputname），共用 outputpath 会互相覆盖只剩最后一个完成者
+      out_w <- file.path(out_dir_auto, sprintf("w%d", w))
+      dir.create(out_w, recursive = TRUE, showWarnings = FALSE)
+      i_op0 <- which(grepl("^outputpath=", lw))
+      op_line <- paste0("outputpath=", gsub("/", "\\\\", out_w), "\\")
+      if (length(i_op0) == 1) lw[i_op0] <- op_line else lw <- c(lw, op_line)
       cfg_w <- file.path(dirname(cfg_tpl), sprintf("auto_%s_w%d.cfg", outputname, w))
       con_w <- file(cfg_w, open = "w", encoding = "GBK")
       writeLines(lw, con_w)
       close(con_w)
       cfg_files[w] <- cfg_w
     }
+    # ② 分离启动（ D1：shell() 对"带引号绝对路径＋自定义 exe"形态在
+    # 本地 100% 失败（NTM 实测：syntax is incorrect、日志都不生成）；system2
+    # (wait=FALSE, stdout=, stderr=) 100% 成功。无法逐 worker 取退出码——完成
+    # 判据交给探活清零＋产物在场，失败细节看各 worker 日志）
     pfind_bin <- dirname(pfind_exe)
     log_base <- file.path(out_dir_auto, outputname)
-    cl <- parallel::makeCluster(length(cfg_files))
-    on.exit(try(parallel::stopCluster(cl), silent = TRUE), add = TRUE)
-    parallel::clusterExport(cl, c("pfind_bin", "pfind_exe", "log_base"),
-                            envir = environment())
-    sts <- parallel::parLapply(cl, cfg_files, function(cf) {
-      old <- setwd(pfind_bin)
-      on.exit(setwd(old), add = TRUE)
-      system2(pfind_exe, shQuote(cf),
+    old_wd_p <- getwd()
+    on.exit(setwd(old_wd_p), add = TRUE)
+    setwd(pfind_bin)
+    for (cf in cfg_files) {
+      system2(pfind_exe, args = shQuote(cf), wait = FALSE,
               stdout = paste0(log_base, "_", basename(cf), ".log"),
               stderr = paste0(log_base, "_", basename(cf), ".log"))
-    })
-    cat("运行 pFind（并行 ", length(groups), " worker，每组线程 ", thread_w,
-        "）：", pfind_exe, " auto_", outputname, "_w*.cfg\n", sep = "")
-    cat("running pFind (parallel ", length(groups), " workers, ", thread_w,
-        " threads each): ", pfind_exe, " auto_", outputname, "_w*.cfg\n", sep = "")
-    if (any(unlist(sts) != 0)) stop("pFind auto search failed (parallel): ", outputname)
-    # 按组序合并各组 Filtered 与 .spectra（首件带头、其余去头追加；组序=raw 序）
-    flt_files <- unlist(lapply(seq_along(groups), function(w) {
-      ff <- file.path(out_dir_auto, paste0(outputname, "_w", w, "-Filtered.spectra"))
-      if (file.exists(ff)) ff else character(0)
-    }))
-    if (length(flt_files) == 0)
-      stop("pFind auto search failed (parallel): 无 Filtered 产物 ", outputname)
-    heads <- lapply(flt_files, readLines, n = 1, warn = FALSE)
-    bodies <- lapply(flt_files, function(p) readLines(p, warn = FALSE)[-1])
-    writeLines(c(heads[[1]], unlist(bodies, use.names = FALSE)),
-               file.path(out_dir_auto, paste0(outputname, "-Filtered.spectra")),
-               useBytes = TRUE)
-    sp_files <- unlist(lapply(seq_along(groups), function(w) {
-      ff <- file.path(out_dir_auto, paste0(outputname, "_w", w, ".spectra"))
-      if (file.exists(ff)) ff else character(0)
-    }))
-    if (length(sp_files) > 0) {
-      sh <- readLines(sp_files[1], n = 1, warn = FALSE)
-      sb <- unlist(lapply(sp_files, function(p) readLines(p, warn = FALSE)[-1]),
-                   use.names = FALSE)
-      writeLines(c(sh, sb), file.path(out_dir_auto, paste0(outputname, ".spectra")),
-                 useBytes = TRUE)
     }
+    setwd(old_wd_p)
+    cat("运行 pFind（并行 ", length(groups), " worker，每组线程 ", thread_w,
+        "，大小均衡）：", pfind_exe, " auto_", outputname, "_w*.cfg\n", sep = "")
+    cat("running pFind (parallel ", length(groups), " workers, ", thread_w,
+        " threads each, size-balanced): ", pfind_exe, " auto_", outputname,
+        "_w*.cfg\n", sep = "")
+    t0_p <- Sys.time(); q_prev <- -1L; waited_p <- 0L
+    repeat {
+      Sys.sleep(30); waited_p <- waited_p + 30L
+      q_now <- length(list.files(out_dir_auto, pattern = "\\.qry\\.res$", recursive = TRUE))   # （D7）：分片在 w<k>/ 子目录
+      if (q_now != q_prev) {
+        cat(sprintf("[pFind 并行进度] qry.res %d 个（workers=%d，已用 %.0fs）\n",
+                    q_now, length(cfg_files), waited_p))
+        try(writeLines(sprintf(
+          '{"stage":"pfind_%s_parallel","qry_files":%d,"workers":%d,"elapsed_s":%d,"updated_at":"%s"}',
+          outputname, q_now, length(cfg_files), waited_p,
+          format(Sys.time(), "%Y-%m-%d %H:%M:%S")),
+          file.path(out_dir_auto, "progress.json"), useBytes = TRUE),
+          silent = TRUE)
+        q_prev <- q_now
+      }
+      if (!pfind_alive()) break
+      if (waited_p > 12L * 3600L)
+        stop("pFind 并行搜库超过 12h 未结束：", paste(cfg_files, collapse = "\n"))
+    }
+    # （D5+D6，科学正确性）：合并段重写——只收**未过滤** .spectra 拼成
+    # 固定名 pFind.spectra；**分片各自的 -Filtered 一律丢弃**（Searcher 每分片
+    # 独立做 1% FDR，分母=分片文件数，拼接会静默丢 3/4 鉴定：NTM 实测
+    # 2,021→503）；全局 FDR 由既有的 pfind_res_postprocess（读 pFind.spectra
+    # ＋qry.res、诱饵救援、写回 pFind-Filtered.spectra）一次完成。qry.res 从
+    # w<k>/ 子目录移到 result 根（后处理非递归 glob）。产物名固定（Searcher
+    # 的输出名不随 outputname——T0 实测 outputname=t0_A 仍写固定名）。
+    #  (D5+D6, scientific correctness): the merge now collects only the
+    # UNFILTERED .spectra into the fixed-name pFind.spectra and DISCARDS each
+    # shard's -Filtered (every shard ran its own 1% FDR against a shard-local
+    # denominator; concatenating them silently dropped 3/4 of the IDs: 2,021 ->
+    # 503 in the NTM measurement). The global FDR runs once in the existing
+    # pfind_res_postprocess (reads pFind.spectra + qry.res, rescues decoy rows,
+    # rewrites pFind-Filtered.spectra). Shard qry.res files move from w<k>/ up
+    # to the result root (the postprocess globs non-recursively). Product names
+    # are fixed regardless of outputname (T0: outputname=t0_A still wrote the
+    # fixed names).
+    sp_files <- unlist(lapply(seq_along(groups), function(w) {
+      ff <- file.path(out_dir_auto, sprintf("w%d", w), "pFind.spectra")
+      if (file.exists(ff)) ff else character(0)
+    }))
+    if (length(sp_files) != length(groups))
+      stop("pFind auto search failed (parallel): 分片未过滤产物不全 ",
+           length(sp_files), "/", length(groups), " —— 检查各 worker 日志 ",
+           paste0(log_base, "_auto_", outputname, "_w*.log"))
+    heads <- lapply(sp_files, readLines, n = 1, warn = FALSE)
+    bodies <- lapply(sp_files, function(p) readLines(p, warn = FALSE)[-1])
+    sp_merged <- file.path(out_dir_auto, "pFind.spectra")
+    writeLines(c(heads[[1]], unlist(bodies, use.names = FALSE)),
+               sp_merged, useBytes = TRUE)
+    # qry.res 收根（后处理非递归 glob；重名不可能——各分片 outputname 带 _w<k>）
+    # collect shard qry.res into the result root (postprocess globs non-recursively)
+    n_moved <- 0L
+    for (w in seq_along(groups)) {
+      wd <- file.path(out_dir_auto, sprintf("w%d", w))
+      for (f in list.files(wd, pattern = "\\.qry\\.res$", full.names = TRUE)) {
+        ok_m <- file.rename(f, file.path(out_dir_auto, basename(f)))
+        if (!ok_m) { file.copy(f, file.path(out_dir_auto, basename(f)),
+                               overwrite = TRUE); file.remove(f) }
+        n_moved <- n_moved + 1L
+      }
+    }
+    cat(sprintf("[pFind 并行合并] 未过滤 %d 分片 → pFind.spectra（%d 行）；qry.res 收根 %d 个；分片 Filtered 已丢弃（全局 FDR 由后处理一次完成）\n",
+                length(groups), length(readLines(sp_merged, warn = FALSE)) - 1L, n_moved))
+    cat(sprintf("[pFind parallel merge] %d unfiltered shards -> pFind.spectra; %d qry.res collected; shard Filtered files discarded (global FDR runs once in postprocess)\n",
+                length(groups), n_moved))
   } else {
     # 调用 pFind：在其 bin 目录运行（保证 ini 相对路径解析正确），失败则中止
     # Invoke pFind: run from its bin folder (correct ini relative-path resolution), aborting on failure
     cat("运行 pFind：", pfind_exe, cfg_run, "（逐 raw 搜库：", length(mgfs), " 个 mgf 文件，线程 ", thread_n, "）\n")
     cat("running pFind: ", pfind_exe, cfg_run, " (per-raw search: ", length(mgfs), " mgf files, ", thread_n, " threads)\n")
-    #：pFind 孤儿实例防撞车——上轮运行被外杀（如排障 taskkill 连带
-    # R 主控）后，Searcher 作为孤儿继续搜库；此时重跑再启第二个实例会被
-    # pFind 单实例语义顶掉（秒退非 0）误报"搜库失败"。改为检测到活实例就等待＋复用：
-    # 结束后有 .spectra 直接用；无产物才真正启动（pFind 按已完成 .qry.res 分块
-    # 续跑）。探活走 shell 整条命令（v1.0 tasklist 拆参坑同口径）。
-    #: orphan-instance guard - when a previous master was killed
-    # externally (e.g. a debugging taskkill), the Searcher it spawned keeps
-    # running as an orphan; a rerun would launch a second instance that pFind's
-    # single-instance semantics rejects (instant nonzero exit), misreported as
-    # "search failed" (live fire: an 11:08 orphan reached chunk F6 while the
-    # 13:05 rerun died at once). Now wait for the live instance and reuse:
-    # if .spectra appears after it exits, use it; launch only when there is
-    # nothing to reuse (pFind resumes finished chunks from .qry.res files).
-    # Liveness probe via a whole-command shell call (same pattern as the
-    # v1.0 tasklist argument-splitting fix).
-    pfind_alive <- function() {
-      o <- suppressWarnings(shell('tasklist /NH | findstr /I /C:"earcher.exe"',
-                                  intern = TRUE, mustWork = FALSE))
-      length(o) > 0 && any(grepl("earcher", o))
-    }
+    #：pFind 孤儿实例防撞车（探活已上提至并行分支前）——上轮运行被外杀
+    # 后 Searcher 孤儿续跑；同工程重再启会被顶掉秒退误报失败。检测到活实例
+    # 就等待＋复用：结束后有 .spectra 直接用；无产物才真正启动（pFind 按已
+    # 完成 .qry.res 分块续跑）。
     if (pfind_alive()) {
       cat("[pFind] 检测到既有 Searcher/PSSearcher 实例运行中，等待其完成后复用（每分钟心跳，最长 12h）\n")
       cat("[pFind] a live Searcher/PSSearcher instance is running; waiting to reuse its output (heartbeat per minute, max 12h)\n")
@@ -736,21 +907,69 @@ unknown enzyme type: ", trimws(en_v[1]))
       cat("[pFind] 结果已存在（含既有实例刚完成），跳过搜库：", out_dir_auto, "\n")
       cat("[pFind] result already present (incl. just finished by the live instance), skipping the search: ", out_dir_auto, "\n")
     } else {
-      # pFind 相对自身工作目录解析 aa.ini / modification.ini，故在其 bin 目录运行（同用户习惯：cd bin && Searcher.exe cfg）
-      # pFind resolves aa.ini / modification.ini relative to its CWD, so run it from
-      # its own bin folder (as the user would: cd bin && Searcher.exe cfg)
+      # 阻塞 system2 改 shell(wait=FALSE)
+      # 分离启动＋30s 轮询——原实现三小时零输出、无法区分慢跑与卡死（NTM
+      # 实测 restrict ~181min 全程盲区）；现每完成一个文件打 [k/N] 行并写
+      # progress.json（与 ORFscape 事件流对齐），ETA 按已完成文件均摊外推。
+      # 完成判据＝探活清零（launcher 先退而子进程续跑的孤儿形态天然覆盖）；
+      # 失败判据交给最终产物断言（无 .spectra 即 stop）。分离启动取不到退出
+      # 码——日志照旧落 <outputname>.log。
+      #  (NTM opinion P2-2/P2-3): the blocking system2 becomes a
+      # detached shell(wait=FALSE) launch plus a 30-second poll - the old call
+      # printed nothing for hours (restrict ~181 min fully blind in the NTM
+      # measurement); now every finished file prints a [k/N] line and updates
+      # progress.json (aligned with the ORFscape event stream), with the ETA
+      # extrapolated from the finished files. Completion = no Searcher alive
+      # (naturally covering the orphan shape); failure falls to the final
+      # product assertion. Exit codes are unavailable for detached launches;
+      # the log still lands in <outputname>.log.
       old_wd <- getwd()
       on.exit(setwd(old_wd), add = TRUE)
       setwd(dirname(pfind_exe))
-      st <- system2(pfind_exe, shQuote(cfg_run),
-                    stdout = file.path(out_dir_auto, paste0(outputname, ".log")),
-                    stderr = file.path(out_dir_auto, paste0(outputname, ".log")))
+      log_s <- file.path(out_dir_auto, paste0(outputname, ".log"))
+      # （D1）：shell() 形态在本地对带引号绝对路径＋自定义 exe 100%
+      # 失败（NTM 实测）；system2(wait=FALSE, stdout=, stderr=) 等价且可靠
+      system2(pfind_exe, args = shQuote(cfg_run), wait = FALSE,
+              stdout = log_s, stderr = log_s)
       setwd(old_wd)
-      if (st != 0)
-        stop("pFind auto search failed (exit ", st, "): ", outputname,
-             "\n日志 log: ", file.path(out_dir_auto, paste0(outputname, ".log")),
-             "\n若系统里另有 Searcher/PSSearcher 在跑，pFind 单实例会立即退出——等它结束再重跑",
-             "\nif another Searcher/PSSearcher is running, pFind exits at once; wait for it and rerun")
+      cat("运行 pFind（异步＋进度）：", cfg_run, " → ", log_s, "\n", sep = "")
+      t0_s <- Sys.time(); qry_prev <- -1L; waited_s <- 0L
+      repeat {
+        Sys.sleep(30); waited_s <- waited_s + 30L
+        qry_now <- length(list.files(out_dir_auto, pattern = "\\.qry\\.res$"))
+        if (qry_now != qry_prev) {
+          eta_s <- if (qry_now > 0)
+            as.integer(round(waited_s / qry_now * max(length(mgfs) - qry_now, 0))) else NA_integer_
+          cat(sprintf("[pFind 进度] %d/%d 文件（已用 %.0fs，预计剩余 %ss）\n",
+                      qry_now, length(mgfs), waited_s,
+                      if (is.na(eta_s)) "?" else as.character(eta_s)))
+          try(writeLines(sprintf(
+            '{"stage":"pfind_%s","done":%d,"total":%d,"elapsed_s":%d,"eta_s":%s,"updated_at":"%s"}',
+            outputname, qry_now, length(mgfs), waited_s,
+            if (is.na(eta_s)) "null" else as.character(eta_s),
+            format(Sys.time(), "%Y-%m-%d %H:%M:%S")),
+            file.path(out_dir_auto, "progress.json"), useBytes = TRUE),
+            silent = TRUE)
+          qry_prev <- qry_now
+        }
+        if (!pfind_alive()) break
+        if (waited_s > 12L * 3600L)
+          stop("pFind 搜库超过 12h 未结束：", cfg_run, "\n日志 log: ", log_s)
+      }
+      #  P2-3：每文件计时表（分片均衡与慢文件定位依据）
+      try({
+        qi <- file.info(list.files(out_dir_auto, pattern = "\\.qry\\.res$",
+                                   full.names = TRUE))
+        if (length(qi) > 0) {
+          qo <- order(qi$mtime)
+          write.table(data.frame(
+            file = basename(rownames(qi)[qo]),
+            size_mb = round(qi$size[qo] / 1024^2, 1),
+            done_s = as.integer(difftime(qi$mtime[qo], t0_s, units = "secs"))),
+            file.path(out_dir_auto, paste0("timing_", outputname, ".tsv")),
+            sep = "\t", row.names = FALSE, quote = FALSE)
+        }
+      }, silent = TRUE)
     }
   }
   # 开放式搜库以全量 modification.ini 为修饰表时会解析出 pUniFind rescore 不认识的修饰名
@@ -796,11 +1015,55 @@ unknown enzyme type: ", trimws(en_v[1]))
   # exited 0 but produced nothing, so the strategy is never silently dropped
   cand <- list.files(out_dir_auto, pattern = "\\.spectra$", full.names = TRUE)
   flt <- cand[grepl("Filtered", basename(cand))]
+  # 零结果断言——实测事故：上游目录改名后
+  # msmspath1 仍指旧路径，18 个任务 1 秒"跑完"、0 PSM、日志仅"回搜新层
+  # 命中 PSM 0"，流程静默继续。①首两行判空（O(1) 读，覆盖复用/单机/并行
+  # 全路径）——只有表头即 stop，附 cfg 与首个输入路径线索；②产物 <200MB
+  # 时全量数行，数据行少于 MGF 数（每文件连一条 PSM 都没有）打显著告警
+  # （合法小批不至于触发：18 文件至少应有几十条）。
+  #  (NTM opinion P2-1): the zero-result assertion - live incident:
+  # after an upstream rename, msmspath1 still pointed at the old directory,
+  # all 18 tasks "finished" in one second with 0 PSM and the run continued
+  # silently. (1) An O(1) two-line read catches a header-only file on every
+  # path (reuse/single/parallel) and stops with the cfg and first input path
+  # as clues; (2) for products under 200 MB the rows are counted and a result
+  # with fewer data rows than MGF files (not even one PSM per file) raises a
+  # prominent warning - legitimate small batches stay far above it.
+  pick_cand <- if (length(flt) > 0) flt else cand
+  if (length(pick_cand) > 0) {
+    res_f <- pick_cand[length(pick_cand)]
+    hh2 <- readLines(res_f, n = 2L, warn = FALSE)
+    if (length(hh2) < 2L) {
+      ms1_hint <- {
+        l1 <- readLines(cfg_run, warn = FALSE)
+        hit <- grep("^msmspath1=", l1, value = TRUE)
+        if (length(hit)) hit else "(cfg 未见 msmspath1)"
+      }
+      stop("[pFind] 结果为空（0 PSM）：", res_f,
+           "\n[pFind] empty result (0 PSM) - typical symptom: an upstream rename",
+           " left msmspath pointing at a dead directory.",
+           "\n运行 cfg：", cfg_run, "\n首个输入：", ms1_hint,
+           "\nrunning cfg: ", cfg_run, "\nfirst input: ", ms1_hint)
+    }
+    fsz <- file.info(res_f)$size
+    if (!is.na(fsz) && fsz < 200 * 1024^2) {
+      n_rows <- length(count.fields(res_f, sep = "\t", quote = "", comment.char = "")) - 1L
+      if (n_rows < length(mgfs)) {
+        cat("[pFind][警告] 结果仅 ", n_rows, " 行 / ", length(mgfs),
+            " 个 MGF（平均每文件不足 1 条 PSM）——输入路径或候选集可疑：",
+            res_f, "\n", sep = "")
+        cat("[pFind][WARN] only ", n_rows, " rows across ", length(mgfs),
+            " MGFs (under one PSM per file on average) - input paths or the",
+            " candidate set are suspicious: ", res_f, "\n", sep = "")
+      }
+    }
+  }
   if (length(cand) > 0) writeLines(fp_lines, rp_file, useBytes = TRUE)   # P2-2 参数指纹留档
   if (length(flt) > 0) return(tail(flt, 1))
   if (length(cand) > 0) return(tail(cand, 1))
   stop("pFind 搜库完成但无 .spectra 结果：", out_dir_auto,
-       "\npFind finished but no .spectra in: ", out_dir_auto)
+       "\npFind finished but no .spectra in: ", out_dir_auto,
+       "\n日志线索 log: ", file.path(out_dir_auto, paste0(outputname, ".log")))
 }
 
 # 从第二步/基础配置定位 pFind 可执行文件（pfind_exe 键），取最后一个非空值并规范化
@@ -2650,11 +2913,13 @@ for (j in seq_along(clean_jobs)) {
   }
   r <- clean_decoy_spectra(src, csr_dir, tag, annot = annot, fa = fa_chk)
   cleaned[[j]] <- r
-  cat(sprintf("[诱饵去除] %s: %d -> %d 行（删 %d 行、剥 %d 行、涉及谱图 %d 张）\n",
-              tag, r$n_in, r$n_out, r$n_dropped, r$n_stripped,
+  cat(sprintf("[诱饵去除] %s: %d -> %d 行（删 %d 行、去重 %d 行、剥 %d 行、涉及谱图 %d 张）\n",
+              tag, r$n_in, r$n_out, r$n_dropped,
+              if (is.null(r$n_dup)) 0L else r$n_dup, r$n_stripped,
               length(r$dropped_spectra)))
-  cat(sprintf("[decoy removal] %s: %d -> %d rows (dropped %d, stripped %d, %d spectra)\n",
-              tag, r$n_in, r$n_out, r$n_dropped, r$n_stripped,
+  cat(sprintf("[decoy removal] %s: %d -> %d rows (dropped %d, dedup %d, stripped %d, %d spectra)\n",
+              tag, r$n_in, r$n_out, r$n_dropped,
+              if (is.null(r$n_dup)) 0L else r$n_dup, r$n_stripped,
               length(r$dropped_spectra)))
 }
 pt_mark("诱饵库去除", "decoy removal")

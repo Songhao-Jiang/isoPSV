@@ -4916,6 +4916,34 @@ clean_decoy_spectra_base <- function(x, cleaned_dir, tag, annot = NULL, fa = NUL
                     colClasses = "character", na.strings = character(0))
   n_in <- nrow(dat)
   out <- file.path(cleaned_dir, paste0(tag, ".spectra"))
+  # ----：File_Name 唯一性去重（保最优 Q；与 _fast 同口径）----------
+  # 覆盖无 Proteins 列的两条分支（punifind 回查/原样留档件）——它们同样经
+  # clean_search_files 进合并，去重后一并回写。
+  #: File_Name dedup (best Q kept), same contract as _fast; covers
+  # the no-Proteins branches too (punifind lookup / as-is record copies),
+  # which also feed the merge via clean_search_files.
+  n_dup <- 0L
+  if ("File_Name" %in% colnames(dat) && n_in > 1L) {
+    fn_all <- as.character(dat$File_Name)
+    if (anyDuplicated(fn_all) > 0L) {
+      q_col <- if ("Q.value" %in% colnames(dat)) "Q.value" else
+        if ("Q-value" %in% colnames(dat)) "Q-value" else NULL
+      qv <- if (!is.null(q_col)) suppressWarnings(as.numeric(dat[[q_col]]))
+           else rep(NA_real_, n_in)
+      qv[is.na(qv)] <- Inf
+      ord_q <- order(qv, seq_len(n_in))
+      best_idx <- ord_q[!duplicated(fn_all[ord_q])]
+      keep_fn <- rep(FALSE, n_in)
+      keep_fn[sort(best_idx)] <- TRUE
+      n_dup <- n_in - sum(keep_fn)
+      cat("[去重] File_Name 重复行 ", n_dup, " 条已去除（保最优 Q），剩余 ",
+          sum(keep_fn), " 行\n", sep = "")
+      cat("[dedup] ", n_dup, " duplicate File_Name rows removed (best Q kept), ",
+          sum(keep_fn), " remain\n", sep = "")
+      dat <- dat[keep_fn,, drop = FALSE]
+      n_in <- nrow(dat)   # 下游诱饵逻辑以去重后行数为基准
+    }
+  }
   # 无 Proteins 列：有注释则按注释做同一套全诱饵删除（保留行维持原列布局）；
   # 无注释则原样复制（诱饵过滤已在转换时完成，仅留档）
   # no Proteins column: with annotation apply the same all-decoy drop (kept
@@ -4962,11 +4990,13 @@ clean_decoy_spectra_base <- function(x, cleaned_dir, tag, annot = NULL, fa = NUL
       dat <- dat[keep,, drop = FALSE]
       write.table(dat, out, sep = "\t", quote = FALSE, row.names = FALSE, na = "")
       return(list(file = out, n_in = n_in, n_out = nrow(dat),
-                  n_dropped = n_in - nrow(dat), n_stripped = n_stripped,
+                  n_dropped = n_in - nrow(dat), n_dup = n_dup,
+                  n_stripped = n_stripped,
                   dropped_spectra = dropped))
     }
     write.table(dat, out, sep = "\t", quote = FALSE, row.names = FALSE, na = "")
-    return(list(file = out, n_in = n_in, n_out = n_in, n_dropped = 0L,
+    return(list(file = out, n_in = n_in, n_out = nrow(dat),
+                n_dropped = n_in - nrow(dat), n_dup = n_dup,
                 n_stripped = 0L, dropped_spectra = character(0)))
   }
   # pFind 的 Proteins/Positions 均为 "/" 结尾条目直接拼接（实测无 ";" 分隔符），
@@ -5034,7 +5064,7 @@ clean_decoy_spectra_base <- function(x, cleaned_dir, tag, annot = NULL, fa = NUL
   if (!is.null(new_po)) dat$Positions <- new_po[keep]
   write.table(dat, out, sep = "\t", quote = FALSE, row.names = FALSE, na = "")
   list(file = out, n_in = n_in, n_out = nrow(dat),
-       n_dropped = n_in - nrow(dat), n_stripped = n_stripped,
+       n_dropped = n_in - nrow(dat), n_dup = n_dup, n_stripped = n_stripped,
        dropped_spectra = dropped)
 }
 # v1.0诱饵清洗行级过滤快速路径。
@@ -5071,6 +5101,51 @@ clean_decoy_spectra_fast <- function(x, cleaned_dir, tag) {
   ifn <- match("File_Name", hdr_f)
   lines <- readLines(x, warn = FALSE)
   body <- lines[-1L]
+  n_in_raw <- length(body)
+  # ----：File_Name 唯一性去重（保最优 Q 后回写）-------------------
+  # 外部项目 10-31 实录：psm 表双指认重复行（T 2,263/L 1,635）曾致下游合并
+  # `replacement has ... rows` 崩溃。165 的预检段校验因 colClasses 只读
+  # Proteins 列为死代码（工作站 11-05 实测零警告穿透）；本版落到清洗必经
+  # 路径——清洗件是合并步骤的唯一输入，去重后真实回写，pg=0/1/2 全覆盖。
+  # 检测用 anyDuplicated 短路（无重复文件零开销）；字段提取用单次 PCRE
+  # 定列（比整行 strsplit 省一次全量建表，不放大内存峰值）。
+  #: File_Name uniqueness dedup (best Q kept, rewritten to disk).
+  # The 10-31 external incident had 2,263/1,635 duplicate rows crashing the
+  # merge; 's precheck copy was dead code (colClasses never read
+  # File_Name - workstation 11-05 proof). The dedup now sits on the mandatory
+  # cleaning path whose outputs are the merge's only inputs, covering
+  # pg=0/1/2. anyDuplicated short-circuits (zero cost on clean files); the
+  # field is pulled with one anchored PCRE pass instead of a full strsplit.
+  n_dup <- 0L
+  if (!is.na(ifn) && n_in_raw > 1L) {
+    # 注意：捕获组后必须 `.*$` 吞掉行尾——sub 只替换匹配段，不吞则整行
+    # 余料留在结果里，fn_all 仍近似整行、去重永不触发（首测实坑）
+    # note: `.*$` after the capture group is mandatory - sub replaces only
+    # the matched span, and the leftover tail would keep fn_all ~the whole
+    # line, so the dedup would never fire (first-test trap)
+    fn_all <- if (ifn == 1L) sub("\t.*$", "", body) else
+      sub(paste0("^(?:[^\\t]*\\t){", ifn - 1L, "}([^\\t]*).*$"), "\\1", body, perl = TRUE)
+    if (anyDuplicated(fn_all) > 0L) {
+      iq <- match("Q.value", hdr_f)
+      if (is.na(iq)) iq <- match("Q-value", hdr_f)
+      qv <- if (!is.na(iq)) {
+        suppressWarnings(as.numeric(
+          if (iq == 1L) sub("\\t.*$", "", body) else
+            sub(paste0("^(?:[^\\t]*\\t){", iq - 1L, "}([^\\t]*).*$"), "\\1", body, perl = TRUE)))
+      } else rep(NA_real_, n_in_raw)
+      qv[is.na(qv)] <- Inf
+      ord_q <- order(qv, seq_len(n_in_raw))
+      best_idx <- ord_q[!duplicated(fn_all[ord_q])]
+      keep_fn <- rep(FALSE, n_in_raw)
+      keep_fn[sort(best_idx)] <- TRUE
+      n_dup <- n_in_raw - sum(keep_fn)
+      cat("[去重] File_Name 重复行 ", n_dup, " 条已去除（保最优 Q），剩余 ",
+          sum(keep_fn), " 行\n", sep = "")
+      cat("[dedup] ", n_dup, " duplicate File_Name rows removed (best Q kept), ",
+          sum(keep_fn), " remain\n", sep = "")
+      body <- body[keep_fn]
+    }
+  }
   n_in <- length(body)
   ncols <- length(hdr_f)
   # 参差行（真实 open 件实测 ~15% 短行：表头 19 列、6.5 万行 6 列、21.4 万行
@@ -5163,8 +5238,8 @@ clean_decoy_spectra_fast <- function(x, cleaned_dir, tag) {
   writeLines(c(hdr, out_body), con, sep = "\r\n", useBytes = TRUE)
   close(con)
   list(fallback = FALSE, file = out, n_in = n_in, n_out = length(out_body),
-       n_dropped = n_in - length(out_body), n_stripped = n_stripped,
-       dropped_spectra = dropped)
+       n_dropped = n_in - length(out_body), n_dup = n_dup,
+       n_stripped = n_stripped, dropped_spectra = dropped)
 }
 
 clean_decoy_spectra <- function(x, cleaned_dir, tag, annot = NULL, fa = NULL) {
@@ -6209,7 +6284,8 @@ stageA_evaluate <- function(merged_file, unlabeled_mgf_files,
                             predict_file,
                             weights_A, threshold_A, out_dir, max_cores = 1,
                             worker_cores = NULL,
-                            label_tag = "unlabeled", label_mods = NULL) {
+                            label_tag = "unlabeled", label_mods = NULL,
+                            worker_source = "自动评估/auto") {
   dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
   # 双语计时标记：各阶段墙钟（elapsed）与 CPU 秒
   # bilingual timing marks: wall (elapsed) and CPU seconds per phase
@@ -6261,6 +6337,47 @@ stageA_evaluate <- function(merged_file, unlabeled_mgf_files,
     max(1L, min(max_cores, parallel::detectCores() - 1L))
   } else {
     max(1L, min(worker_cores, parallel::detectCores() - 1L))
+  }
+  # （工作站 13:30 双 master OOM 定案）：assess_resources 的内存探测
+  # 在流程启动时做一次——双项目并发时各自测到的"可用"都未计入对方，随后
+  # StageA 静态簇＋并行重段共存把 commit 打满（实测 cannot allocate vector
+  # of size 4 Kb，单进程 StageA 峰值 WS 25.6GB）。本版在建簇前重探可用内存
+  # 并收缩 worker：①可用 <40GB 直接降为 1（25.6GB 单进程峰值的安全余量）；
+  # ②否则按启动时同款 6×最大 MGF 峰值公式以当前可用重算上限；③打印预期
+  # 峰值行（单 worker WS 峰值 ~25.6GB 量级）供运维预判。配置键
+  # stagea_workers / 环境变量 WORKER_CORES 仍为硬覆盖（收缩只降不升）。
+  #  (workstation 13:30 dual-master OOM verdict): assess_resources
+  # probes memory once at startup - concurrent projects each see the full
+  # headroom, then the StageA static cluster plus parallel heavy phases
+  # exhaust commit (observed "cannot allocate vector of size 4 Kb"; a single
+  # StageA process peaked at 25.6 GB WS). The cluster creation now re-probes
+  # available memory and shrinks: (1) below 40 GB free -> 1 worker (safe
+  # margin over the 25.6 GB single-process peak); (2) otherwise re-cap by the
+  # same 6x-biggest-MGF formula against the CURRENT free memory; (3) print the
+  # expected-peak line for operators. stagea_workers / WORKER_CORES stay hard
+  # overrides (shrink only ever lowers).
+  {
+    avail_now_mb <- system_avail_mb()
+    if (!is.na(avail_now_mb) && avail_now_mb > 0) {
+      use_cores_plan <- use_cores
+      if (avail_now_mb < 40 * 1024) {
+        use_cores <- 1L
+      } else if (length(unlabeled_mgf_files) &&
+                 all(file.exists(unlabeled_mgf_files))) {
+        biggest_mb_now <- max(file.size(unlabeled_mgf_files)) / 1024^2
+        est_peak_mb_now <- 6 * biggest_mb_now
+        cap_mem_now <- max(1L, as.integer(floor(avail_now_mb * 0.7 / est_peak_mb_now)))
+        use_cores <- max(1L, min(use_cores, cap_mem_now))
+      }
+      if (use_cores < use_cores_plan) {
+        cat(sprintf("[内存收缩] 建簇前可用内存 %.1f GB -> worker %d -> %d（可用<40GB 降单 worker；单进程 StageA 峰值 WS ~25.6GB）\n",
+                    avail_now_mb / 1024, use_cores_plan, use_cores))
+        cat(sprintf("[memory shrink] free memory at cluster creation %.1f GB -> workers %d -> %d (<40GB free drops to one; single-process StageA peaks ~25.6 GB WS)\n",
+                    avail_now_mb / 1024, use_cores_plan, use_cores))
+      }
+    }
+    cat(sprintf("[StageA 预期峰值] workers=%d（来源=%s）；单 worker 峰值 WS 量级 ~25.6GB（重表并发时按此预算跨项目排产）\n", use_cores, worker_source))
+    cat(sprintf("[StageA expected peak] workers=%d (source=%s); per-worker WS peak on the order of ~25.6 GB (budget cross-project scheduling accordingly)\n", use_cores, worker_source))
   }
   cl <- parallel::makeCluster(use_cores)
   on.exit(parallel::stopCluster(cl), add = TRUE)

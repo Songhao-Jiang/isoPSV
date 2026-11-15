@@ -149,6 +149,22 @@ by_spec <- split(sd, sd$File_Name, drop = TRUE)
 rows <- vector("list", length(by_spec))
 cls_idx <- if (!is.null(cls)) stats::setNames(seq_len(nrow(cls)),
                     make.unique(as.character(cls$File_Name))) else NULL
+# （工作站 171 报告 #1）：主表段心跳——该段 163 轮 3.5h 静默、
+# T@168 与 13:30 L 均在此无声消失（日志冻在最后一条、进程 2.8GB 活体后
+# 消失），是 overlay 之后最长的盲区。每 5,000 谱打一行进度＋当前内存，
+# 下次静默死亡可定位到段。
+#  (workstation 171-round #1): master-table heartbeat - this
+# segment ran 3.5 h silent in the 163 round and both T@168 and the 13:30 L
+# run died here soundlessly (log frozen, 2.8 GB process alive then gone),
+# the longest blind zone after the overlay. One progress+memory line every
+# 5,000 spectra so the next silent death is localizable.
+.mt_t0 <- proc.time()[3]
+.mt_mark <- function(i, n) {
+  cat(sprintf("[主表/无标记透视] %d/%d 谱（已用 %.0fs，R 占用 %.1f GB）\n",
+              i, n, proc.time()[3] - .mt_t0,
+              sum(gc()[, 2]) / 1024))
+  flush.console()
+}
   cr <- NULL
 for (i in seq_along(by_spec)) {
   g <- by_spec[[i]]
@@ -180,7 +196,10 @@ for (i in seq_along(by_spec)) {
     row <- c(row, if (!is.null(cr) && wc %in% names(cr) &&
                      !is.na(cr[[wc]][1])) as.character(cr[[wc]][1]) else "")
   rows[[i]] <- row
+  if (i %% 5000L == 0L) .mt_mark(i, length(by_spec))
 }
+cat(sprintf("[主表/无标记透视] 完成：%d 谱，总耗时 %.0fs\n",
+            length(by_spec), proc.time()[3] - .mt_t0))
 out <- as.data.frame(do.call(rbind, rows), stringsAsFactors = FALSE)
 names(out) <- out_cols
 

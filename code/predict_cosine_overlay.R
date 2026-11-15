@@ -13,9 +13,54 @@ for (.p in c(
   if (file.exists(file.path(.p, "ReadMGF_script.R"))) { CODE <- .p; break }
 }
 if (is.null(CODE)) stop("ReadMGF_script.R not found from getwd: ", getwd())
-source(file.path(CODE, "compat.R"), encoding = "UTF-8")
-source(file.path(CODE, "ReadMGF_script.R"), encoding = "UTF-8")
-source(file.path(CODE, "paired_params.R"), encoding = "UTF-8")
+# （工作站 170 报告新发现）：独立 CLI 调用时的 LC_CTYPE 兜底——
+# 继承 LC_CTYPE=C.UTF-8 的环境里 source(..., encoding="UTF-8") 对中文注释
+# 文件报 invalid input、ReadMGF 只部分载入、后续 "could not find function"
+# 炸。探针对
+# "locale 名义 utf8 但 CRT 实际坏" 的场景不触发，故加哨兵验证：源后若
+# 关键函数缺席，强制切换候选 locale 重源一遍；仍失败则以可操作信息终止。
+# master 启动器场景本就受 user_run.R 探针保护，本块只服务独立调用。
+#  (workstation 170-round finding): LC_CTYPE fallback for standalone
+# CLI invocation - under an inherited LC_CTYPE=C.UTF-8, source(...,
+# encoding="UTF-8") fails with "invalid input" on Chinese-commented files,
+# ReadMGF loads partially and the run later dies with "could not find
+# function" (hit by both the workstation CLI test method and the dev-side
+# local E2E; clearing LC_* heals it). A name-only probe cannot catch a locale
+# that claims utf8 while the CRT is broken, so a sentinel check follows the
+# sources: if key functions are missing, force-switch through candidate
+# locales and re-source; abort with an actionable message if still broken.
+# The master launcher already probes (user_run.R); this block only serves
+# standalone calls.
+.isopsv_utf8_locale <- function()
+  grepl("utf-?8", Sys.getlocale("LC_CTYPE"), ignore.case = TRUE)
+if (!.isopsv_utf8_locale()) {
+  for (.lc in c("English_United States.UTF-8", "C.UTF-8")) {
+    try(Sys.setlocale("LC_CTYPE", .lc), silent = TRUE)
+    if (.isopsv_utf8_locale()) break
+  }
+}
+.isopsv_sources <- function() {
+  source(file.path(CODE, "compat.R"), encoding = "UTF-8")
+  source(file.path(CODE, "ReadMGF_script.R"), encoding = "UTF-8")
+  source(file.path(CODE, "paired_params.R"), encoding = "UTF-8")
+}
+try(.isopsv_sources(), silent = TRUE)
+if (!exists("parse_lines_vectorized", inherits = FALSE) ||
+    !exists("read_predict_txt", inherits = FALSE)) {
+  for (.lc in c("English_United States.UTF-8", "C.UTF-8",
+                "Chinese (Simplified)_China.936", "")) {
+    try(Sys.setlocale("LC_CTYPE", .lc), silent = TRUE)
+    try(.isopsv_sources(), silent = TRUE)
+    if (exists("parse_lines_vectorized", inherits = FALSE) &&
+        exists("read_predict_txt", inherits = FALSE)) break
+  }
+  if (!exists("parse_lines_vectorized", inherits = FALSE) ||
+      !exists("read_predict_txt", inherits = FALSE)) {
+    stop("UTF-8 sources failed to load under LC_CTYPE=",
+         Sys.getlocale("LC_CTYPE"),
+         " - clear LC_* before standalone invocation (or run under the master)")
+  }
+}
 
 args <- commandArgs(FALSE)
 arg_of <- function(flag) {
@@ -105,45 +150,77 @@ for (mf in mgf_files) {
 }
 cat("[predict_cosine_overlay] 谱图索引: ", ls(spec_map), " 条\n", sep = "")
 
-# 逐行计算
-n_new_cols <- 0
-for (pt in names(preds)) {
-  col_name <- paste0("cand1_predict_", pt)
-  if (col_name %in% names(mt)) next
-  vals <- rep("", nrow(mt))
-  pr <- preds[[pt]]
-  n_hit <- 0
-  for (i in seq_len(nrow(mt))) {
-    fn <- mt$File_Name[i]
-    seq_p <- mt$cand1_sequence[i]
-    mod_p <- mt$cand1_modification[i]
-    if (!nzchar(seq_p) || is.na(seq_p)) next
-    mod_p <- sub(";+$", "", as.character(mod_p))
-    if (is.na(mod_p)) mod_p <- ""
-    # 查预测器
-    key1 <- paste0(seq_p, "|", mod_p, "|", mt$Charge[i])
+# ----：行主序重构＋心跳（工作站 run8 实测单列 30-65 分钟）----------
+# 旧列主序在每行×每列重复调 spectrum_params——同一行的实验 b/y 离子强度
+# 对全部预测器列是同一个向量，却被算了一遍又一遍（4 列＝4 遍；65 分钟
+# 零日志单核 grind 的病根）。行主序：每行提取一次离子强度向量，内层
+# 只做各预测器的键查＋余弦（O(1) 查表）；总 spectrum_params 次数＝行数，
+# 与列数无关。每 2,000 行打心跳，列开始前打印列清单。
+# ----: row-major restructure + heartbeat (workstation run8
+# measured 30-65 min PER COLUMN). The old column-major order called
+# spectrum_params once per row per column - the same row's experimental
+# b/y ion intensities are one vector shared by every predictor column but
+# were recomputed for each (4 columns = 4 passes; the root of the 65-minute
+# zero-log single-core grind). Row-major: extract the intensity vector once
+# per row, and the inner loop only does per-predictor key lookups and
+# cosines (O(1)); total spectrum_params calls = row count, independent of
+# the column count. Heartbeat every 2,000 rows; the column list prints up
+# front.
+new_cols <- paste0("cand1_predict_", names(preds))
+new_cols <- setdiff(new_cols, names(mt))
+if (length(new_cols) == 0) {
+  cat("[predict_cosine_overlay] 无新增列\n")
+  quit(status = 0)
+}
+cat("[predict_cosine_overlay] 计算列: ", paste(new_cols, collapse = ", "),
+    "\n", sep = "")
+vals <- setNames(rep(list(rep("", nrow(mt))), length(new_cols)), new_cols)
+n_hit <- setNames(integer(length(new_cols)), new_cols)
+pr_list <- preds[sub("^cand1_predict_", "", new_cols)]
+t0 <- proc.time()[3]
+n_spec <- 0L
+for (i in seq_len(nrow(mt))) {
+  seq_p <- mt$cand1_sequence[i]
+  if (is.na(seq_p) || !nzchar(seq_p)) next
+  mod_p <- sub(";+$", "", as.character(mt$cand1_modification[i]))
+  if (is.na(mod_p)) mod_p <- ""
+  # 查谱图＋实验离子强度——每行一次，全部预测器列共用
+  # spectrum lookup + experimental ion intensities - once per row, shared
+  spc <- get0(mt$File_Name[i], envir = spec_map, inherits = FALSE,
+              ifnotfound = NULL)
+  if (is.null(spc)) next
+  sp <- try(spectrum_params(seq_p, mod_p, "unlabeled", aa, aa_tab,
+                            spc@spectrum, 20, "ppm", labels = NULL),
+            silent = TRUE)
+  if (is.null(sp) || inherits(sp, "try-error")) next
+  v <- sp$b_y_ions_intensity
+  if (length(v) == 0) next
+  n_spec <- n_spec + 1L
+  key1 <- paste0(seq_p, "|", mod_p, "|", mt$Charge[i])
+  key2 <- paste0(seq_p, "||", mt$Charge[i])
+  for (j in seq_along(new_cols)) {
+    pr <- pr_list[[j]]
     pi <- unname(pr$idx[key1])
-    if (is.na(pi)) pi <- unname(pr$idx[paste0(seq_p, "||", mt$Charge[i])])
+    if (is.na(pi)) pi <- unname(pr$idx[key2])
     if (is.na(pi)) next
-    # 查谱图
-    spc <- get(fn, envir = spec_map, inherits = FALSE)
-    if (is.null(spc)) next
-    # spectrum_params
-    sp <- try(spectrum_params(seq_p, mod_p, "unlabeled", aa, aa_tab,
-                              spc@spectrum, 20, "ppm", labels = NULL),
-              silent = TRUE)
-    if (is.null(sp) || inherits(sp, "try-error")) next
-    v <- sp$b_y_ions_intensity
     pv <- pr$int[[pi]]
     nmin <- min(length(pv), length(v))
     if (nmin <= 0) next
-    vals[i] <- sprintf("%.4f", cosine(v[seq_len(nmin)], pv[seq_len(nmin)]))
-    n_hit <- n_hit + 1
+    vals[[j]][i] <- sprintf("%.4f", cosine(v[seq_len(nmin)], pv[seq_len(nmin)]))
+    n_hit[j] <- n_hit[j] + 1L
   }
-  mt[[col_name]] <- vals
-  n_new_cols <- n_new_cols + 1
-  cat("  ", col_name, ": ", n_hit, "/", nrow(mt), " 覆盖\n", sep = "")
+  if (i %% 2000L == 0L) {
+    cat(sprintf("  [overlay] 行 %d/%d（spectrum_params %d 次，已用 %.0fs）\n",
+                i, nrow(mt), n_spec, proc.time()[3] - t0))
+  }
 }
+for (j in seq_along(new_cols)) mt[[new_cols[j]]] <- vals[[j]]
+n_new_cols <- length(new_cols)
+for (j in seq_along(new_cols)) {
+  cat("  ", new_cols[j], ": ", n_hit[j], "/", nrow(mt), " 覆盖\n", sep = "")
+}
+cat(sprintf("[predict_cosine_overlay] 行主序总耗时 %.0fs（spectrum_params %d 次＝行级一次，与列数无关）\n",
+            proc.time()[3] - t0, n_spec))
 
 # 写回
 if (n_new_cols > 0) {

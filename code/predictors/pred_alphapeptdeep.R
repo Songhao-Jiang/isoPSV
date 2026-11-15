@@ -58,51 +58,119 @@ build_table <- function(pep_df) {
     stringsAsFactors = FALSE)
 }
 
-parse_driver_tsv <- function(tsv_file) {
-  raw <- read.delim(tsv_file, sep = "\t", check.names = FALSE,
-                    stringsAsFactors = FALSE, na.strings = character(0))
-  missing_cols <- setdiff(c("spec_id", "b1", "b2", "y1", "y2"), colnames(raw))
-  if (length(missing_cols)) stop("alphapeptdeep driver 输出缺列: ",
-                                 paste(missing_cols, collapse = ","))
-  to_num <- function(x) {
-    v <- suppressWarnings(as.numeric(strsplit(x, ",", fixed = TRUE)[[1]]))
-    v[is.na(v)] <- 0
-    v
-  }
-  out <- vector("list", nrow(raw))
-  for (i in seq_len(nrow(raw))) {
-    out[[i]] <- list(b1 = to_num(raw$b1[i]), b2 = to_num(raw$b2[i]),
-                     y1 = to_num(raw$y1[i]), y2 = to_num(raw$y2[i]))
-  }
-  setNames(out, raw$spec_id)
-}
-
 block_lines <- function(title, b1, b2, y1, y2) {
+  # 块格式参考实现（主/兜底路径均为向量化直写；此函数保留作文档与单测锚）
+  # reference block layout (both live paths write vectorized; kept for docs)
   c("BEGIN IONS",
     paste0("TITLE=", title),
-    paste0("b+1=", paste(format(b1, scientific = FALSE, trim = TRUE), collapse = ",")),
-    paste0("b+2=", paste(format(b2, scientific = FALSE, trim = TRUE), collapse = ",")),
-    paste0("y+1=", paste(rev(format(y1, scientific = FALSE, trim = TRUE)), collapse = ",")),
-    paste0("y+2=", paste(rev(format(y2, scientific = FALSE, trim = TRUE)), collapse = ",")),
+    paste0("b+1=", paste(b1, collapse = ",")),
+    paste0("b+2=", paste(b2, collapse = ",")),
+    paste0("y+1=", paste(rev(y1), collapse = ",")),
+    paste0("y+2=", paste(rev(y2), collapse = ",")),
     "END IONS")
 }
 
-build_predict_txt <- function(input_table, by_id) {
-  predict_lines <- character(0)
-  skip_no_rows <- 0L; skip_len <- 0L
-  for (i in seq_len(nrow(input_table))) {
-    ions <- by_id[[input_table$spec_id[i]]]
-    if (is.null(ions)) { skip_no_rows <- skip_no_rows + 1L; next }
-    residue_count <- nchar(input_table$peptide[i])
-    if (length(ions$b1) != residue_count - 1L ||
-        length(ions$y1) != residue_count - 1L) { skip_len <- skip_len + 1L; next }
-    predict_key <- paste(input_table$peptide[i],
-                         input_table$orig_mod[i],
-                         input_table$charge[i], sep = "|")
-    predict_lines <- c(predict_lines,
-                       block_lines(predict_key, ions$b1, ions$b2, ions$y1, ions$y2))
+# （工作站 11-05 T2 计时反例）：driver 产物 → predict.txt 的向量化
+# 重建。165 线性化只修掉了 c() 累积（输入装填 ≤1 分钟已达标），但逐行
+# strsplit×4＋as.numeric×4＋format×4 仍在——66.8 万行重入实测 79 分钟单核。
+# 本版两处换掉：①主路径＝driver 直写 predict.txt（--predict-out，python 侧
+# 写字符串快一个量级，适配器退化为透传）；②fallback（driver 产物在、
+# predict 缺失时的重建）用本函数——数值串原样透传（driver %.5f 与旧
+# format(as.numeric) 回读后同一双精度，仅尾零字节差），无逐行数值解析。
+# 心跳打到 stdout（165 打 stderr 在 master 捕获链下不可见——工作站实测
+# 全程零心跳行）。
+#  (workstation 11-05 T2 counterexample): vectorized rebuild from the
+# driver output. The 165 linearization only fixed the c() accumulation (input
+# loading <=1 min, on target), but the per-row strsplit/as.numeric/format
+# remained - 79 single-core minutes on a 668k-row re-entry. This version
+# replaces both: (1) main path = the driver writes predict.txt directly
+# (--predict-out, python string writing is an order of magnitude faster, the
+# adapter becomes a passthrough); (2) the fallback rebuild (driver output
+# present, predict missing) uses this function - value strings pass through
+# verbatim (driver %.5f reparses to the same doubles as the old
+# format(as.numeric) output, trailing-zero byte differences only). The
+# heartbeat goes to stdout (165's stderr was invisible under the master's
+# capture chain - zero heartbeat lines in the workstation run).
+build_predict_txt_fast <- function(input_table, drv_df) {
+  n <- nrow(input_table)
+  m <- match(input_table$spec_id, drv_df$spec_id)
+  have <- !is.na(m)
+  skip_no_rows <- sum(!have)
+  residue_count <- nchar(input_table$peptide)
+  comma_n <- function(x) nchar(x) - nchar(gsub(",", "", x, fixed = TRUE)) + 1L
+  b1s <- rep("", n); b2s <- rep("", n); y1s <- rep("", n); y2s <- rep("", n)
+  hh <- which(have)
+  if (length(hh)) {
+    b1s[hh] <- drv_df$b1[m[hh]]; b2s[hh] <- drv_df$b2[m[hh]]
+    y1s[hh] <- drv_df$y1[m[hh]]; y2s[hh] <- drv_df$y2[m[hh]]
   }
-  list(lines = predict_lines, skip_no_rows = skip_no_rows, skip_len = skip_len)
+  len_ok <- rep(FALSE, n)
+  if (length(hh)) {
+    len_ok[hh] <- nzchar(b1s[hh]) & nzchar(y1s[hh]) &
+      comma_n(b1s[hh]) == residue_count[hh] - 1L &
+      comma_n(y1s[hh]) == residue_count[hh] - 1L
+  }
+  keep <- which(have & len_ok)
+  skip_len <- sum(have & !len_ok)
+  nk <- length(keep)
+  # y 行反转（正序 → 位点序）：唯一残余的逐行循环，每 10 万行打心跳
+  # y reversal (positive -> site order): the only per-row loop left,
+  # heartbeat every 100k rows
+  y1r <- character(nk); y2r <- character(nk)
+  if (nk) {
+    sp1 <- strsplit(y1s[keep], ",", fixed = TRUE)
+    sp2 <- strsplit(y2s[keep], ",", fixed = TRUE)
+    t0 <- proc.time()[3]
+    for (k in seq_len(nk)) {
+      y1r[k] <- paste(rev(sp1[[k]]), collapse = ",")
+      y2r[k] <- paste(rev(sp2[[k]]), collapse = ",")
+      if (k %% 100000L == 0L) {
+        cat(sprintf("[pred_alphapeptdeep] 重建进度 %d/%d（已用 %.0fs）\n",
+                    k, nk, proc.time()[3] - t0))
+      }
+    }
+  }
+  out <- character(7L * nk)
+  if (nk) {
+    i1 <- seq.int(1L, by = 7L, length.out = nk)
+    out[i1] <- "BEGIN IONS"
+    out[i1 + 1L] <- paste0("TITLE=", input_table$peptide[keep], "|",
+                           input_table$orig_mod[keep], "|",
+                           input_table$charge[keep])
+    out[i1 + 2L] <- paste0("b+1=", b1s[keep])
+    out[i1 + 3L] <- paste0("b+2=", b2s[keep])
+    out[i1 + 4L] <- paste0("y+1=", y1r)
+    out[i1 + 5L] <- paste0("y+2=", y2r)
+    out[i1 + 6L] <- "END IONS"
+  }
+  list(lines = out, skip_no_rows = skip_no_rows, skip_len = skip_len)
+}
+
+# ----：产物指纹复用（升级 166 的两层存在性复用；工作站 run7 实锤：----
+# ---- "predict＋driver 均在"复用了 11-04 23:59 的旧 predict 而 peptide.txt ----
+# ---- 12:45 刚重建，陈旧预测流入 step3——策略增删/换库场景必错）。指纹＝     ----
+# ---- 输入 md5＋size（master 的 file.copy 每轮刷新 peptides.txt mtime，      ----
+# ---- mtime 序恒失效），侧车 <out>.run_params。早期实现产物无侧车＝不可证新鲜→   ----
+# ---- 重跑（一次性代价，升版后首轮全量）。
+# ----: fingerprint-based artifact reuse (upgrading the 166
+# ---- existence-only two-tier check; workstation run7 proved it reused a
+# ---- predict from 11-04 23:59 while peptide.txt had just been rebuilt at
+# ---- 12:45, letting stale predictions flow into step3 - guaranteed wrong
+# ---- under strategy/library changes). Fingerprint = input md5 + size in an
+# ---- <out>.run_params sidecar (the master's file.copy refreshes peptides.txt
+# ---- mtime every run, so mtime ordering never holds). Legacy artifacts
+# ---- without a sidecar are unverifiable and rerun once.
+input_fp <- function(in_path) {
+  c(paste0("in_md5=", unname(tools::md5sum(in_path))),
+    paste0("in_size=", file.info(in_path)$size))
+}
+sidecar_matches <- function(out_path, fp) {
+  sc <- paste0(out_path, ".run_params")
+  file.exists(sc) && identical(trimws(readLines(sc, warn = FALSE)), fp)
+}
+write_run_params <- function(out_path, in_path) {
+  try(writeLines(input_fp(in_path), paste0(out_path, ".run_params"),
+                 useBytes = TRUE), silent = TRUE)
 }
 
 self_test <- function() {
@@ -113,28 +181,47 @@ self_test <- function() {
   tab <- build_table(pep_df)
   stopifnot(tab$modinfo[1] == "2,Oxidation[M]", tab$modinfo[2] == "")
   cat("  [ok] 修饰串转换（剥尾分号/空串）\n")
+  #：driver 产物直连（spec_id 对齐）＋数值串原样透传（%.5f 不重排）
+  #: direct driver-table join on spec_id + verbatim value strings
+  # (%.5f passes through, not reformatted)
   drv <- data.frame(spec_id = tab$spec_id,
-                    b1 = c("1,2,3,4,5,6,7", "1,2,3,4,5"),
-                    b2 = c("0.1,0.2,0.3,0.4,0.5,0.6,0.7", "0.1,0.2,0.3,0.4,0.5"),
+                    b1 = c("1.00000,2.00000,3.00000,4.00000,5.00000,6.00000,7.00000",
+                           "1,2,3,4,5"),
+                    b2 = c("0.10000,0.20000,0.30000,0.40000,0.50000,0.60000,0.70000",
+                           "0.1,0.2,0.3,0.4,0.5"),
                     y1 = c("7,6,5,4,3,2,1", "5,4,3,2,1"),
                     y2 = c("0.7,0.6,0.5,0.4,0.3,0.2,0.1", "0.5,0.4,0.3,0.2,0.1"),
                     stringsAsFactors = FALSE)
-  tf1 <- tempfile(fileext = ".tsv")
-  write.table(drv, tf1, sep = "\t", row.names = FALSE, quote = FALSE)
-  by_id <- parse_driver_tsv(tf1)
-  built <- build_predict_txt(tab, by_id)
+  built <- build_predict_txt_fast(tab, drv)
   lines <- built$lines
   stopifnot(built$skip_no_rows == 0L, built$skip_len == 0L,
             length(lines) == 2L * 7L,
             sum(lines == "BEGIN IONS") == 2L, sum(lines == "END IONS") == 2L,
             lines[2] == "TITLE=PEPTIDEK|2,Oxidation[M]|2",
-            lines[3] == "b+1=1,2,3,4,5,6,7",
+            lines[3] == "b+1=1.00000,2.00000,3.00000,4.00000,5.00000,6.00000,7.00000",
+            lines[4] == "b+2=0.10000,0.20000,0.30000,0.40000,0.50000,0.60000,0.70000",
             lines[5] == "y+1=1,2,3,4,5,6,7")
-  cat("  [ok] 块结构/TITLE 键/y 位点序反转\n")
+  cat("  [ok] 块结构/TITLE 键/y 位点序反转/数值串透传\n")
   key2 <- paste(tab$peptide[2], sub(";+$", "", pep_df$modification[2]),
                 pep_df$charge[2], sep = "|")
   stopifnot(any(lines == paste0("TITLE=", key2)))
   cat("  [ok] TITLE 键与消费端口径一致\n")
+  # 跳过计数：无产物（spec_id 缺席）与长度不符各一例
+  tab2 <- rbind(tab, data.frame(spec_id = "p000009", peptide = "PEPTIDEK",
+                                modinfo = "", orig_mod = "", charge = "2",
+                                stringsAsFactors = FALSE))
+  drv2 <- rbind(drv, data.frame(spec_id = "p000009",
+                                b1 = "1,2", b2 = "1,2", y1 = "1,2", y2 = "1,2",
+                                stringsAsFactors = FALSE))
+  b2t <- build_predict_txt_fast(tab2, drv2)
+  stopifnot(b2t$skip_no_rows == 0L, b2t$skip_len == 1L,
+            length(b2t$lines) == 2L * 7L)
+  tab3 <- rbind(tab, data.frame(spec_id = "p000010", peptide = "ALAMAR",
+                                modinfo = "", orig_mod = "", charge = "3",
+                                stringsAsFactors = FALSE))
+  b3t <- build_predict_txt_fast(tab3, drv)
+  stopifnot(b3t$skip_no_rows == 1L, b3t$skip_len == 0L)
+  cat("  [ok] 跳过计数（无产物/长度不符）\n")
   cat("[self-test] 全部通过\n")
   TRUE
 }
@@ -151,10 +238,31 @@ main <- function() {
   pep_df$modification[is.na(pep_df$modification)] <- ""
   missing_cols <- setdiff(c("peptide", "modification", "charge"), colnames(pep_df))
   if (length(missing_cols)) stop("peptide.txt 缺列: ", paste(missing_cols, collapse = ","))
+  # （工作站 169 报告建议，ms2pip 管道符防线推广）：pFind 二选一
+  # 异构体记法（肽序列含 "|"，全表实测 918 条）对 peptdeep 是非法残基——
+  # 此前靠 164 的二分重试逐批丢弃（代价高且无计数）；入侧统一跳过＋计数。
+  #  (workstation 169-round request, generalizing the ms2pip pipe
+  # guard): pFind's either-or isoform notation ("|" inside the peptide, 918
+  # rows on the full table) is an illegal residue for peptdeep - previously
+  # absorbed by the v164 bisection retry (expensive and uncounted); skip at
+  # the input side with a count.
+  pipe_hit_apd <- grepl("|", pep_df$peptide, fixed = TRUE)
+  if (any(pipe_hit_apd)) {
+    cat("[pred_alphapeptdeep] 管道符异构体肽（pFind 二选一记法）整条跳过 ",
+        sum(pipe_hit_apd), " 条\n", sep = "")
+    cat("[pred_alphapeptdeep] skipped ", sum(pipe_hit_apd),
+        " pipe-notation isoform peptides (pFind either-or notation)\n", sep = "")
+    pep_df <- pep_df[!pipe_hit_apd,, drop = FALSE]
+  }
 
   input_table <- build_table(pep_df)
   in_tsv <- paste0(cli_args$`out`, ".apd.tsv")
-  write.table(input_table[, c("spec_id", "peptide", "modinfo", "charge")],
+  #：orig_mod 列随输入 TSV 下发（driver 直写 TITLE 用，与消费端
+  # read_predict_txt 的 sub(";+$","",...) 同口径；旧 driver 忽略该列）
+  #: orig_mod rides along in the input TSV for the driver's direct
+  # TITLE writing (same sub(";+$","",...) key as read_predict_txt; old
+  # drivers ignore the extra column)
+  write.table(input_table[, c("spec_id", "peptide", "modinfo", "charge", "orig_mod")],
               in_tsv, sep = "\t", row.names = FALSE, quote = FALSE)
   if (isTRUE(cli_args$`dry-run`)) {
     cat("dry-run: 输入 TSV 已写", in_tsv, "（", nrow(input_table), "行），未调用 peptdeep\n")
@@ -170,24 +278,75 @@ main <- function() {
 
   drv_out <- paste0(cli_args$`out`, ".driver.tsv")
   drv_log <- paste0(cli_args$`out`, ".driver.log")
-  driver <- if (!is.null(cli_args$driver)) cli_args$driver else
-    file.path(getwd(), "predictors", "alphapeptdeep_driver.py")
-  if (!file.exists(driver)) stop("alphapeptdeep_driver.py 未找到: ", driver)
+  #：指纹制复用（升级 166 的存在性两层）。
+  # ① predict 在且指纹匹配 → 复用（删除 driver.tsv 可强制重跑）；
+  # ② predict 缺/删而 driver 产物在且指纹匹配 → R 侧向量化重建（分钟级）；
+  # ③ 指纹失配（肽表变化）或无侧车（早期实现产物）→ 全量重跑（旧 predict/driver
+  #    删除防误读；一次性代价，升版后首轮全量）。
+  #: fingerprint-based reuse (upgrading the 166 existence tiers).
+  # (1) predict present with a matching fingerprint -> reuse (delete
+  #     driver.tsv to force a rerun);
+  # (2) predict absent but the driver output present with a matching
+  #     fingerprint -> vectorized R rebuild (minutes);
+  # (3) fingerprint mismatch (peptide table changed) or no sidecar (legacy
+  #     artifact) -> full rerun with the stale predict/driver removed so the
+  #     downstream cannot read them (one-time cost on the first run after
+  #     upgrading).
+  sc_ok <- sidecar_matches(cli_args$`out`, input_fp(cli_args$`in`))
+  if (file.exists(cli_args$`out`) && sc_ok) {
+    cat("[pred_alphapeptdeep] 复用已有产物（指纹匹配；删除 predict.txt.driver.tsv 可强制重跑）：",
+        cli_args$`out`, "\n", sep = "")
+    return(0L)
+  }
+  if (file.exists(cli_args$`out`)) {
+    cat("[pred_alphapeptdeep] 肽表变化或旧产物无指纹——旧 predict 失效，重新预测\n")
+    cat("[pred_alphapeptdeep] stale predict invalidated (peptide table changed or no fingerprint); re-predicting\n")
+    unlink(cli_args$`out`)
+  }
+  need_rebuild <- TRUE
+  if (file.exists(drv_out) && sc_ok) {
+    cat("[pred_alphapeptdeep] predict 缺失、driver 产物指纹仍匹配——R 侧向量化重建：",
+        drv_out, "\n", sep = "")
+  } else {
+    if (file.exists(drv_out)) {
+      cat("[pred_alphapeptdeep] driver 产物同样不可证新鲜——删除重跑\n")
+      unlink(drv_out)
+    }
+    driver <- if (!is.null(cli_args$driver)) cli_args$driver else
+      file.path(getwd(), "predictors", "alphapeptdeep_driver.py")
+    if (!file.exists(driver)) stop("alphapeptdeep_driver.py 未找到: ", driver)
 
-  a <- c(shQuote(normalizePath(driver)), "--in", shQuote(in_tsv),
-         "--out", shQuote(drv_out), "--instrument", instrument, "--ce", ce)
-  cat("[pred_alphapeptdeep] 调用 driver：", paste(a, collapse = " "), "\n", sep = "")
-  st <- system2(cli_args$python, a, stdout = drv_log, stderr = drv_log)
-  if (st != 0L || !file.exists(drv_out)) {
-    cat("[pred_alphapeptdeep] driver 失败（exit ", st, "），日志：", drv_log, "\n", sep = "")
-    return(1L)
+    a <- c(shQuote(normalizePath(driver)), "--in", shQuote(in_tsv),
+           "--out", shQuote(drv_out), "--instrument", instrument, "--ce", ce,
+           "--predict-out", shQuote(normalizePath(cli_args$`out`)))
+    cat("[pred_alphapeptdeep] 调用 driver：", paste(a, collapse = " "), "\n", sep = "")
+    st <- system2(cli_args$python, a, stdout = drv_log, stderr = drv_log)
+    if (st != 0L || !file.exists(drv_out)) {
+      cat("[pred_alphapeptdeep] driver 失败（exit ", st, "），日志：", drv_log, "\n", sep = "")
+      return(1L)
+    }
+    if (file.exists(cli_args$`out`)) {
+      write_run_params(cli_args$`out`, cli_args$`in`)   #：指纹侧车
+      cat("[pred_alphapeptdeep] driver 直写完成（输入 ", nrow(input_table),
+          " 行）-> ", cli_args$`out`, "（详记 ", drv_log, "）\n", sep = "")
+      return(0L)
+    }
+    cat("[pred_alphapeptdeep] driver 未直写 predict（早期实现 driver？），R 侧重建\n")
   }
 
-  by_id <- parse_driver_tsv(drv_out)
-  built <- build_predict_txt(input_table, by_id)
-  writeLines(built$lines, cli_args$`out`, useBytes = TRUE)
-  cat("[pred_alphapeptdeep] 完成：", length(built$lines), " 行（跳过：无产物 ",
-      built$skip_no_rows, "，长度不符 ", built$skip_len, "）-> ", cli_args$`out`, "\n", sep = "")
+  if (need_rebuild) {
+    drv_df <- read.delim(drv_out, sep = "\t", check.names = FALSE,
+                         stringsAsFactors = FALSE, na.strings = character(0),
+                         colClasses = "character")
+    missing_dcols <- setdiff(c("spec_id", "b1", "b2", "y1", "y2"), colnames(drv_df))
+    if (length(missing_dcols)) stop("alphapeptdeep driver 输出缺列: ",
+                                    paste(missing_dcols, collapse = ","))
+    built <- build_predict_txt_fast(input_table, drv_df)
+    writeLines(built$lines, cli_args$`out`, useBytes = TRUE)
+    write_run_params(cli_args$`out`, cli_args$`in`)   #：指纹侧车
+    cat("[pred_alphapeptdeep] 重建完成：", length(built$lines), " 行（跳过：无产物 ",
+        built$skip_no_rows, "，长度不符 ", built$skip_len, "）-> ", cli_args$`out`, "\n", sep = "")
+  }
   0L
 }
 

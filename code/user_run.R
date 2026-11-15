@@ -315,6 +315,70 @@ if (!dir.exists(result_dir)) dir.create(result_dir, recursive = TRUE, showWarnin
 cat("结果文件夹：", result_dir, "\n")
 cat("result folder:", result_dir, "\n")
 
+# （工作站 11-05 报告 §三.1）：master pidfile——启动时把 pid＋CONFIG
+# 路径＋启动时间写入 result_*/MASTER_PID.txt。master 的命令行是 cwd 相对路径，
+# 跨项目/跨窗口按进程名清杀无法区分归属（11-05 08:34 生产双 master 被沙箱
+# 清扫误杀）；一切清杀脚本先读本文件核对 pid 与 CONFIG 归属再动手。文件含
+# pid 与启动时间，陈旧文件可用 pid 存活性判别；正常结束/预检早退时删除。
+#  (workstation 11-05 report §3.1): master pidfile - pid + CONFIG
+# path + start time into result_*/MASTER_PID.txt at startup. The master
+# command line is a cwd-relative path, so name-based cross-window kills
+# cannot tell projects apart (the 11-05 08:34 double-master sweep incident);
+# kill scripts must read this file and verify pid + CONFIG ownership first.
+# Stale files are detectable via pid liveness; removed on normal end/exit.
+  master_pid_file <- file.path(result_dir, "MASTER_PID.txt")
+  pid_ver_u <- tryCatch(readLines(file.path(script_dir, "..", "VERSION"),
+                                warn = FALSE, n = 1L), error = function(e) "unknown")
+  try(writeLines(c(
+    paste0("pid=", Sys.getpid()),
+    paste0("config=", cfg_path),
+    paste0("started=", format(Sys.time(), "%Y-%m-%d %H:%M:%S")),
+    paste0("version=", if (length(pid_ver_u)) substr(pid_ver_u, 1L, 60L) else "unknown")),
+    master_pid_file, useBytes = TRUE), silent = TRUE)
+
+  # esult_dir 硬锁——MASTER_PID.txt 是信息件不拦
+  # 执行；.lock 含 pid＋config＋启动时间，启动时若锁内 pid 仍存活则**拒绝
+  # 并发**（同目录双 master 互相覆盖 result 是实测事故形态），陈旧锁（pid
+  # 已退）接管＋告警；正常结束/预检早退清理。不同 result_dir 并发不受限
+  # （子集级并行通道——每子集各开一个目录即可叠加上层的引擎级并行）。
+  #  (NTM opinion P3): the result_dir hard lock - MASTER_PID.txt is
+  # informational and never blocks; .lock carries pid + config + start time,
+  # and a live pid inside REFUSES concurrent masters (two masters sharing one
+  # result_dir overwrite each other's products), while a stale lock (dead pid)
+  # is taken over with a warning; cleared on normal end and the precheck early
+  # exit. Different result_dirs stay unconstrained (the subset-level
+  # parallelism lane, stacking with the engine-level parallelism inside).
+  master_lock_file <- file.path(result_dir, ".lock")
+  .win_pid_alive_176 <- function(pid) {
+    o <- suppressWarnings(shell(
+      paste0('tasklist /NH /FI "PID eq ', pid, '" 2>nul | findstr /C:"', pid, '"'),
+      intern = TRUE, mustWork = FALSE))
+    length(o) > 0
+  }
+  if (file.exists(master_lock_file)) {
+    ol <- trimws(readLines(master_lock_file, warn = FALSE))
+    old_pid <- sub("^pid=", "", ol[grepl("^pid=", ol)][1])
+    old_pid <- if (!is.na(old_pid)) trimws(old_pid) else ""
+    if (nzchar(old_pid) && !is.na(suppressWarnings(as.integer(old_pid))) &&
+        .win_pid_alive_176(old_pid)) {
+      cat("==== [Master] result_dir 已有存活 master（pid=", old_pid,
+          "），拒绝并发——同目录双实例会互相覆盖产物。确属误会可删 ",
+          master_lock_file, " 后重试 ====\n", sep = "")
+      cat("==== [Master] a live master (pid=", old_pid,
+          ") already owns this result_dir; concurrent instances would",
+          " overwrite each other. Delete ", master_lock_file,
+          " if this is a mistake and retry ====\n", sep = "")
+      quit(save = "no", status = 1)
+    }
+    cat("[Master] 陈旧锁接管（原 pid=", old_pid, " 已退出）：", master_lock_file, "\n", sep = "")
+    cat("[Master] taking over the stale lock (former pid=", old_pid, " exited)\n", sep = "")
+  }
+  try(writeLines(c(
+    paste0("pid=", Sys.getpid()),
+    paste0("config=", cfg_path),
+    paste0("started=", format(Sys.time(), "%Y-%m-%d %H:%M:%S"))),
+    master_lock_file, useBytes = TRUE), silent = TRUE)
+
 # ---- 运行遥测接线TELEMETRY=1 时在每步边界写 run_telemetry 标记 ----
 # 采样器由 run_telemetry.R start 独立启动（5 秒间隔）；此处只在步骤边界打 mark，
 # 遥测汇总（telemetry_summary.txt）即得每步 CPU/内存峰值均值与外存占用。
@@ -490,10 +554,35 @@ if (pg_mode_u %in% c("1", "2")) {
       # re-read on every start); fingerprint = psm/fasta path+mtime+size+mode,
       # a hit reuses the counts and skips the scan. Changed inputs rescan;
       # a failed cache write never breaks the run.
+      # （上游化 field1b，工作站 11-05 测试报告裁定）：预检参考库
+      # 同步拆键——与 step3 pg 门控同口径（proteogenomics_annotated_fasta
+      # 优先，回退 fasta）。竞争库部署＋pg=1 时，旧预检仍按 fasta 判"已
+      # 注释"，n_target≈0 → master 启动即误早退（T1.4 回退场景测不出，因
+      # 预检在 step3 之前）。指纹与 accession 扫描共用本参考库，参考库换
+      # 库时缓存自动失效。
+      #  (upstreaming field1b, workstation 11-05 verdict): the precheck
+      # reference now follows the same split key as the step3 pg gate
+      # (proteogenomics_annotated_fasta first, fasta fallback). Under a
+      # competition-library deployment with pg=1 the old precheck still judged
+      # "annotated" against fasta, collapsing n_target to ~0 and aborting the
+      # master at startup. Both the fingerprint and the accession scan share
+      # this reference; changing it invalidates the cache automatically.
       fa_fp_u <- ""
-      if (!is.null(cfg1$fasta) && length(cfg1$fasta) > 0) {
+      if (!is.null(cfg1$proteogenomics_annotated_fasta) &&
+          length(cfg1$proteogenomics_annotated_fasta) > 0) {
+        pg_fa_c_u <- resolve_cfg_paths(cfg1, "proteogenomics_annotated_fasta")[1]
+        if (nzchar(pg_fa_c_u) && file.exists(pg_fa_c_u)) {
+          fa_fp_u <- pg_fa_c_u
+          cat("[流程门控] 预检参考库（proteogenomics_annotated_fasta）：",
+              fa_fp_u, "\n", sep = "")
+        }
+      }
+      if (!nzchar(fa_fp_u) && !is.null(cfg1$fasta) && length(cfg1$fasta) > 0) {
         fa_c_u <- resolve_cfg_paths(cfg1, "fasta")[1]
-        if (nzchar(fa_c_u) && file.exists(fa_c_u)) fa_fp_u <- fa_c_u
+        if (nzchar(fa_c_u) && file.exists(fa_c_u)) {
+          fa_fp_u <- fa_c_u
+          cat("[流程门控] 预检参考库（回退 fasta）：", fa_fp_u, "\n", sep = "")
+        }
       }
       fi_p_u <- file.info(psm_u)
       fp_psm_u <- paste0(normalizePath(psm_u, winslash = "/"), "|",
@@ -530,11 +619,24 @@ if (pg_mode_u %in% c("1", "2")) {
         cc_u[which(hdr_u == "Proteins")] <- "character"
         psmu <- read.delim(psm_u, sep = "\t", header = TRUE, stringsAsFactors = FALSE,
                            colClasses = cc_u, na.strings = character(0))
+        #：165 的 psm 表 File_Name 唯一性校验在此为死代码（本分支
+        # colClasses 只读 Proteins 列，File_Name 永不在 colnames——工作站
+        # 11-05 实测零警告穿透），已移除。真实去重落到 step2 诱饵清洗路径
+        # （clean_decoy_spectra 系列清洗后真实回写，覆盖 pg=0/1/2 全部模式
+        # 的合并输入；见 user_step2.R 与 ReadMGF_script.R）。
+        #: the  File_Name uniqueness check was dead code here
+        # (this branch reads only the Proteins column, so File_Name never
+        # appears in colnames - the workstation's 11-05 test showed zero
+        # warnings and silent passthrough); removed. The real dedup now lives
+        # in the step-2 decoy-cleaning path, rewriting the cleaned files that
+        # feed the merge and covering pg=0/1/2 alike.
         fa_u <- character(0)
-        if (!is.null(cfg1$fasta) && length(cfg1$fasta) > 0) {
-          fa_f_u <- resolve_cfg_paths(cfg1, "fasta")[1]
-          if (nzchar(fa_f_u) && file.exists(fa_f_u)) fa_u <- unique(names(read_fasta(fa_f_u)))
-        }
+        # （field1b 第二处）：accession 扫描参考库与指纹同源（拆键
+        # 后的 fa_fp_u），不再单独读 fasta。
+        #  (field1b, second site): the accession scan uses the same
+        # split-key reference as the fingerprint (fa_fp_u) instead of fasta.
+        fa_f_u <- fa_fp_u
+        if (nzchar(fa_f_u) && file.exists(fa_f_u)) fa_u <- unique(names(read_fasta(fa_f_u)))
         seq_u <- if ("Sequence" %in% hdr_u) as.character(psmu$Sequence)
                  else rep("", nrow(psmu))
         in_fa_u <- fa_annotated_proteins(as.character(psmu$Proteins), seq_u,
@@ -553,6 +655,8 @@ if (pg_mode_u %in% c("1", "2")) {
           }
           writeLines(msg_u, sumf_u, useBytes = TRUE)
           cat(msg_u, "\n")
+          try(unlink(master_pid_file), silent = TRUE)   #：早退清理 pidfile
+          try(unlink(master_lock_file), silent = TRUE)  #：早退清理硬锁
           quit(save = "no", status = 0)
         }
         cat(sprintf("[蛋白质基因组学] 搜库前预检：目标侧行 %d / 总行 %d\n",
@@ -824,8 +928,19 @@ pep_txt <- file.path(result_dir, "merge", "peptide.txt")
       identical(trimws(readLines(sc, warn = FALSE)), predict_fingerprint_lines)
   }
   peptide_file_stat <- file.info(pep_txt)
-  predict_fingerprint_lines <- c(paste0("pep=", format(peptide_file_stat$mtime, "%Y-%m-%d %H:%M:%OS3"), "|", peptide_file_stat$size),
-              paste0("inst=", pd2_inst))
+  # （工作站 168 轮发现）：指纹从 mtime 口径统一为 md5 口径（与三
+  # 适配器的 .run_params 侧车同不变量）——step2 重跑会原样重写 peptide.txt，
+  # mtime 变而内容未变时旧口径会误判失效白付整轮 pDeep2；md5 内容不变即
+  # 复用。旧侧车（pep=mtime|size 格式）自动失配→一次性重跑。
+  #  (workstation 168-round finding): the fingerprint moves from
+  # mtime to md5 (same invariant as the three adapters' .run_params sidecars)
+  # - a step-2 rerun rewrites peptide.txt byte-identically, and the old
+  # mtime-based check then needlessly invalidated and re-ran pDeep2; with
+  # md5, unchanged content stays reusable. Legacy sidecars (pep=mtime|size)
+  # simply mismatch and rerun once.
+  predict_fingerprint_lines <- c(
+    paste0("pep_md5=", unname(tools::md5sum(pep_txt)), "|", peptide_file_stat$size),
+    paste0("inst=", pd2_inst))
   reusable_new <- fingerprint_matches(predict_out)
   reusable_legacy <- fingerprint_matches(predict_out_legacy)
   predict_reusable <- reusable_new || reusable_legacy
@@ -940,6 +1055,29 @@ pids <- unique(sub("^predictor([0-9]+)_.*$", "\\1", pn[grepl("^predictor[0-9]+_"
 pids <- pids[order(suppressWarnings(as.integer(pids)))]
 if (length(pids) > 0 && file.exists(pep_txt)) {
   manifest <- character(0)
+  # （工作站 170 报告 #2 治本位轻量版）：管道符肽总账行——pFind
+  # 二选一异构体记法（肽序列含 "|"）对全部预测器是非法残基，各适配器已
+  # 逐个跳过＋计数；此处对 peptide.txt 统一打一行总账，四组计数自动对齐
+  # 可审计（若某适配器计数与总账不符即为该适配器卫兵缺口）。
+  #  (workstation 170-round #2, lightweight root-cure): one
+  # master-level accounting line for pipe-notation peptides - pFind's
+  # either-or "|" notation is illegal for every predictor and each adapter
+  # skips them individually with counts; this line states the total from
+  # peptide.txt so the per-adapter counts reconcile against an auditable
+  # reference.
+  try({
+    pep_col_pipe <- read.delim(pep_txt, sep = "\t", check.names = FALSE,
+                               stringsAsFactors = FALSE, na.strings = character(0),
+                               colClasses = c(peptide = "character"))$peptide
+    n_pipe_master <- sum(grepl("|", pep_col_pipe, fixed = TRUE))
+    if (n_pipe_master > 0) {
+      cat("[预测器] 含管道符肽（pFind 二选一记法，各预测器将跳过）",
+          n_pipe_master, " 条\n", sep = "")
+      cat("[Predictors] ", n_pipe_master,
+          " pipe-notation peptides in peptide.txt (each predictor will skip them)\n",
+          sep = "")
+    }
+  }, silent = TRUE)
   for (pid in pids) {
     getp <- function(k) {
       v <- cfg1[[paste0("predictor", pid, "_", k)]]
@@ -1503,3 +1641,5 @@ tryCatch({
 
 cat("\n==== [总程序 / Master] 全部完成 @ ", format(Sys.time(), "%H:%M:%S"), " ====\n")
 cat("==== [Master] all done @ ", format(Sys.time(), "%H:%M:%S"), " ====\n")
+try(unlink(master_pid_file), silent = TRUE)   #：正常结束清理 pidfile
+try(unlink(master_lock_file), silent = TRUE)  #：正常结束清理硬锁

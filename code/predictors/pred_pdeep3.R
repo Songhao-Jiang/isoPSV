@@ -166,6 +166,31 @@ self_test <- function() {
   TRUE
 }
 
+# ----：产物指纹复用（工作站 167 轮实测：pdeep3 无产物复用，master ----
+# ---- 每轮重启全量重跑 30-60 分钟/项目）。master 的 file.copy 每轮刷新       ----
+# ---- peptides.txt 的 mtime，mtime 序比对恒失效——指纹用内容不变量 md5＋size，  ----
+# ---- 侧车 <out>.run_params（与 pDeep2 侧车同名同风格）。早期实现产物无侧车＝     ----
+# ---- 不可证新鲜→重跑（一次性代价，升版后首轮全量）。
+# ----: artifact fingerprint reuse (workstation 167-round finding:
+# ---- pdeep3 had no product reuse, so every master restart re-ran the full
+# ---- 30-60 min prediction). The master's file.copy refreshes peptides.txt
+# ---- mtime every run, so mtime ordering can never hold - the fingerprint
+# ---- uses content invariants (md5 + size) in a <out>.run_params sidecar
+# ---- (same name and style as the pDeep2 sidecar). Legacy artifacts without
+# ---- a sidecar are unverifiable and rerun once.
+input_fp <- function(in_path) {
+  c(paste0("in_md5=", unname(tools::md5sum(in_path))),
+    paste0("in_size=", file.info(in_path)$size))
+}
+sidecar_matches <- function(out_path, fp) {
+  sc <- paste0(out_path, ".run_params")
+  file.exists(sc) && identical(trimws(readLines(sc, warn = FALSE)), fp)
+}
+write_run_params <- function(out_path, in_path) {
+  try(writeLines(input_fp(in_path), paste0(out_path, ".run_params"),
+                 useBytes = TRUE), silent = TRUE)
+}
+
 # ---- 主入口 ----
 main <- function() {
   cli_args <- parse_cli()
@@ -181,6 +206,43 @@ main <- function() {
   pep_df$modification[is.na(pep_df$modification)] <- ""
   missing_cols <- setdiff(c("peptide", "modification", "charge"), colnames(pep_df))
   if (length(missing_cols)) stop("peptide.txt 缺列: ", paste(missing_cols, collapse = ","))
+  # （工作站 169 报告建议，ms2pip 管道符防线推广）：pFind 二选一
+  # 异构体记法（肽序列含 "|"，全表实测 918 条）对 pDeep3 是非法残基；入侧
+  # 统一跳过＋计数（与 pred_alphapeptdeep/pred_ms2pip 同口径）。
+  # （工作站 170 报告）：卫兵移到指纹复用判断**之前**——与 APD 同
+  # 次序，复用命中时也能看到跳过计数行（此前复用判断在前，重入零计数行，
+  # 两适配器行为不一致是排障坑；产物语义两版一致，纯可观测性对齐）。
+  #  (workstation 169-round request, generalizing the ms2pip pipe
+  # guard): pFind's either-or isoform notation ("|" inside the peptide) is an
+  # illegal residue for pDeep3; skip at the input side with a count (same
+  # contract as pred_alphapeptdeep / pred_ms2pip).
+  #  (workstation 170-round): the guard moved BEFORE the fingerprint
+  # reuse check - same order as APD, so a reuse hit still prints the skip
+  # count (previously the reuse branch returned first with zero count lines;
+  # product semantics were identical either way, this is observability
+  # alignment only).
+  pipe_hit_p3 <- grepl("|", pep_df$peptide, fixed = TRUE)
+  if (any(pipe_hit_p3)) {
+    cat("[pred_pdeep3] 管道符异构体肽（pFind 二选一记法）整条跳过 ",
+        sum(pipe_hit_p3), " 条\n", sep = "")
+    cat("[pred_pdeep3] skipped ", sum(pipe_hit_p3),
+        " pipe-notation isoform peptides (pFind either-or notation)\n", sep = "")
+    pep_df <- pep_df[!pipe_hit_p3,, drop = FALSE]
+  }
+
+  #：产物指纹复用——输入 md5/size 未变则直接复用 predict.txt
+  #：自卫兵之后移入（见上）
+  #: fingerprint reuse - an unchanged input reuses predict.txt as is
+  #: moved after the pipe guard (see above)
+  if (file.exists(cli_args$`out`) && sidecar_matches(cli_args$`out`, input_fp(cli_args$`in`))) {
+    cat("[pred_pdeep3] 复用已有产物（指纹匹配；删除 predict.txt 可强制重跑）：",
+        cli_args$`out`, "\n", sep = "")
+    return(0L)
+  }
+  if (file.exists(cli_args$`out`)) {
+    cat("[pred_pdeep3] 肽表变化或旧产物无指纹——旧产物失效，重新预测\n")
+    cat("[pred_pdeep3] stale predict invalidated (peptide table changed or no fingerprint); re-predicting\n")
+  }
 
   input_table <- build_pdeep3_table(pep_df)
   #：中间件入预测器独立夹（与 --out 同目录），peptides.tsv＝pDeep3 专属
@@ -228,6 +290,7 @@ main <- function() {
   by_id <- parse_driver_tsv(drv_out)
   built <- build_predict_txt(input_table, by_id)
   writeLines(built$lines, cli_args$`out`, useBytes = TRUE)
+  write_run_params(cli_args$`out`, cli_args$`in`)   #：指纹侧车
   cat("[pred_pdeep3] 完成：", length(built$lines), " 行（跳过：无产物 ",
       built$skip_no_rows, "，长度不符 ", built$skip_len, "）-> ", cli_args$`out`, "\n", sep = "")
   0L

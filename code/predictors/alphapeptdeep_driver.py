@@ -42,6 +42,16 @@ MOD_ALIAS = {
     "Phosphorylation": "Phospho",
     "Deamidation": "Deamidated",
     "Acetylation": "Acetyl",
+    #：工作站双项目 APD 故障取证报告点名的变体名（212 令牌家族）
+    "Acetyl_2H(3)": "Acetyl",
+    "Dimethyl_2H(4)": "Dimethyl",
+    "Dimethyl_2H(6)_13C(2)": "Dimethyl",
+    "Dimethyl_13C(2)": "Dimethyl",
+    "ICPL_13C(6)": "ICPL",
+    "ICPL_13C(6)_15N(1)": "ICPL",
+    "Cation_Ca[II]": "",  # 无 Unimod 对应，跳过
+    "Cation_Na[II]": "",
+    "Cation_K[II]": "",
 }
 
 # [site] 缺失且 pos 处残基解析失败时的默认位点（承接早期实现 MOD_MAP 的默认位）
@@ -69,6 +79,19 @@ def parse_args():
     ap.add_argument("--instrument", default="Lumos")
     ap.add_argument("--ce", default="30")
     ap.add_argument("--batch", default="1024")
+    #：可选直写 isoPSV predict.txt（BEGIN IONS 块）。R 适配器的
+    # 逐行 parse/format 重建在 66.8 万行实测重入 79 分钟（工作站 11-05
+    # T2 计时反例）；python 侧写字符串快一个量级，适配器退化为透传。
+    # 数值串为 %.5f 定长小数，与旧 R format(as.numeric(...)) 输出经
+    # as.numeric 回读后为同一双精度（仅尾零字节差，余弦零漂移）。
+    #: optionally write the isoPSV predict.txt directly (BEGIN IONS
+    # blocks). The adapter's per-row parse/format rebuild measured 79 min on
+    # a 668k-row re-entry (workstation 11-05 T2 counterexample); python-side
+    # string writing is an order of magnitude faster, reducing the adapter to
+    # a passthrough. Values stay %.5f decimals - numerically identical doubles
+    # to the old R format() output after as.numeric() reparse (trailing-zero
+    # byte differences only, zero cosine drift).
+    ap.add_argument("--predict-out", dest="predict_out", default=None)
     return ap.parse_args()
 
 
@@ -135,9 +158,18 @@ def pfind_mods_to_peptdeep(modinfo, peptide, vocab, stats):
         else:
             aa = site.strip() or aa_at_pos or MOD_DEFAULT_SITE.get(base, "")
             if aa:
-                key = "%s@%s" % (base, aa)
-                if vocab is None or key in vocab:
-                    resolved = (key, pos if pos.isdigit() else str(len(peptide)))
+                #：pyro-Glu 等已知终端类修饰以 [Q]/[E] 残基形态
+                # 写入时（如 1,Gln->pyro-Glu[Q]），补试终端复合键
+                #: known-terminal mods written as [Q]/[E] residue
+                # sites (e.g. 1,Gln->pyro-Glu[Q]) also try terminal keys
+                cands_r = ["%s@%s" % (base, aa)]
+                if base in ("Gln->pyro-Glu", "Glu->pyro-Glu"):
+                    cands_r.append("%s@%s^Any_N-term" % (base, aa))
+                    cands_r.append("%s@Any_N-term" % base)
+                for key in cands_r:
+                    if vocab is None or key in vocab:
+                        resolved = (key, pos if pos.isdigit() else str(len(peptide)))
+                        break
         if resolved is None:
             stats["unknown_tokens"].add(tok)
             return None
@@ -159,6 +191,10 @@ def main():
     if not rows:
         sys.stderr.write("[alphapeptdeep_driver] 输入为空：%s\n" % args.inp)
         return 3
+    #：输入行数日志（工作站 11-05 报告——加载阶段零日志盲区）
+    #: input row-count log (workstation 11-05: the load phase was a
+    # zero-log blind spot)
+    sys.stderr.write("[alphapeptdeep_driver] 输入 %d 行 -> %s\n" % (len(rows), args.inp))
 
     vocab = load_mod_vocab()
     stats = {"mapped_tokens": 0, "alias_names": 0, "unknown_tokens": set()}
@@ -194,16 +230,82 @@ def main():
         return 0
     precursor_df = pd.DataFrame(prec)
 
+    #  mod_sites 预验证：残基位点须 ≤ 肽长（防短肽＋终端修饰越界
+    # 进入 torch 索引——工作站 peptdeep 1.3.1/alphabase 1.1.0 在第 9 批
+    # IndexError 的防线；越界行跳过并计数）
+    #  mod_sites pre-validation: residue sites must be <= nAA
+    # (guards short-peptide+terminal-mod combinations from reaching torch
+    # indexing — the workstation peptdeep 1.3.1/alphabase 1.1.0 batch-9
+    # IndexError; out-of-range rows are skipped and counted)
+    _bad_sites = 0
+    _keep = []
+    for _i in range(len(precursor_df)):
+        _seq = precursor_df["sequence"].iloc[_i]
+        _sites = str(precursor_df["mod_sites"].iloc[_i] or "")
+        _ok = True
+        if _sites:
+            for _sv in _sites.split(";"):
+                _sv = _sv.strip()
+                if _sv in ("0", "-1", ""):
+                    continue  # N/C-term 合法
+                try:
+                    _n = int(_sv)
+                    if _n < 0 or _n > len(_seq):
+                        _ok = False; break
+                except ValueError:
+                    pass  # 字符串位点（如 Any_N-term）由 alphabase 处理
+        if _ok:
+            _keep.append(_i)
+        else:
+            _bad_sites += 1
+    if _bad_sites:
+        sys.stderr.write("[alphapeptdeep_driver] mod_sites 预验证：跳过 %d 条"
+                         "越界行\n" % _bad_sites)
+        precursor_df = precursor_df.iloc[_keep].reset_index(drop=True)
+        if len(precursor_df) == 0:
+            sys.stderr.write("[alphapeptdeep_driver] 预验证后无行可预测\n")
+            return 3
+
     mgr = ModelManager(mask_modloss=False, device="cpu")
     mgr.load_installed_models()
-    try:
-        frag = mgr.predict_ms2(precursor_df, batch_size=int(args.batch))
-    except Exception as exc:  # 兜底：词表键不应再漏，但仍可能撞位点组合
+    #  predict_ms2 分批重试：内部 IndexError（peptdeep 按肽长分带
+    # 的特定长度档崩——工作站双项目同第 9 批实测）时二分输入逐半重试，
+    # 跳过致崩行；最终全部行失败才 exit 4。
+    #  predict_ms2 split-retry: on internal IndexError (peptdeep
+    # crashes on a specific length band — workstation dual-project batch-9
+    # repro), bisect the input and retry each half, dropping crash rows;
+    # only exit 4 when every row fails.
+    def _try_predict(df, _depth=0):
+        try:
+            return mgr.predict_ms2(df, batch_size=int(args.batch))
+        except Exception as exc:
+            if len(df) <= 1 or _depth > 12:
+                sys.stderr.write("[alphapeptdeep_driver] 行级失败（drop）: "
+                                 "seq=%s mods=%s sites=%s | %s\n" % (
+                                     df["sequence"].iloc[0] if len(df) else "?",
+                                     df["mods"].iloc[0] if len(df) else "?",
+                                     df["mod_sites"].iloc[0] if len(df) else "?",
+                                     type(exc).__name__))
+                return None
+            mid = len(df) // 2
+            sys.stderr.write("[alphapeptdeep_driver] predict_ms2 异常，二分重试"
+                             "（%d → %d+%d，深度 %d）：%s\n" % (
+                                 len(df), mid, len(df)-mid, _depth,
+                                 type(exc).__name__))
+            _a = _try_predict(df.iloc[:mid], _depth+1)
+            _b = _try_predict(df.iloc[mid:], _depth+1)
+            if _a is None and _b is None:
+                return None
+            import pandas as _pd
+            _parts = [x for x in (_a, _b) if x is not None]
+            return _pd.concat(_parts, ignore_index=True) if len(_parts) > 1 else _parts[0]
+
+    frag = _try_predict(precursor_df)
+    if frag is None or len(frag) == 0:
         keys = sorted(set(x for ms in precursor_df["mods"] if ms
                           for x in ms.split(";")))
-        sys.stderr.write("[alphapeptdeep_driver] predict_ms2 异常：%r\n"
-                         "已解析修饰键（前 15）：%s\n"
-                         % (exc, ", ".join(keys[:15])))
+        sys.stderr.write("[alphapeptdeep_driver] predict_ms2 全灭。已解析修饰键"
+                         "（前 15）：%s\n" % ", ".join(keys[:15]))
         return 4
 
     # predict_ms2 会按肽长/序列重排 precursor_df——一律以 spec_id 列对齐，
@@ -242,6 +344,33 @@ def main():
                      "碎片不足跳过 %d；词表=%s；instrument=%s ce=%s）\n"
                      % (len(out_rows), len(rows), dropped, skip,
                         "alphabase" if vocab else "内置别名表", args.instrument, args.ce))
+    # ----：直写 isoPSV predict.txt（TITLE 键＝peptide|orig_mod|charge，
+    # 与消费端 read_predict_txt 逐字节同口径；y 行写位点序＝正序反转）。orig_mod
+    # 列由 R 适配器在输入 TSV 提供（缺列回退 modinfo）。
+    # ----: write the isoPSV predict.txt directly (TITLE key =
+    # peptide|orig_mod|charge, byte-compatible with read_predict_txt; y rows
+    # stored site-order = reversed positive order). The orig_mod column is
+    # supplied by the R adapter in the input TSV (modinfo fallback).
+    if args.predict_out:
+        meta = {r["spec_id"]: (r["peptide"],
+                               (r.get("orig_mod") or r["modinfo"] or ""),
+                               r["charge"]) for r in rows}
+        n_blocks = 0
+        with open(args.predict_out, "w", encoding="utf-8", newline="") as fh:
+            for orow in out_rows:
+                pep, om, ch = meta.get(orow["spec_id"], ("", "", ""))
+                y1r = orow["y1"].split(",")[::-1]   # 正序 -> 位点序
+                y2r = orow["y2"].split(",")[::-1]
+                fh.write("BEGIN IONS\n")
+                fh.write("TITLE=%s|%s|%s\n" % (pep, om, ch))
+                fh.write("b+1=%s\n" % orow["b1"])
+                fh.write("b+2=%s\n" % orow["b2"])
+                fh.write("y+1=%s\n" % ",".join(y1r))
+                fh.write("y+2=%s\n" % ",".join(y2r))
+                fh.write("END IONS\n")
+                n_blocks += 1
+        sys.stderr.write("[alphapeptdeep_driver] predict 直写 %d 块 -> %s\n"
+                         % (n_blocks, args.predict_out))
     return 0
 
 

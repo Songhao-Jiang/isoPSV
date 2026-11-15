@@ -74,11 +74,39 @@ if (pg_mode %in% c("1", "2")) {
   mrg <- read.delim(merged_file, sep = "\t", stringsAsFactors = FALSE,
                     check.names = FALSE, na.strings = character(0))
   fa_acc <- character(0)
-  if (!is.null(base_cfg$fasta) && length(base_cfg$fasta) > 0) {
-    fa_file <- resolve_cfg_paths(base_cfg, "fasta")[1]
-    if (nzchar(fa_file) && file.exists(fa_file)) {
-      fa_acc <- unique(names(read_fasta(fa_file)))
+  # （上游化 field1，原 -field1 现场补丁三连重打）：
+  # pg 门控参考库拆键——proteogenomics_annotated_fasta 优先（base_cfg 先、
+  # cfg3 后），未设/文件不存在回退 fasta。竞争库含 novel 层的 PG 部署
+  # 必须配此键，否则 pg=1 的 keep 集塌缩到近空集（novel accession 也在
+  # fasta 内 → in_fasta=TRUE → !in_fasta≈空）。
+  #  (upstreaming field1, originally -field1 manually
+  # re-patched 3 times): proteogenomics gate reference-library split —
+  # proteogenomics_annotated_fasta takes priority (base_cfg first, then
+  # cfg3), falling back to fasta. PG deployments whose competition library
+  # contains novel layers MUST set this key, otherwise the pg=1 keep set
+  # collapses (novel accessions are also in fasta → in_fasta=TRUE →
+  # !in_fasta ≈ empty).
+  fa_file <- ""
+  pg_fa <- ""
+  for (src in list(base_cfg, cfg3)) {
+    if (!is.null(src$proteogenomics_annotated_fasta) &&
+        length(src$proteogenomics_annotated_fasta) > 0) {
+      pg_fa <- resolve_cfg_paths(src, "proteogenomics_annotated_fasta")[1]
+      if (nzchar(pg_fa) && file.exists(pg_fa)) break
+      pg_fa <- ""
     }
+  }
+  if (nzchar(pg_fa)) {
+    fa_file <- pg_fa
+    cat("[流程门控] 参考库（proteogenomics_annotated_fasta）：", fa_file, "\n", sep = "")
+  } else {
+    if (!is.null(base_cfg$fasta) && length(base_cfg$fasta) > 0) {
+      fa_file <- resolve_cfg_paths(base_cfg, "fasta")[1]
+    }
+    cat("[流程门控] 参考库（回退 fasta）：", fa_file, "\n", sep = "")
+  }
+  if (nzchar(fa_file) && file.exists(fa_file)) {
+    fa_acc <- unique(names(read_fasta(fa_file)))
   }
   prot_col <- if ("Proteins" %in% colnames(mrg)) mrg$Proteins else {
     if ("a.Proteins" %in% colnames(mrg)) mrg$a.Proteins else rep("", nrow(mrg))
@@ -142,9 +170,30 @@ cat("weights_A:", paste(wA, collapse = ","), "| threshold_A:", thrA, "\n")
 # 评估可用计算资源（核数）；环境变量 WORKER_CORES 可作为工作进程数的可选覆盖
 # Assess the available compute resources (cores); WORKER_CORES provides an optional worker-count override
 max_cores <- assess_resources(c(unlabeled_files, if (nzchar(predict_file)) predict_file))
+# （工作站 13:30 双 master OOM 定案）：config_step1 新键 stagea_workers
+# ＝StageA 并行 worker 上限（可发现性优于环境变量；优先级 stagea_workers >
+# WORKER_CORES > 自动评估）。注意：建簇时的内存收缩（ReadMGF_script.R）只降
+# 不升，本键是收缩前的上限。
+#  (workstation 13:30 dual-master OOM verdict): the new config_step1
+# key stagea_workers caps the StageA worker count (more discoverable than the
+# env var; priority stagea_workers > WORKER_CORES > auto). The
+# cluster-creation memory shrink only ever lowers from this cap.
+sw_cfg <- if (!is.null(base_cfg$stagea_workers) && length(base_cfg$stagea_workers) > 0)
+  tail(base_cfg$stagea_workers, 1) else ""
+swi <- suppressWarnings(as.integer(sw_cfg))
 wc <- Sys.getenv("WORKER_CORES")
 wci <- suppressWarnings(as.integer(wc))
-worker_cores <- if (nzchar(wc) && !is.na(wci) && wci >= 1L) wci else NULL
+worker_cores <- if (nzchar(sw_cfg) && !is.na(swi) && swi >= 1L) swi else
+  if (nzchar(wc) && !is.na(wci) && wci >= 1L) wci else NULL
+worker_src <- if (nzchar(sw_cfg) && !is.na(swi) && swi >= 1L) "stagea_workers 配置/config" else
+  if (nzchar(wc) && !is.na(wci) && wci >= 1L) "WORKER_CORES 环境变量/env" else
+  "自动评估/auto"
+if (!is.null(worker_cores)) {
+  cat("[StageA workers] 配置覆盖：", worker_cores,
+      "（内存收缩只降不升）\n", sep = "")
+  cat("[StageA workers] configured override: ", worker_cores,
+      " (the memory shrink only lowers it)\n", sep = "")
+}
 # 调用阶段 A 评估：对无标记谱按多引擎候选计算 ACS、打分判定并写出 stageA 报告
 # Call the stage A evaluation: score and judge the five-strategy candidates on the unlabeled spectra via ACS, then write the stageA report
 # （无标记通道=0）：NeuCode 等全标记样本——阶段 A 把配置的标记作为
@@ -164,7 +213,8 @@ if (!identical(ul_ch, "1")) {
 }
 res <- stageA_evaluate(merged_file, unlabeled_files, predict_file,
                        wA, thrA, out_dir, max_cores, worker_cores = worker_cores,
-                       label_tag = stageA_tag, label_mods = stageA_mods)
+                       label_tag = stageA_tag, label_mods = stageA_mods,
+                       worker_source = worker_src)
 # 打印本步骤完成信息与输出目录
 # Print the completion message and output directory for this step
 cat("==== [用户第三步] 完成，输出目录：", out_dir, " ====\n")
