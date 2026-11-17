@@ -95,7 +95,7 @@ you; it reads their result files. Two modes are supported per row in STEP 2:
 | MetaMorpheus | https://github.com/smith-chem-wisc/MetaMorpheus | `metamorpheus_exe` | uses STEP-1 MGF |
 | Sage | https://github.com/lazear/sage (release binary) | `sage_exe` + `msconvert_exe` | needs MGF->mzML; Sage cannot read MGF directly |
 | MSFragger | https://msfragger.nesvilab.org/ (`MSFragger.jar`, Java 11+) | `msfragger_exe` + `msconvert_exe` | JVM heap via `msfragger_xmx` |
-| MaxQuant | https://maxquant.org/ (`MaxQuantCmd.exe`) | `maxquant_exe` + `search_file_raw` | MaxQuant reads `.raw`, not MGF |
+| MaxQuant | https://maxquant.org/ (`MaxQuantCmd.exe`) | `maxquant_exe` + `search_file_raw` | MaxQuant reads `.raw`, not MGF; for FAIMS see [maxquant_faims.md](maxquant_faims.md) |
 
 - MSConvert (ProteoWizard): download page
   https://proteowizard.sourceforge.io/download.html — take the Windows
@@ -372,7 +372,7 @@ label_type	NeuCode_R040|ANY|R|2H(4)
 | MetaMorpheus | https://github.com/smith-chem-wisc/MetaMorpheus | `metamorpheus_exe` | 直接用 MGF |
 | Sage | https://github.com/lazear/sage | `sage_exe`＋`msconvert_exe` | 需 MGF→mzML |
 | MSFragger | https://msfragger.nesvilab.org/（`MSFragger.jar`，Java 11+） | `msfragger_exe`＋`msconvert_exe` | JVM 堆用 `msfragger_xmx` |
-| MaxQuant | https://maxquant.org/（`MaxQuantCmd.exe`） | `maxquant_exe`＋`search_file_raw` | 只吃 `.raw`，不吃 MGF |
+| MaxQuant | https://maxquant.org/（`MaxQuantCmd.exe`） | `maxquant_exe`＋`search_file_raw` | 只吃 `.raw`，不吃 MGF；FAIMS 方法见 [maxquant_faims.md](maxquant_faims.md) |
 
 - MSConvert（ProteoWizard）：下载页
   https://proteowizard.sourceforge.io/download.html，取 Windows 安装包
