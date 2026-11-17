@@ -39,7 +39,7 @@
 #          否则运行 user_step2.R（需要用户填进 config_step2.txt 的 search_file 条目），
 #          它会自动生成 config_step3.txt 和 SAP 索引
 #   第三步 始终运行（user_step3.R），随后运行 extend_report_A.R
-#   阶段 B 对标记样本在第三步之后执行：
+#   阶段 B 对标记样本（label_type 为 N15/C13/SILAC）在第三步之后执行：
 #          stageB_paired_match.R 需要 config_step1.txt 里的 all_mgf 键
 #          （含无标记＋标记谱的原始 MGF 文件夹）；无标记样本跳过，
 #          当 stageB/paired_report_<label>.tsv 已存在时也跳过
@@ -104,8 +104,8 @@ if (!file.exists(cfg_path)) {
     "# pdeep2_exe: pDeep2 安装路径（use_pdeep2=1 时必填，软件自动执行 pDeep2 生成 predict.txt，第三步不再停点；use_pdeep2=2 时留空）",
     "#             pDeep2 install path (required with use_pdeep2=1: the software runs pDeep2 automatically and step 3 does not stop; leave empty with use_pdeep2=2)",
     "pdeep2_exe\t<绝对路径 absolute path>",
-    "# predict_required: 自动模式下预测不可得（pdeep2_exe 未填/安装不完整/运行失败且无预测器成功）时是否仍停点等人工（1=停点，0=自动降级——预测指标按缺失处理继续跑，部署层判定不受影响；手动模式 use_pdeep2=2 不受此键影响）",
-    "#                   with auto mode, whether to still stop for manual input when no prediction is available (; 1=stop, 0=auto-degrade - the predict metric is treated as missing and the run continues; manual mode use_pdeep2=2 is unaffected)",
+    "# predict_required: 自动模式下预测不可得（pdeep2_exe 未填/安装不完整/运行失败且无预测器成功）时是否仍停点等人工（v2.0.161；1=停点，0=自动降级——预测指标按缺失处理继续跑，部署层判定不受影响；手动模式 use_pdeep2=2 不受此键影响）",
+    "#                   with auto mode, whether to still stop for manual input when no prediction is available (v2.0.161; 1=stop, 0=auto-degrade - the predict metric is treated as missing and the run continues; manual mode use_pdeep2=2 is unaffected)",
     "predict_required\t0",
     "# instrument: 仪器类型（QE / Lumos / Velos / Elite，默认 Lumos）",
     "#                   instrument type (QE / Lumos / Velos / Elite; default Lumos)",
@@ -154,9 +154,9 @@ if (!dir.exists(script_dir)) {
   script_dir <- dirname(if (grepl("^[A-Za-z]:", script_arg)) script_arg else file.path(getwd(), script_arg))
   script_dir <- gsub("\\\\", "/", script_dir)
 }
-# setwd 容错控制台源文件编码受限时上述路径仍可能腐蚀致
+# setwd 容错（2026-09-18 加固）：控制台源文件编码受限时上述路径仍可能腐蚀致
 # setwd 失败；若当前目录已含 compat.R（即从代码目录启动）则直接继续
-# tolerant setwd under a restricted console encoding the
+# tolerant setwd (hardened 2026-09-18): under a restricted console encoding the
 # path above can still be corrupted and setwd fails; when the working directory
 # already holds compat.R (i.e. launched from the code folder) just continue
 ok_wd <- tryCatch({ setwd(script_dir); TRUE }, error = function(e) FALSE)
@@ -175,11 +175,11 @@ if (!file.exists(rscript)) rscript <- file.path(R.home("bin"), "Rscript.exe")
 
 # 载入库文件（兼容层 + MGF 读取模块），随后解析第一步参数文件
 # Load the library files (compatibility layer + MGF reader), then parse the step-1 parameter file
-#  (P1-3 live-fire): probe LC_CTYPE BEFORE sourcing UTF-8 sources - a
+# v2.0.156 (P1-3 live-fire): probe LC_CTYPE BEFORE sourcing UTF-8 sources - a
 # system R whose locale fell back to C silently drops function definitions
 # inside source(..., encoding="UTF-8") (symptom: "could not find function"
 # much later). ASCII-only block; bundled runtime R is UTF-8 by default.
-#: match both "UTF-8" and UCRT's hyphenless ".utf8" - Git Bash with
+# v2.0.157: match both "UTF-8" and UCRT's hyphenless ".utf8" - Git Bash with
 # LC_CTYPE=C.UTF-8 injected leaves R on a .utf8 locale that the old pattern
 # missed, so the probe fired spuriously and both candidates were OS-rejected.
 .isopsv_utf8_locale <- function()
@@ -199,7 +199,7 @@ source("ReadMGF_script.R")
 cfg1 <- read_param_file(cfg_path)
 cfg_dir <- cfg1$config_dir
 
-# 用户/用户反馈①b理论谱图预测器独立参数文件 config_predictor.txt
+# 李治/杨翰反馈①b（2026-10-08）：理论谱图预测器独立参数文件 config_predictor.txt
 # 多路径查找：①config_step1 同目录 ②config_step1 的 result_dir 键 ③包根
 # ⚠ v1.0 修复：不能用 R 变量 result_dir（第 290 行才定义），改用 cfg1 键
 cfg.pred.path <- ""
@@ -229,23 +229,23 @@ if (nzchar(cfg.pred.path)) {
   cat("[config_predictor] not found (config dir, result_dir, package root) - skipped\n")
 }
 
-# PDF 导出选项config_step1 键 pdf_on（1=生成、0=不生成，
+# PDF 导出选项（用户口径 2026-09-17）：config_step1 键 pdf_on（1=生成、0=不生成，
 # 默认 0）优先，环境变量 PDF_ON 兜底（两者取"1"即开启）
-# PDF export option the config_step1 key pdf_on
+# PDF export option (user ruling 2026-09-17): the config_step1 key pdf_on
 # (1=on, 0=off, default 0) wins, the PDF_ON environment variable is the
 # fallback (either one "1" enables the export)
-# P0-1 修复旧行同时要求 pdf_on != "1" 与 == "1"，恒假死代码，
-# PDF_ON 环境变量从未生效；改为 trimws 读取
+# P0-1 修复（2026-09-25）：旧行同时要求 pdf_on != "1" 与 == "1"，恒假死代码，
+# PDF_ON 环境变量从未生效；改为 trimws 读取（cmd set 尾空格同 B4 坑）
 pdf_on <- "0"
 pv <- cfg1$pdf_on
 if (!is.null(pv) && length(pv) > 0 && pv[1] %in% c("0", "1")) pdf_on <- pv[1]
 if (identical(trimws(Sys.getenv("PDF_ON", unset = "0")), "1")) pdf_on <- "1"
 
-# 内存守卫上限config_step1 键 ISOMEM_LIMIT_MB（MB 数，
+# 内存守卫上限（F-9，2026-09-26）：config_step1 键 ISOMEM_LIMIT_MB（MB 数，
 # 网页高级区可填）注入环境变量，iso_mem_guard 由此读取；留空/非法值时
 # 沿用默认（物理内存 80% 自适应，上限 40000）。用户手填超过物理内存的值
 # iso_mem_guard 侧只警告不拦截（显式覆盖，后果自负）。
-# Memory guard ceiling the config_step1 key ISOMEM_LIMIT_MB
+# Memory guard ceiling (F-9, 2026-09-26): the config_step1 key ISOMEM_LIMIT_MB
 # (MB, fillable in the web advanced panel) is injected into the environment
 # for iso_mem_guard; empty/invalid values keep the default (80% of physical
 # RAM, capped at 40000). A user value above physical RAM only warns inside
@@ -256,12 +256,12 @@ if (!is.null(mg_mb) && length(mg_mb) > 0 && nzchar(trimws(mg_mb[1]))) {
   if (!is.na(mg_n) && mg_n > 0) Sys.setenv(ISOMEM_LIMIT_MB = format(mg_n, scientific = FALSE))
 }
 
-# 酶切类型config_step1 键 enzyme（trypsin/trypsin_p/
+# 酶切类型（v1.0，2026-09-26）：config_step1 键 enzyme（trypsin/trypsin_p/
 # lysarginase/lysc/lysn/argc/gluc/aspn/chymotrypsin/none，默认 trypsin）。
 # 注入 ISO_ENZYME 环境变量，子进程（阶段 A/B、主表导出、pFind 后处理）经
 # iso_enzyme() 读取，用于漏切计数与 N 端非特异分类；第二步搜库由 user_step2
 # 读 base_cfg 改写各引擎模板。未知值回退 trypsin 并警告。
-# Enzyme type the config_step1 key enzyme (trypsin/
+# Enzyme type (v1.0, 2026-09-26): the config_step1 key enzyme (trypsin/
 # trypsin_p/lysarginase/lysc/lysn/argc/gluc/aspn/chymotrypsin/none, default
 # trypsin). Injected as ISO_ENZYME for the child processes (stages A/B, master
 # table export, pFind postprocess) to read via iso_enzyme() for the missed-
@@ -271,19 +271,12 @@ if (!is.null(mg_mb) && length(mg_mb) > 0 && nzchar(trimws(mg_mb[1]))) {
 en_cfg <- cfg1$enzyme
 en_src <- "默认"
 if (!is.null(en_cfg) && length(en_cfg) > 0 && nzchar(trimws(en_cfg[1]))) {
-  # B-2未知酶值报错而非静默回退 trypsin（suppressWarnings 会
-  # 消化警告、使报错分支不可达）
-  w_enr <- character(0)
-  en <- withCallingHandlers(enzyme_resolve(en_cfg[1]),
-                            warning = function(ww) {
-                              w_enr <<- c(w_enr, conditionMessage(ww)); invokeRestart("muffleWarning")
-                            })
-  if (length(w_enr) > 0)
-    stop("未知酶切类型：", trimws(en_cfg[1]), "\nunknown enzyme type: ", trimws(en_cfg[1]))
+  # B-2（2026-09-26）：未知酶值报错而非静默回退 trypsin
+  en <- enzyme_resolve_strict(en_cfg[1])
   en_src <- "config_step1 键 enzyme"
 } else {
   en <- "trypsin"
-  # v1.0键缺失 = 模板即真相——第二步不再改写引擎
+  # v1.0（2026-09-26，审查 P1-3）：键缺失 = 模板即真相——第二步不再改写引擎
   # 模板；此处提示内部口径按 trypsin 计数，非胰蛋白酶酶切样本须显式填键
   message("提示：config_step1 未配置 enzyme 键——第二步搜库保留各引擎模板酶定义；",
           "管线内部漏切/N 端非特异判据按 trypsin 口径。若样本非胰蛋白酶酶切，请显式填写 enzyme 键。\n",
@@ -294,19 +287,19 @@ if (!is.null(en_cfg) && length(en_cfg) > 0 && nzchar(trimws(en_cfg[1]))) {
 Sys.setenv(ISO_ENZYME = en)
 cat("酶切类型 enzyme:", en, "（来源:", en_src, "）\n")
 
-# ---- 结果文件夹（pGlycoQuant 风格 result_YYYYMMDDHHMMSS，用户 规格）----
+# ---- 结果文件夹（pGlycoQuant 风格 result_YYYYMMDDHHMMSS，用户 2026-09-05 规格）----
 # 全部流程产出统一写在该文件夹内（清洗件 Competitive_search_result/、merge/、
 # 1.unlabeled_result/、2.labeled_result/）；已存在 result_* 时取最新一个（断点
 # 续跑就地复用），删除/移走全部 result_* 后重跑即生成新的时间戳文件夹
-# ---- result folder (pGlycoQuant-style result_YYYYMMDDHHMMSS, user 
+# ---- result folder (pGlycoQuant-style result_YYYYMMDDHHMMSS, user 2026-09-05
 # spec) - every pipeline output lives inside it (cleaned copies under
 # Competitive_search_result/, merge/, 1.unlabeled_result/, 2.labeled_result/);
 # an existing result_* folder means the newest one is reused (resume in place),
 # and removing all result_* folders before a rerun yields a fresh timestamped one
-# RESULT_DIR 环境变量优先同项目多套口径并行重跑时
+# RESULT_DIR 环境变量优先（用户口径 2026-09-16）：同项目多套口径并行重跑时
 # 指定各自新文件夹，避免复用旧 merge 造成"假重跑"（get_result_dir 优先
 # RESULT_DIR，未设时才按最新 result_* 定位）
-# the RESULT_DIR environment variable takes priority 
+# the RESULT_DIR environment variable takes priority (user ruling 2026-09-16):
 # parallel re-runs with different settings get their own fresh folders instead
 # of resuming the old merge (get_result_dir prefers RESULT_DIR, then falls
 # back to the newest result_* folder)
@@ -315,12 +308,12 @@ if (!dir.exists(result_dir)) dir.create(result_dir, recursive = TRUE, showWarnin
 cat("结果文件夹：", result_dir, "\n")
 cat("result folder:", result_dir, "\n")
 
-# （工作站 11-05 报告 §三.1）：master pidfile——启动时把 pid＋CONFIG
+# v2.0.167（工作站 11-05 报告 §三.1）：master pidfile——启动时把 pid＋CONFIG
 # 路径＋启动时间写入 result_*/MASTER_PID.txt。master 的命令行是 cwd 相对路径，
 # 跨项目/跨窗口按进程名清杀无法区分归属（11-05 08:34 生产双 master 被沙箱
 # 清扫误杀）；一切清杀脚本先读本文件核对 pid 与 CONFIG 归属再动手。文件含
 # pid 与启动时间，陈旧文件可用 pid 存活性判别；正常结束/预检早退时删除。
-#  (workstation 11-05 report §3.1): master pidfile - pid + CONFIG
+# v2.0.167 (workstation 11-05 report §3.1): master pidfile - pid + CONFIG
 # path + start time into result_*/MASTER_PID.txt at startup. The master
 # command line is a cwd-relative path, so name-based cross-window kills
 # cannot tell projects apart (the 11-05 08:34 double-master sweep incident);
@@ -336,12 +329,12 @@ cat("result folder:", result_dir, "\n")
     paste0("version=", if (length(pid_ver_u)) substr(pid_ver_u, 1L, 60L) else "unknown")),
     master_pid_file, useBytes = TRUE), silent = TRUE)
 
-  # esult_dir 硬锁——MASTER_PID.txt 是信息件不拦
+  # v2.0.176（NTM 意见 P3）：result_dir 硬锁——MASTER_PID.txt 是信息件不拦
   # 执行；.lock 含 pid＋config＋启动时间，启动时若锁内 pid 仍存活则**拒绝
-  # 并发**（同目录双 master 互相覆盖 result 是实测事故形态），陈旧锁（pid
+  # 并发**（同目录双 master 互相覆盖 result 是实弹事故形态），陈旧锁（pid
   # 已退）接管＋告警；正常结束/预检早退清理。不同 result_dir 并发不受限
   # （子集级并行通道——每子集各开一个目录即可叠加上层的引擎级并行）。
-  #  (NTM opinion P3): the result_dir hard lock - MASTER_PID.txt is
+  # v2.0.176 (NTM opinion P3): the result_dir hard lock - MASTER_PID.txt is
   # informational and never blocks; .lock carries pid + config + start time,
   # and a live pid inside REFUSES concurrent masters (two masters sharing one
   # result_dir overwrite each other's products), while a stale lock (dead pid)
@@ -379,7 +372,7 @@ cat("result folder:", result_dir, "\n")
     paste0("started=", format(Sys.time(), "%Y-%m-%d %H:%M:%S"))),
     master_lock_file, useBytes = TRUE), silent = TRUE)
 
-# ---- 运行遥测接线TELEMETRY=1 时在每步边界写 run_telemetry 标记 ----
+# ---- 运行遥测接线（2026-09-23）：TELEMETRY=1 时在每步边界写 run_telemetry 标记 ----
 # 采样器由 run_telemetry.R start 独立启动（5 秒间隔）；此处只在步骤边界打 mark，
 # 遥测汇总（telemetry_summary.txt）即得每步 CPU/内存峰值均值与外存占用。
 # TELEMETRY=1 wires run_telemetry marks at every step boundary; the sampler is a
@@ -387,11 +380,11 @@ cat("result folder:", result_dir, "\n")
 # CPU/memory peaks and disk usage in telemetry_summary.txt.
 tele_path <- file.path(script_dir, "run_telemetry.R")
 tele_mark <- function(lbl) {
-  # B4 修复cmd 的 "set TELEMETRY=1 &" 值带尾空格（"1 "），
+  # B4 修复（2026-09-24）：cmd 的 "set TELEMETRY=1 &" 值带尾空格（"1 "），
   # identical("1 ","1") 恒假曾致打点静默失效；此处 trimws 比较。
   # 目录固定用 cfg_dir（采样器约定 start 指向 config 目录；RESULT_DIR 指向
   # 结果子目录，marks 写到那里会与采样器文件分离、attach 聚不到）。
-  # B4 fix cmd's "set TELEMETRY=1 &" carries a trailing space
+  # B4 fix (2026-09-24): cmd's "set TELEMETRY=1 &" carries a trailing space
   # ("1 "), so identical("1 ","1") was always FALSE and marks silently died;
   # compare after trimws. The directory is always cfg_dir (the sampler
   # convention is `start <config dir>`; RESULT_DIR points at the result
@@ -414,11 +407,11 @@ if (identical(trimws(Sys.getenv("TELEMETRY")), "1")) {
       cfg_dir, ")\n", sep = "")
 }
 
-# ---- B5 代码指纹防新旧混合态----
+# ---- B5 代码指纹防新旧混合态（2026-09-12）----
 # 断点续跑复用旧结果文件夹；若代码已更新而旧结果仍在，下游会按新口径消费
 # 旧输出形成混合态。启动时对比核心代码指纹：不一致时醒目告警（由用户决定
 # 删除全部 result_* 重跑，还是接受混合态继续）；首次运行记录当前指纹。
-# ---- B5 code fingerprint against stale-resume mixing ----
+# ---- B5 code fingerprint against stale-resume mixing (2026-09-12) ----
 # resume reuses the existing result folder; after a code update the stale
 # outputs are consumed under the new rules and form a mixed state. Compare
 # the core-code fingerprint at startup: a mismatch prints a loud warning (the
@@ -519,11 +512,27 @@ run_step <- function(tag, tag_en, script, envs) {
 
 cat("==== [总程序 / Master] 无标记 isoPSV 三步流程总入口 ====\n")
 cat("==== [Master] three-step pipeline master entry ====\n")
-# P3-1/N-12启动打印 VERSION，日志可自证版本
+# P3-1/N-12（2026-09-25）：启动打印 VERSION，日志可自证版本
 vf <- file.path(script_dir, "..", "VERSION")
 if (file.exists(vf)) {
   ver_line <- readLines(vf, warn = FALSE, n = 1L)
-  cat("[版本] ", ver_line, "\n[version] ", ver_line, "\n", sep = "")
+  # v2.0.183（Macaca P1-4）：横幅截短——VERSION 长文案逐版累积（181 版单段
+  # 超 1,500 字符），运行横幅只印版本号＋首句 ~100 字符；全文仍在 VERSION
+  # 文件与 Release_Notes.md（/api/version 返回的也是完整文件内容）。
+  # v2.0.183 (Macaca P1-4): a short banner - the VERSION prose grows every
+  # release (the v181 line alone exceeded 1,500 chars); the runtime banner
+  # keeps the version token plus the first ~100 chars, while the full text
+  # stays in the VERSION file and Release_Notes.md (/api/version serves the
+  # complete file unchanged).
+  v_short <- ver_line
+  m <- regexpr("\\) ", v_short)
+  if (m > 0) {
+    rest <- substr(v_short, m + 2L, nchar(v_short))
+    v_short <- paste0(substr(v_short, 1L, m + 1L), substr(rest, 1L, 100L),
+                      if (nchar(rest) > 100L)
+                        "…… 详见 Release_Notes.md / see Release_Notes.md" else "")
+  }
+  cat("[版本] ", v_short, "\n[version] ", v_short, "\n", sep = "")
 }
 cat("CONFIG:", cfg_path, "\n")
 cat("参数文件目录：", cfg_dir, "\n")
@@ -531,7 +540,7 @@ cat("config dir: ", cfg_dir, "\n")
 
 # ---- 第一步：完成标记（unlabeled/step1_done.txt）已存在则跳过 ----------
 # ---- step 1: skip when the completion marker (unlabeled/step1_done.txt) exists
-# 纯蛋白质基因组学/已注释矫正模式的搜库前早退输入
+# 纯蛋白质基因组学/已注释矫正模式的搜库前早退（2026-09-27 用户口径）：输入
 # psm_file 若无目标侧行（pg=1 无新肽候选 / pg=2 无已注释谱），任何搜库都不
 # 必做，直接写说明文件并正常结束（退出码 0）。早退判断需要 Proteins 列；
 # 无该列时回退到第三步的门控路径。
@@ -545,22 +554,22 @@ if (pg_mode_u %in% c("1", "2")) {
   if (nzchar(psm_u) && file.exists(psm_u)) {
     hdr_u <- strsplit(readLines(psm_u, n = 1), "\t")[[1]]
     if ("Proteins" %in% hdr_u) {
-      # 预检结果缓存——大 psm_file
+      # v2.0.148（2026-10-17，外部测试机反馈）：预检结果缓存——大 psm_file
       # （实测 165 万行）此前每次开跑都被全读一遍＋fasta 名录扫描，续跑纯属
       # 重复劳动；指纹＝psm/fasta 路径+修改时间+大小+pg 模式，命中即复用
       # 计数、跳过全量扫描。输入变化（新搜库结果/换库）自动失效重扫；
       # 缓存写失败（如只读目录）不影响流程。
-      #: cache the precheck outcome (a 1.65M-row psm_file was fully
+      # v2.0.148: cache the precheck outcome (a 1.65M-row psm_file was fully
       # re-read on every start); fingerprint = psm/fasta path+mtime+size+mode,
       # a hit reuses the counts and skips the scan. Changed inputs rescan;
       # a failed cache write never breaks the run.
-      # （上游化 field1b，工作站 11-05 测试报告裁定）：预检参考库
+      # v2.0.166（上游化 field1b，工作站 11-05 测试报告裁定）：预检参考库
       # 同步拆键——与 step3 pg 门控同口径（proteogenomics_annotated_fasta
       # 优先，回退 fasta）。竞争库部署＋pg=1 时，旧预检仍按 fasta 判"已
       # 注释"，n_target≈0 → master 启动即误早退（T1.4 回退场景测不出，因
       # 预检在 step3 之前）。指纹与 accession 扫描共用本参考库，参考库换
       # 库时缓存自动失效。
-      #  (upstreaming field1b, workstation 11-05 verdict): the precheck
+      # v2.0.166 (upstreaming field1b, workstation 11-05 verdict): the precheck
       # reference now follows the same split key as the step3 pg gate
       # (proteogenomics_annotated_fasta first, fasta fallback). Under a
       # competition-library deployment with pg=1 the old precheck still judged
@@ -619,21 +628,14 @@ if (pg_mode_u %in% c("1", "2")) {
         cc_u[which(hdr_u == "Proteins")] <- "character"
         psmu <- read.delim(psm_u, sep = "\t", header = TRUE, stringsAsFactors = FALSE,
                            colClasses = cc_u, na.strings = character(0))
-        #：165 的 psm 表 File_Name 唯一性校验在此为死代码（本分支
-        # colClasses 只读 Proteins 列，File_Name 永不在 colnames——工作站
-        # 11-05 实测零警告穿透），已移除。真实去重落到 step2 诱饵清洗路径
-        # （clean_decoy_spectra 系列清洗后真实回写，覆盖 pg=0/1/2 全部模式
-        # 的合并输入；见 user_step2.R 与 ReadMGF_script.R）。
-        #: the  File_Name uniqueness check was dead code here
-        # (this branch reads only the Proteins column, so File_Name never
-        # appears in colnames - the workstation's 11-05 test showed zero
-        # warnings and silent passthrough); removed. The real dedup now lives
-        # in the step-2 decoy-cleaning path, rewriting the cleaned files that
-        # feed the merge and covering pg=0/1/2 alike.
+        # （File_Name 唯一性校验不在此做：本分支 colClasses 只读 Proteins 列；
+        # 真实去重在 step2 诱饵清洗路径真实回写。）
+        # (No File_Name uniqueness check here: this branch reads only the
+        # Proteins column; the real dedup lives in the step-2 decoy cleaning.)
         fa_u <- character(0)
-        # （field1b 第二处）：accession 扫描参考库与指纹同源（拆键
+        # v2.0.166（field1b 第二处）：accession 扫描参考库与指纹同源（拆键
         # 后的 fa_fp_u），不再单独读 fasta。
-        #  (field1b, second site): the accession scan uses the same
+        # v2.0.166 (field1b, second site): the accession scan uses the same
         # split-key reference as the fingerprint (fa_fp_u) instead of fasta.
         fa_f_u <- fa_fp_u
         if (nzchar(fa_f_u) && file.exists(fa_f_u)) fa_u <- unique(names(read_fasta(fa_f_u)))
@@ -655,8 +657,8 @@ if (pg_mode_u %in% c("1", "2")) {
           }
           writeLines(msg_u, sumf_u, useBytes = TRUE)
           cat(msg_u, "\n")
-          try(unlink(master_pid_file), silent = TRUE)   #：早退清理 pidfile
-          try(unlink(master_lock_file), silent = TRUE)  #：早退清理硬锁
+          try(unlink(master_pid_file), silent = TRUE)   # v2.0.167：早退清理 pidfile
+          try(unlink(master_lock_file), silent = TRUE)  # v2.0.176：早退清理硬锁
           quit(save = "no", status = 0)
         }
         cat(sprintf("[蛋白质基因组学] 搜库前预检：目标侧行 %d / 总行 %d\n",
@@ -689,7 +691,7 @@ if (!file.exists(cfg2_path)) {
   cat("regenerating the step-2 parameter file: ", cfg2_path, "\n")
   make_step2_config(cfg_path, cfg1, cfg2_path)
 }
-# ----  纯预测模式：竞争性搜库槽位一个都不选 ---------------------
+# ---- v2.0.154 纯预测模式：竞争性搜库槽位一个都不选 ---------------------
 # ---- pure prediction mode: no competitive slot selected ------------------
 # 检出＝config_step2 的 pure_prediction=1（网页零策略行时写入；只认显式键，
 # 不做零 search_file 回退识别——手动模式等待填 search_file 的停点语义不变）。
@@ -710,6 +712,32 @@ if (file.exists(cfg2_path)) {
   cfg2 <- read_param_file(cfg2_path)
   pm_key <- if (!is.null(cfg2$pure_prediction)) tail(cfg2$pure_prediction, 1) else ""
   pure_mode <- identical(pm_key, "1")
+  # v2.0.178（E9，工作站生产窗口测评）：网页零策略行时默认写 pure_prediction=1，
+  # 用户在 config_step2 手工补了 search_file 行后直接点运行，会**静默得到纯预测
+  # 而非竞争流程**（预填行≠启用的语义反直觉，测评方首轮即踩中）。修复＝矛盾
+  # 检测：pure_prediction=1 但 config_step2 同时存在显式 search_file 行时，
+  # 显式策略优先（pure_mode 关闭）＋双语醒目告警——用户手填的东西永远比
+  # 网页默认值更接近真实意图。
+  # v2.0.178 (E9, workstation production-window review): the web shell writes
+  # pure_prediction=1 when zero strategy rows are submitted; a user who then
+  # hand-adds search_file lines and hits run got pure prediction SILENTLY
+  # instead of the competitive flow (pre-filled row != enabled is
+  # counter-intuitive; the reviewer hit it on their first run). Fix =
+  # contradiction detection: when pure_prediction=1 coexists with explicit
+  # search_file rows in config_step2, the explicit strategies win
+  # (pure_mode off) with a loud bilingual warning - hand-written config is
+  # always closer to the user's true intent than the web default.
+  if (pure_mode) {
+    sf_chk <- cfg2$search_file
+    sf_chk <- sf_chk[!is.na(sf_chk) & nzchar(trimws(as.character(sf_chk)))]
+    if (length(sf_chk) > 0) {
+      cat("==== [Master] 检测到 pure_prediction=1 与 ", length(sf_chk),
+          " 行显式 search_file 并存——显式策略优先，纯预测模式关闭 ====\n", sep = "")
+      cat("==== [Master] pure_prediction=1 coexists with ", length(sf_chk),
+          " explicit search_file rows - the explicit strategies win, pure-prediction mode OFF ====\n", sep = "")
+      pure_mode <- FALSE
+    }
+  }
 } else {
   pure_mode <- FALSE
 }
@@ -751,7 +779,7 @@ if (n_sf == 0L) {
         tail(src$pfind_exe, 1) != "") {
       # v100a：pfind_exe 自愈——resolve_software_path 返回的目录已含
       # Searcher.exe（levels_up=0 → 签名文件所在目录），直接拼文件名，
-      # 不再重复套 "bin"（早期实现 file.path(resolved,"bin","Searcher.exe")
+      # 不再重复套 "bin"（旧版 file.path(resolved,"bin","Searcher.exe")
       # 在 resolved=…/bin 时拼出 …/bin/bin/Searcher.exe 导致失败）
       pf.raw <- tail(src$pfind_exe, 1)
       pf.resolved <- tryCatch({
@@ -793,9 +821,9 @@ if (n_sf == 0L) {
 
 # ---- 第二步：pDeep2 输入 peptide.txt 已存在则跳过 -----------------
 # ---- step 2: skip when the pDeep2 peptide.txt exists -----------------------
-# 功能排队①：跳过判据升级为"策略集合一致"——peptide.txt 存在但
+# 2026-09-26 功能排队①：跳过判据升级为"策略集合一致"——peptide.txt 存在但
 # 当前 config_step2 的策略集合（search_file+类型）与侧车不符（新增/删改策略、
-# 或早期实现本产物无侧车）时重跑步骤 2；引擎搜索结果经参数指纹复用，仅重算合并。
+# 或旧版本产物无侧车）时重跑步骤 2；引擎搜索结果经参数指纹复用，仅重算合并。
 # sidecar = merge/peptide.txt.strategies，由 user_step2 写、与
 # strategy_identity_lines 同一实现比对。
 if (file.exists(peptide_txt)) {
@@ -820,7 +848,7 @@ if (file.exists(peptide_txt)) {
            file.path(script_dir, "user_step2.R"),
            c(CONFIG2 = cfg2_path, RESULT_DIR = result_dir))
 }
-}  #: closes the non-pure wrapper around the step-2 block
+}  # v2.0.154: closes the non-pure wrapper around the step-2 block
 
 # ---- 第三步需要用户填写的 predict_file 条目 -----------------------
 # ---- step 3 needs the user-filled predict_file entry -----------------------
@@ -834,12 +862,13 @@ if (!pure_mode && !file.exists(cfg3_path)) {
 } else if (!pure_mode) {
   # 参数文件存在但 merge_result/predict_file 指向已不存在的文件时（删除
   # result_* 文件夹重跑的典型场景）：按当前结果文件夹重建 cfg3，并保留已填的
-  # weights_A/threshold_A；失效的 predict_file 行先清掉
+  # weights_A/threshold_A；失效的 predict_file 行先清掉（2026-09-05 修复：
+  # 软件自愈，不留手工步骤）
   # when the parameter file exists but its merge_result/predict_file points at
   # a missing file (the typical case after removing the result_* folder and
   # rerunning): rebuild cfg3 against the current result folder, keeping any
   # filled weights_A/threshold_A; a stale predict_file line is dropped first
-  # (fix: self-healing, no manual step)
+  # (2026-09-05 fix: self-healing, no manual step)
   cfg3_chk <- read_param_file(cfg3_path)
   mr <- resolve_cfg_paths(cfg3_chk, "merge_result")
   mr <- mr[!is.na(mr) & mr != ""]
@@ -881,17 +910,17 @@ if (nzchar(pd2_exe)) {
     pd2_exe <- pd2_resolved
   }
 }
-pd2_inst <- if (!is.null(cfg1$instrument)) tail(cfg1$instrument,1)[1] else "Lumos"
-pd2_inst <- if (!is.null(pd2_inst) && length(pd2_inst) > 0 && nzchar(tail(pd2_inst, 1))) tail(pd2_inst, 1) else "Lumos"
-#：自动 pDeep2 不可得的原因标记（""=无；"install_incomplete"=安装
+pd2_inst <- if (!is.null(cfg1$instrument) && length(cfg1$instrument) > 0 &&
+                nzchar(tail(cfg1$instrument, 1))) tail(cfg1$instrument, 1) else "Lumos"
+# v2.0.161：自动 pDeep2 不可得的原因标记（""=无；"install_incomplete"=安装
 # 不完整；"run_failed"=运行失败）。use_pdeep2=1 且 pdeep2_exe 为空时保持 ""
 # （下方停点闸把原因归为"pdeep2_exe 未填"）。停点闸据此决定降级或（predict_
 # required=1 时）停点。
-#: reason flag for an unavailable auto pDeep2 (""=none;
+# v2.0.161: reason flag for an unavailable auto pDeep2 (""=none;
 # "install_incomplete"; "run_failed"). Stays "" when use_pdeep2=1 has an
 # empty pdeep2_exe (the gate below reports it as 'pdeep2_exe not filled').
 pd2_fail_reason <- ""
-# N-1/P0pep_txt 此前只在自动 pDeep2 块内定义，手动模式/
+# N-1/P0（2026-09-26，GLM）：pep_txt 此前只在自动 pDeep2 块内定义，手动模式/
 # use_pdeep2=0/断点续跑时下游预测器循环（length(pids)>0 分支）引用即
 # object 'pep_txt' not found。提升到块外无条件定义。
 # pep_txt: step-2 合并肽表路径（自动 pDeep2 的输入、各预测器适配器的输入）
@@ -906,18 +935,18 @@ pep_txt <- file.path(result_dir, "merge", "peptide.txt")
 # (resume). Install layout per the install record: <pdeep2_exe>\py37\python.exe plus
 # <pdeep2_exe>\pDeep\pDeep2\predict.py
   if (identical(use_pd2, "1") && nzchar(pd2_exe)) {
-  # 预测器分文件夹制——pDeep2 产物迁入
+  # v100-7（2026-10-06）：预测器分文件夹制——pDeep2 产物迁入
   # merge/predictors/pdeep2/（peptides.txt＝本轮提供的输入列表＋predict.txt＋
   # 指纹侧车）。旧布局 merge/predict.txt 指纹匹配时仍复用（断点续跑不重算），
   # 新预测一律写新位置。
-  #: per-predictor folders - pDeep2 output moves to
+  # v100-7: per-predictor folders - pDeep2 output moves to
   # merge/predictors/pdeep2/ (peptides.txt = the list fed this run, predict.txt,
   # fingerprint sidecar). A legacy merge/predict.txt with a matching fingerprint
   # is still reused (resume); fresh predictions go to the new location.
   pd2_dir <- file.path(result_dir, "merge", "predictors", "pdeep2")
   predict_out_legacy <- file.path(result_dir, "merge", "predict.txt")
   predict_out <- file.path(pd2_dir, "predict.txt")
-  # P1-2复用判据从"文件存在"升级为
+  # P1-2（2026-09-26，deepseek 全流程评测）：复用判据从"文件存在"升级为
   # 肽表指纹——新增策略/换库后 peptide.txt 变化但 predict.txt 残留时，旧预测
   # 会静默缺列（阶段 A 按缺失处理）。侧车记 peptide.txt 的 mtime/size。
   # predict_sidecar_file：predict.txt 的指纹侧车；peptide_file_stat：肽表文件信息；
@@ -928,11 +957,11 @@ pep_txt <- file.path(result_dir, "merge", "peptide.txt")
       identical(trimws(readLines(sc, warn = FALSE)), predict_fingerprint_lines)
   }
   peptide_file_stat <- file.info(pep_txt)
-  # （工作站 168 轮发现）：指纹从 mtime 口径统一为 md5 口径（与三
+  # v2.0.169（工作站 168 轮发现）：指纹从 mtime 口径统一为 md5 口径（与三
   # 适配器的 .run_params 侧车同不变量）——step2 重跑会原样重写 peptide.txt，
   # mtime 变而内容未变时旧口径会误判失效白付整轮 pDeep2；md5 内容不变即
   # 复用。旧侧车（pep=mtime|size 格式）自动失配→一次性重跑。
-  #  (workstation 168-round finding): the fingerprint moves from
+  # v2.0.169 (workstation 168-round finding): the fingerprint moves from
   # mtime to md5 (same invariant as the three adapters' .run_params sidecars)
   # - a step-2 rerun rewrites peptide.txt byte-identically, and the old
   # mtime-based check then needlessly invalidated and re-ran pDeep2; with
@@ -949,13 +978,13 @@ pep_txt <- file.path(result_dir, "merge", "peptide.txt")
     if (file.exists(predict_out))
       cat("[pDeep2] 检测到肽表/安装变化，将重新预测\n[pDeep2] peptide-table change detected, re-predicting\n")
     # python 路径三级解析：环境变量 PDEEP2_PYTHON（不同电脑可覆盖）→ 安装文档
-    # 标准布局 <pdeep2_exe>\py37\python.exe；P1-7再补 py38/py39/
+    # 标准布局 <pdeep2_exe>\py37\python.exe；P1-7（2026-09-26）再补 py38/py39/
     # py310 变体与 pDeep2/predict.py 备选位置（Python 3.7 已 EOL）
     # python resolution: PDEEP2_PYTHON env override -> standard layout
-    # <pdeep2_exe>\py37\python.exe -> py38/py39/py310 variants 
+    # <pdeep2_exe>\py37\python.exe -> py38/py39/py310 variants (P1-7, 2026-09-26)
     py_exe <- Sys.getenv("PDEEP2_PYTHON")
     if (!nzchar(py_exe) || !file.exists(py_exe)) {
-      # candidate_env_dir：候选 python 环境子目录；
+      # candidate_env_dir：候选 python 环境子目录（py37 起，P1-7 扩展至 py310）；
       # candidate_python：候选中命中的解释器
       for (candidate_env_dir in c("py37", "py38", "py39", "py310")) {
         candidate_python <- file.path(pd2_exe, candidate_env_dir, "python.exe")
@@ -971,9 +1000,9 @@ pep_txt <- file.path(result_dir, "merge", "peptide.txt")
     pd_script <- file.path(pd2_exe, "pDeep", "pDeep2", "predict.py")
     if (!file.exists(pd_script)) pd_script <- file.path(pd2_exe, "predict.py")
     if (!file.exists(py_exe) || !file.exists(pd_script)) {
-      #：安装不完整由 stop 改为记录原因＋双语警示——停点闸按
+      # v2.0.161：安装不完整由 stop 改为记录原因＋双语警示——停点闸按
       # predict_required 决定降级继续（默认）或停点（=1），不再卡死流程。
-      #: an incomplete install records the reason instead of
+      # v2.0.161: an incomplete install records the reason instead of
       # stopping; the gate below degrades by default (predict_required=1
       # keeps the manual stop), so the run no longer dead-ends here.
       pd2_fail_reason <- "install_incomplete"
@@ -988,65 +1017,70 @@ pep_txt <- file.path(result_dir, "merge", "peptide.txt")
     cat("==== [自动执行 pDeep2] 对以下文件运行预测：", pep_txt, " ====\n")
     cat("==== [Auto pDeep2] predict on: ", pep_txt, " ====\n")
     cat("python:", py_exe, "\n")
-    #：本轮提供给 pDeep2 的输入列表落其独立文件夹（peptides.txt）
-    #: the list fed to pDeep2 this run lands in its own folder
+    # v100-7：本轮提供给 pDeep2 的输入列表落其独立文件夹（peptides.txt）
+    # v100-7: the list fed to pDeep2 this run lands in its own folder
     dir.create(pd2_dir, recursive = TRUE, showWarnings = FALSE)
     pd2_list <- file.path(pd2_dir, "peptides.txt")
     if (!file.copy(pep_txt, pd2_list, overwrite = TRUE))
       pd2_list <- pep_txt   # 复制失败（如只读盘）退回主表，不阻断
     old_wd2 <- getwd()
     setwd(dirname(pd_script))
-    #：py_system2 剥离 PYTHONHOME/PYTHONPATH 再启动——机器级污染
+    # v2.0.146：py_system2 剥离 PYTHONHOME/PYTHONPATH 再启动——机器级污染
     # 会让 python37 以 initfsencoding / No module named 'encodings' 假死
-    # （外部测试机 附加包实测）；输出仍直接进主日志
+    # （Mch_TL 附加包实测）；输出仍直接进主日志
     st2 <- py_system2(py_exe, c(shQuote(pd_script), "-e", "0.3", "-i", pd2_inst,
                                  "-in", shQuote(pd2_list), "-out", shQuote(predict_out)))
     setwd(old_wd2)
     if (st2 != 0 || !file.exists(predict_out)) {
-      #：运行失败由 stop 改为记录原因＋双语警示（同安装不完整口径）
-      #: a failed run records the reason instead of stopping
+      # v2.0.161：运行失败由 stop 改为记录原因＋双语警示（同安装不完整口径）
+      # v2.0.161: a failed run records the reason instead of stopping
       pd2_fail_reason <- "run_failed"
       cat("[警告] pDeep2 运行失败（exit ", st2, "）——本轮不生成预测，稍后按降级处理\n")
       cat("[Warn] pDeep2 run failed (exit ", st2, ") - no prediction this run, degrading later\n")
     } else {
     writeLines(predict_fingerprint_lines, paste0(predict_out, ".run_params"),
-               useBytes = TRUE)   # P1-2 肽表指纹侧车（ 修复：predict_sidecar_file 已内联）
+               useBytes = TRUE)   # P1-2 肽表指纹侧车（v100-7b 修复：predict_sidecar_file 已内联）
     }
-    }  #：关闭 !nzchar(pd2_fail_reason) 运行护栏
+    }  # v2.0.161：关闭 !nzchar(pd2_fail_reason) 运行护栏
   } else {
     cat("[跳过] pDeep2 predict.txt 已存在且肽表未变 -> ", predict_out, "\n")
     cat("[Skip] pDeep2 predict.txt exists and peptide table unchanged -> ", predict_out, "\n")
   }
+  # 参数文件键补丁（v2.0.179 抽取：pDeep2 回写与主预测器回写原为两份逐字
+  # 拷贝）——已有键替换首处、缺键追加；写出后重读并返回新表。
+  # Parameter-file key patch (v2.0.179: the pDeep2 write-back and the primary
+  # predictor write-back were verbatim duplicates) - replaces the first
+  # existing key or appends; re-reads and returns the fresh table.
+  patch_cfg_key <- function(path, key, value) {
+    ln <- readLines(path, warn = FALSE)
+    i <- which(grepl(paste0("^", key, "\t"), ln))
+    ln <- if (length(i) > 0) { ln[i[1]] <- paste0(key, "\t", value); ln }
+          else c(ln, paste0(key, "\t", value))
+    writeLines(ln, path, useBytes = TRUE)
+    read_param_file(path)
+  }
   # 把 predict_file 自动写入第三步参数文件（已有键替换、缺键追加）——
-  #：仅在自动 pDeep2 成功产出时回写；失败（pd2_fail_reason 非空）
+  # v2.0.161：仅在自动 pDeep2 成功产出时回写；失败（pd2_fail_reason 非空）
   # 不写，留空给停点闸降级（主预测器成功时仍会回写自己的产物）。
   # patch predict_file into the step-3 parameter file (replace or append) -
-  #: only on a successful auto run; on failure nothing is patched and
+  # v2.0.161: only on a successful auto run; on failure nothing is patched and
   # the gate below degrades (a successful primary predictor still writes its own).
   if (!nzchar(pd2_fail_reason)) {
-    cfg3_lines <- readLines(cfg3_path, warn = FALSE)
-    i_pf <- which(grepl("^predict_file\t", cfg3_lines))
-    if (length(i_pf) > 0) {
-      cfg3_lines[i_pf[1]] <- paste0("predict_file\t", predict_out)
-    } else {
-      cfg3_lines <- c(cfg3_lines, paste0("predict_file\t", predict_out))
-    }
-    writeLines(cfg3_lines, cfg3_path, useBytes = TRUE)
-    cfg3 <- read_param_file(cfg3_path)
+    cfg3 <- patch_cfg_key(cfg3_path, "predict_file", predict_out)
     cat("[自动执行 pDeep2] predict_file 已写入：", cfg3_path, "\n")
     cat("[Auto pDeep2] predict_file written to: ", cfg3_path, "\n")
   }
 }
-# v1.0多理论谱图预测器——每个启用的额外预测器（config_step1
+# v1.0（2026-09-26）：多理论谱图预测器——每个启用的额外预测器（config_step1
 # predictorN_* 键）跑其 L1 适配器（code/predictors/pred_<type>.R），产物与
-# pDeep2 predict.txt 同构； 起各入独立文件夹 merge/predictors/<type>/；
+# pDeep2 predict.txt 同构；v100-7 起各入独立文件夹 merge/predictors/<type>/；
 # predictor_primary 决定 stage A 的 predict 列（predict_file 回写）；失败只记
 # manifest、不打断整轮。
-# v1.0 multi-predictor loop - each enabled extra predictor
+# v1.0 (2026-09-26): multi-predictor loop - each enabled extra predictor
 # (config_step1 predictorN_* keys) runs its L1 adapter; outputs are pDeep2-
 # shaped predict files; predictor_primary selects the stage-A predict column;
 # failures only mark the manifest and the column is treated as missing.
-#：STEP1 质谱仪键（instrument，默认 Lumos）作为全体预测器的默认
+# v1.0：STEP1 质谱仪键（instrument，默认 Lumos）作为全体预测器的默认
 # 仪器（适配器 params 留空即用它；pDeep3 仅 QE/Lumos，其余映射 Lumos）
 Sys.setenv(ISOPSV_INSTRUMENT = toupper(
   if (!is.null(cfg1$instrument)) tail(cfg1$instrument, 1)[1] else "Lumos"))
@@ -1055,11 +1089,11 @@ pids <- unique(sub("^predictor([0-9]+)_.*$", "\\1", pn[grepl("^predictor[0-9]+_"
 pids <- pids[order(suppressWarnings(as.integer(pids)))]
 if (length(pids) > 0 && file.exists(pep_txt)) {
   manifest <- character(0)
-  # （工作站 170 报告 #2 治本位轻量版）：管道符肽总账行——pFind
+  # v2.0.171（工作站 170 报告 #2 治本位轻量版）：管道符肽总账行——pFind
   # 二选一异构体记法（肽序列含 "|"）对全部预测器是非法残基，各适配器已
   # 逐个跳过＋计数；此处对 peptide.txt 统一打一行总账，四组计数自动对齐
   # 可审计（若某适配器计数与总账不符即为该适配器卫兵缺口）。
-  #  (workstation 170-round #2, lightweight root-cure): one
+  # v2.0.171 (workstation 170-round #2, lightweight root-cure): one
   # master-level accounting line for pipe-notation peptides - pFind's
   # either-or "|" notation is illegal for every predictor and each adapter
   # skips them individually with counts; this line states the total from
@@ -1083,18 +1117,18 @@ if (length(pids) > 0 && file.exists(pep_txt)) {
       v <- cfg1[[paste0("predictor", pid, "_", k)]]
       if (is.null(v) || length(v) == 0) "" else trimws(tail(v, 1))
     }
-    # N-9typ 拼进 pred_<typ>.R 路径前先消毒（先 tolower
+    # N-9（2026-09-26，GLM）：typ 拼进 pred_<typ>.R 路径前先消毒（先 tolower
     # 再剔非 [a-z0-9_]——先 gsub 会删掉大写字母）；含 ../ 的恶意键无法再
     # 指到任意脚本。N-10：mode 键缺失时 getp 返回 ""，此前会默认执行——改为
     # 只在 mode 明确为 "1" 时启用（模板语义：1=启用，0=停用）
     typ <- gsub("[^a-z0-9_]", "", tolower(getp("type"))); mode <- getp("mode")
     if (!nzchar(typ) || !identical(mode, "1") || identical(typ, "pdeep2")) next
     py <- getp("python"); params <- getp("params")
-    #：pdeep3 的 python 为空时回退到本轮 pDeep2 已验证可用的
-    # python37并把
-    # PDEEP3_ROOT 直指其兄弟 pDeep3。杨瀚机实测：pdeep3 行 python 留空时
+    # v2.0.155：pdeep3 的 python 为空时回退到本轮 pDeep2 已验证可用的
+    # python37（附件包布局两者同环境；独立安装亦为 py37/TF1.15 系），并把
+    # PDEEP3_ROOT 直指其兄弟 pDeep3。杨瀚机实弹：pdeep3 行 python 留空时
     # 适配器以"缺参数 --python"exit 1，主日志只见一行 exit 1 无从排查。
-    #: pdeep3 with an empty python falls back to the pDeep2 python
+    # v2.0.155: pdeep3 with an empty python falls back to the pDeep2 python
     # already proven this run (the addon ships both in one env; standalone
     # installs share the py37/TF1.15 family); PDEEP3_ROOT points at the
     # sibling pDeep3 folder when present.
@@ -1111,9 +1145,9 @@ if (length(pids) > 0 && file.exists(pep_txt)) {
         cat("[预测器] pdeep3 python 为空，回退 pDeep2 环境：", py, "\n", sep = "")
       }
     }
-    #：python 仍为空的行显式跳过——不再让适配器以"缺参数
+    # v2.0.155：python 仍为空的行显式跳过——不再让适配器以"缺参数
     # --python"exit 1（主日志只见 exit 1，错因不可见）。
-    #: rows still lacking a python are skipped explicitly instead
+    # v2.0.155: rows still lacking a python are skipped explicitly instead
     # of dying inside the adapter with an invisible missing-argument error.
     if (!nzchar(py)) {
       manifest <- c(manifest, sprintf("%s\tFAIL\tpython 路径为空", typ))
@@ -1123,21 +1157,21 @@ if (length(pids) > 0 && file.exists(pep_txt)) {
           "_python in config_predictor.txt\n", sep = "")
       next
     }
-    # （设计约定）：预测器路径一律"软件安装文件夹"级，不到 python.exe
-    # 级——自愈链扩展两级：pDeep3 安装夹的同级 pDeep2/py37（本地
+    # v1.0（用户口径）：预测器路径一律"软件安装文件夹"级，不到 python.exe
+    # 级——自愈链扩展两级：pDeep3 安装夹的同级 pDeep2/py37（本机
     # D:\Bioinformatics 布局）与附件包嵌套 python37。
-    #: predictor paths are at the install-folder level, never
+    # v1.0: predictor paths are at the install-folder level, never
     # python.exe - the heal chain gains two candidates: the pDeep2/py37
     # sibling of a pDeep3 install folder (D:\Bioinformatics layout) and the
     # nested addon python37.
     py_raw <- py
     if (nzchar(py) && !grepl("[.](exe|bat)$", tolower(py))) {
       # 依次尝试：<path>/python.exe（conda 布局）、<path>/Scripts/python.exe
-      # （Windows venv 布局， 补——ms2pip/AlphaPeptDeep 的 pip
+      # （Windows venv 布局，v2.0.154e 补——ms2pip/AlphaPeptDeep 的 pip
       # 环境常为独立 venv）、<path>/python37、<path>/py37、
       # dirname(<path>)/python37、dirname(<path>)/pDeep2/py37
       # try in order: <path>/python.exe (conda layout),
-      # <path>/Scripts/python.exe (Windows venv, added  - pip
+      # <path>/Scripts/python.exe (Windows venv, added v2.0.154e - pip
       # envs for ms2pip/AlphaPeptDeep are often standalone venvs),
       # <path>/python37, <path>/py37, dirname(<path>)/python37,
       # dirname(<path>)/pDeep2/py37
@@ -1156,9 +1190,9 @@ if (length(pids) > 0 && file.exists(pep_txt)) {
         py <- py_hit[1]
       }
     }
-    #：用户填的是 pDeep3 安装文件夹时，直接把 PDEEP3_ROOT 指过去——
+    # v1.0：用户填的是 pDeep3 安装文件夹时，直接把 PDEEP3_ROOT 指过去——
     # driver 不再靠 python 兄弟目录猜根（附件包/自定义布局两可）。
-    #: when the user gave the pDeep3 install folder, point
+    # v1.0: when the user gave the pDeep3 install folder, point
     # PDEEP3_ROOT straight at it - the driver no longer has to guess the root
     # from the python siblings (works for both addon and custom layouts).
     if (typ == "pdeep3" && nzchar(py_raw) && dir.exists(py_raw) &&
@@ -1174,12 +1208,12 @@ if (length(pids) > 0 && file.exists(pep_txt)) {
       cat("[预测器] ", typ, " 适配器缺失，跳过：", adapter, "\n", sep = "")
       next
     }
-    # 预测器分文件夹制——每个理论谱图预测器独立目录
+    # v100-7（2026-10-06）：预测器分文件夹制——每个理论谱图预测器独立目录
     # merge/predictors/<type>/：peptides.txt＝本轮提供给该预测器的输入列表
     # （各预测器格式不同，由适配器在此列表基础上再派生自己的中间格式）、
     # predict.txt＝产物、run.log＝运行日志。旧布局 merge/predict_<type>.txt
     # 不再读写（残留无害）。
-    #: per-predictor folders - each predictor gets its own
+    # v100-7: per-predictor folders - each predictor gets its own
     # merge/predictors/<type>/ folder: peptides.txt = the input list fed to
     # THIS predictor this run (adapters derive their own formats from it),
     # predict.txt = output, run.log = the run log. The legacy flat
@@ -1189,11 +1223,11 @@ if (length(pids) > 0 && file.exists(pep_txt)) {
     pred_list <- file.path(pred_dir, "peptides.txt")
     if (!file.copy(pep_txt, pred_list, overwrite = TRUE)) pred_list <- pep_txt
     out_pred <- file.path(pred_dir, "predict.txt")
-    #  #6 预测器预检（preflight）：正式跑全量肽表前，用 3 行小表
+    # v2.0.162 #6 预测器预检（preflight）：正式跑全量肽表前，用 3 行小表
     # （1 无修饰＋1 Oxidation[M]＋1 短肽）先试适配器——3 秒级提前暴露环境/
     # 词表/契约问题，失败即在本段点名"本组将按缺失处理"，不再让全量跑
     # 到 90% 才崩（11-02 双项目 AlphaPeptDeep 半程 KeyError 的教训）。
-    #  #6 predictor preflight: before the full peptide table, run the
+    # v2.0.162 #6 predictor preflight: before the full peptide table, run the
     # adapter on a 3-row mini table (unmodified + Oxidation[M] + a short
     # peptide) - environment/vocabulary/contract problems surface in seconds
     # and this group is flagged as missing up front, instead of dying 90% into
@@ -1224,15 +1258,15 @@ if (length(pids) > 0 && file.exists(pep_txt)) {
       cat("[预检 OK] ", typ, "（3 肽冒烟通过）\n", sep = "")
       cat("[Preflight OK] ", typ, " (3-peptide smoke passed)\n", sep = "")
     }
-    # N-3iso_system2 内部对每个参数再 shQuote，这里
+    # N-3（2026-09-26，GLM）：iso_system2 内部对每个参数再 shQuote，这里
     # 再包一层 shQuote 会让含空格路径（如 C:\Program Files\...）双重引号坏掉。
     # 一律传原样路径，交给 iso_system2 统一加引号。
     a <- c(adapter, "--in", pred_list, "--out", out_pred)
     if (nzchar(py)) a <- c(a, "--python", py)
     if (nzchar(params)) a <- c(a, "--params", params)
     cat("[预测器] 运行 ", typ, "：", adapter, "\n", sep = "")
-    # P0-Cstdout=TRUE 会把输出向量当返回值，多行时
-    # if(st==0) 抛 length>1——改输出到日志文件、只取退出码（ 入预测器夹）
+    # P0-C（2026-09-26）：stdout=TRUE 会把输出向量当返回值，多行时
+    # if(st==0) 抛 length>1——改输出到日志文件、只取退出码（v100-7 入预测器夹）
     predictor_log <- file.path(pred_dir, "run.log")
     predictor_status <- iso_system2(rscript, a, stdout = predictor_log, stderr = predictor_log)
     if (predictor_status == 0 && file.exists(out_pred)) {
@@ -1240,12 +1274,12 @@ if (length(pids) > 0 && file.exists(pep_txt)) {
     } else {
       manifest <- c(manifest, sprintf("%s\tFAIL\texit %s", typ, predictor_status))
       cat("[预测器] ", typ, " 失败（exit ", predictor_status, "），该预测列按缺失处理\n", sep = "")
-      #：失败侧日志回贴（复用  的 log_fail_tail）。预测器
+      # v2.0.155：失败侧日志回贴（复用 v2.0.145 的 log_fail_tail）。预测器
       # 适配器的 stdout/stderr 一直在 merge/predictors/<type>/run.log，
       # driver 级错因在 predict.txt.driver.log——此前主日志只有一行
       # exit 1（杨瀚机 pdeep3 排障无从下手）。
-      #: echo the failure-side tails into the main log (reuses the
-      #  log_fail_tail). Adapter stdout/stderr lives in
+      # v2.0.155: echo the failure-side tails into the main log (reuses the
+      # v2.0.145 log_fail_tail). Adapter stdout/stderr lives in
       # merge/predictors/<type>/run.log and driver-level errors in
       # predict.txt.driver.log; a bare exit 1 hid both.
       log_fail_tail(predictor_log, paste0("预测器/", typ), n = 10L)
@@ -1256,22 +1290,22 @@ if (length(pids) > 0 && file.exists(pep_txt)) {
   writeLines(manifest, file.path(result_dir, "merge", "predictor_run_manifest.txt"),
              useBytes = TRUE)
   # 主预测器：非 pDeep2 时用其产物回写 predict_file（stage A 的 predict 列）
-  # N-8回写只在自动模式（use_pdeep2=1）生效——手动模式
+  # N-8（2026-09-26，GLM）：回写只在自动模式（use_pdeep2=1）生效——手动模式
   # （=2）predict_file 是用户手填值，无条件替换会覆盖它；=0 时 predict 按缺失
   # 处理，照写 config_step3 与之口径不一。非自动模式只提示不写入。
-  #：纯预测模式无阶段 A，主预测器 predict_file 回写无意义，跳过
-  #: no stage A in pure prediction mode - the primary-predictor
+  # v2.0.154：纯预测模式无阶段 A，主预测器 predict_file 回写无意义，跳过
+  # v2.0.154: no stage A in pure prediction mode - the primary-predictor
   # predict_file write-back is pointless, skip it
   pp <- if (pure_mode) NULL else cfg1$predictor_primary
   if (!is.null(pp) && length(pp) > 0) {
-    # P3-2pp 与 typ 同源消毒——既拼进
+    # P3-2（2026-09-26，deepseek v1.0 审查）：pp 与 typ 同源消毒——既拼进
     # predict_<pp>.txt 路径又作 grepl 正则（^ 锚定）；gsub 后只剩 [a-z0-9_]，
     # 路径恒落在 merge 下、正则无元字符
     pp <- gsub("[^a-z0-9_]", "", tolower(trimws(tail(pp, 1))))
     if (nzchar(pp) && pp != "pdeep2") {
-      #：主预测器产物在 merge/predictors/<pp>/predict.txt
+      # v100-7：主预测器产物在 merge/predictors/<pp>/predict.txt
       out_pp <- file.path(result_dir, "merge", "predictors", pp, "predict.txt")
-      # P0-2仅查文件存在会消费上一轮残留的陈旧产物
+      # P0-2（2026-09-26，MiniMax）：仅查文件存在会消费上一轮残留的陈旧产物
       # （本轮适配器失败时旧 predict_<type>.txt 仍在磁盘上）——必须以本轮
       # manifest 的 OK 行为准；pp 未配置/本轮失败时保持 pDeep2
       pp_ok <- any(grepl(paste0("^", pp, "\tOK\t"), manifest))
@@ -1279,12 +1313,7 @@ if (length(pids) > 0 && file.exists(pep_txt)) {
         cat("[预测器] use_pdeep2 != 1（手动/关闭），主预测器 ", pp,
             " 不回写 predict_file（保持现状）\n", sep = "")
       } else if (pp_ok && file.exists(out_pp)) {
-        cfg3_lines <- readLines(cfg3_path, warn = FALSE)
-        i_pf <- which(grepl("^predict_file\t", cfg3_lines))
-        if (length(i_pf) > 0) cfg3_lines[i_pf[1]] <- paste0("predict_file\t", out_pp)
-        else cfg3_lines <- c(cfg3_lines, paste0("predict_file\t", out_pp))
-        writeLines(cfg3_lines, cfg3_path, useBytes = TRUE)
-        cfg3 <- read_param_file(cfg3_path)
+        cfg3 <- patch_cfg_key(cfg3_path, "predict_file", out_pp)
         cat("[预测器] 主预测器 ", pp, " 的 predict_file 已写入：", out_pp, "\n", sep = "")
       } else {
         cat("[预测器] 主预测器 ", pp, " 本轮未成功（未配置/运行失败），predict_file 保持 pDeep2\n", sep = "")
@@ -1292,7 +1321,7 @@ if (length(pids) > 0 && file.exists(pep_txt)) {
     }
   }
 }
-# ----  纯预测模式收尾：跳过 predict_file 停点与阶段 A/B/主表 ----
+# ---- v2.0.154 纯预测模式收尾：跳过 predict_file 停点与阶段 A/B/主表 ----
 # ---- pure prediction: skip the predict_file stop point and stage A/B -------
 if (pure_mode) {
   run_step("[纯预测模式] 预测器相似性叠加",
@@ -1305,12 +1334,12 @@ if (!identical(use_pd2, "0")) {
   if (is.null(pf)) pf <- character(0)
   pf <- pf[!is.na(pf) & pf != ""]
   if (length(pf) == 0L) {
-    #：预测不可得时的闸门分叉。predict_required（config_step1，
+    # v2.0.161：预测不可得时的闸门分叉。predict_required（config_step1，
     # 默认 0）＝1 或手动模式 use_pdeep2=2 保持旧停点等人工；默认（自动模式）
     # 降级继续——预测指标按缺失处理（等价 use_pdeep2=0：predict_missing
     # 标注、投票降级、预测救援分支不触发），部署层判定（预测权重 0）不受
     # 影响，流程不再卡死等放行。
-    #: gate fork when no prediction is available. predict_required
+    # v2.0.161: gate fork when no prediction is available. predict_required
     # (=1, config_step1) or manual mode use_pdeep2=2 keeps the old manual
     # stop; by default (auto mode) the run degrades - the predict metric is
     # treated as missing (same as use_pdeep2=0: predict_missing flag, vote
@@ -1389,7 +1418,7 @@ run_step("[阶段A分类] 阶段 A 结果分类",
            OUT = file.path(result_dir, "1.unlabeled_result", "classification_A.tsv"),
            UNLABELED_DIR = file.path(cfg_dir, "unlabeled")))
 
-# 纯蛋白质基因组学模式
+# 纯蛋白质基因组学模式（proteogenomics_mode=1，2026-09-27 用户口径）：
 # 第三步已把已注释谱写入 pg_skipped.tsv——此处按清单补记到分类表，结论
 # annotated_skipped、指标列留空（已注释谱不做错误校正）。
 # pure proteogenomics mode: step 3 wrote the annotated spectra into
@@ -1406,7 +1435,7 @@ if (file.exists(pg_skipped_f)) {
                          check.names = FALSE, na.strings = character(0))
       scol <- grep("conclusion|status", colnames(cdat), value = TRUE)[1]
       if (length(scol) > 0 && !is.na(scol) && "File_Name" %in% colnames(cdat)) {
-        add <- cdat[rep(1, length(sk)),, drop = FALSE]
+        add <- cdat[rep(1, length(sk)), , drop = FALSE]
         for (cc in colnames(add)) add[[cc]] <- rep(NA, length(sk))
         add[["File_Name"]] <- sk
         # 补记结论按工作流程模式：纯蛋白质基因组学=已注释跳过；
@@ -1423,38 +1452,38 @@ if (file.exists(pg_skipped_f)) {
 
 # ---- 阶段 A 谱图 PDF（无标记侧判定：判错＝candidate_misidentification、
 # 存疑＝打分差近阈值/为 0；输出到 1.unlabeled_result）----
-# 默认关闭；
+# 默认关闭（用户口径 2026-09-10：PDF 导出暂不需要、后续要大改）；
 # 设 PDF_ON=1 显式开启。
 # ---- stage-A spectrum PDF (unlabeled-side judgment: error = the
 # candidate_misidentification decision, ambiguous = the by-score delta near
 # the threshold or zero; written into 1.unlabeled_result)
-# OFF by default (user ruling: PDF export not needed for now,
+# OFF by default (user ruling 2026-09-10: PDF export not needed for now,
 # pending a redesign); set PDF_ON=1 to enable.
 label_type <- if (!is.null(cfg1$label_type) && length(cfg1$label_type) > 0) {
   tolower(tail(cfg1$label_type, 1))
 } else "unlabeled"
-# ---- 无标记样本两分法报告与标记样本同名同构产出
+# ---- 无标记样本两分法报告（2026-09-26 用户要求）：与标记样本同名同构产出
 # 1.annotation_correction_report.tsv（已注释矫正）与
 # 2.novel_peptide_competition_report.tsv（新肽段竞争）＋ two_part_report_summary
 # ——落 1.unlabeled_result/（v1.0 口径：report 路径），网页两分法面板自动
-# 呈现；可信新肽段三列（novel_doubt/novel_status/credible_novel）按设计约定
-# 修订与标记与否无关，同六重存疑规则计算（数据源＝阶段 A
+# 呈现；可信新肽段三列（novel_doubt/novel_status/credible_novel）按用户口径
+# 修订（2026-09-26）：与标记与否无关，同六重存疑规则计算（数据源＝阶段 A
 # 逐谱候选＋第一步无标记谱；见 unlabeled_two_part_report.R 头注释）。
-# P2本步必须排在 PDF-A 之前——第三类 PDF（可信
+# P2（2026-09-26，工作站反馈）：本步必须排在 PDF-A 之前——第三类 PDF（可信
 # 新肽段）依赖本报告的 credible_novel 列；顺序颠倒时 PDF 读到上一轮旧报告、
 # 渲染 0 页且文件不落地。
-# ---- unlabeled two-part report same names and
+# ---- unlabeled two-part report (user request 2026-09-26): same names and
 # structure as the labeled samples - annotation-correction + novel-competition
 # TSVs plus the summary, written into 1.unlabeled_result/ (v1.0 ruling:
 # report path) so the web two-part panel renders them unchanged; the credible-
-# novel columns are computed with the SAME six doubt rules (ruling:
+# novel columns are computed with the SAME six doubt rules (2026-09-26 ruling:
 # independent of labeling; stage-A per-spectrum candidates + step-1 unlabeled
 # spectra - see the unlabeled_two_part_report.R header).
-# P2 this step MUST run before PDF-A -
+# P2 (2026-09-26, workstation feedback): this step MUST run before PDF-A -
 # the third PDF (credible novel peptides) depends on this report's
 # credible_novel column; reversed, the PDF reads the previous round's report,
 # renders 0 pages and writes no file.
-# （无标记通道=0）：全标记样本同样走无标记侧两分法报告
+# v1.0（无标记通道=0）：全标记样本同样走无标记侧两分法报告
 ul_ch_ur <- if (!is.null(cfg1$unlabeled_channel) && length(cfg1$unlabeled_channel) > 0)
   tail(cfg1$unlabeled_channel, 1) else "1"
 if (identical(label_type, "unlabeled") || identical(ul_ch_ur, "0")) {
@@ -1476,13 +1505,16 @@ if (identical(pdf_on, "1")) run_step("[谱图 PDF-A] 阶段 A 错误匹配与存
 # five-metric majority vote + paired-cosine decision; skipped when the report
 # already exists; for labeled samples a missing all_mgf stops for user input
 # (same await-input pattern as predict_file).
-# （无标记通道=0）：全标记样本没有无标记侧可配对——阶段 B 与冲突
+# v1.0（无标记通道=0）：全标记样本没有无标记侧可配对——阶段 B 与冲突
 # 报告跳过（与无标记样本同口径），下游走无标记侧两分法报告（ul_ch_ur 已在上方定义）。
+# all_mgf 归一化上提（v2.0.179）：标记/无标记两分支原各持一份逐字拷贝。
+# all_mgf normalization hoisted (v2.0.179): the labeled and unlabeled
+# branches each carried a verbatim copy.
+all_mgf <- cfg1$all_mgf
+if (is.null(all_mgf)) all_mgf <- character(0)
+all_mgf <- all_mgf[!is.na(all_mgf) & all_mgf != ""]
 if (!identical(label_type, "unlabeled") && !identical(ul_ch_ur, "0")) {
   stb_out <- file.path(result_dir, "2.labeled_result", paste0("paired_report_", label_type, ".tsv"))
-  all_mgf <- cfg1$all_mgf
-  if (is.null(all_mgf)) all_mgf <- character(0)
-  all_mgf <- all_mgf[!is.na(all_mgf) & all_mgf != ""]
   if (file.exists(stb_out)) {
     cat("[跳过] 阶段 B：成对匹配报告已存在 -> ", stb_out, "\n")
     cat("[Skip] stage B: paired report exists -> ", stb_out, "\n")
@@ -1519,21 +1551,16 @@ if (!identical(label_type, "unlabeled") && !identical(ul_ch_ur, "0")) {
 } else {
   cat("[跳过] 阶段 B：无标记样本\n")
   cat("[Skip] stage B: unlabeled sample\n")
-  # v1.0 修复：无标记主表接线引用 all_mgf，但该变量只在标记分支（上方
-  # if 块内）赋值——无标记跑到主表步即 object not found 崩溃。此处提前按同口径赋值（可为空向量）。
-  # v1.0 fix: the unlabeled master-table call references all_mgf, which
-  # was assigned only inside the labeled branch above - unlabeled runs
-  # crashed with object-not-found at the master step . Assign it here with the same rules (may be empty).
-  all_mgf <- cfg1$all_mgf
-  if (is.null(all_mgf)) all_mgf <- character(0)
-  all_mgf <- all_mgf[!is.na(all_mgf) & all_mgf != ""]
+  # （all_mgf 已在分支前按同口径归一（v2.0.179 上提），无标记主表可直接引用。）
+  # (all_mgf is normalized above the branch (hoisted v2.0.179); the
+  # unlabeled master table can reference it directly.)
 }
 
 # ---- 全谱主表导出（仅标记样本；无标记样本跳过）----
 # 生成与 8.衣藻全谱主表.txt 同格式的 master_table.tsv：候选 1–5 全部参数、
 # 判定结论、蛋白定位、差异类型。无标记样本暂不支持（阶段 A 报告为 candidate_*
 # 列名体系，与主表所依赖的成对报告列名 unlabel_ions_match.* 之间尚无列映射；
-# 未完成功能，起按设计约定跳过）——无标记样本的科学需求已由
+# 未完成功能，2026-09-06 起按用户口径跳过）——无标记样本的科学需求已由
 # stageA/report_A.tsv 与 stageA/classification_A.tsv 两张表覆盖。
 # ---- master-table export (labeled samples only; unlabeled samples are
 # skipped) - writes master_table.tsv in the same format as 8.衣藻全谱主表.txt:
@@ -1541,19 +1568,19 @@ if (!identical(label_type, "unlabeled") && !identical(ul_ch_ur, "0")) {
 # the difference type. Unlabeled samples are not supported yet (the stage-A
 # report uses the candidate_* column system while the master table expects the
 # paired-report columns such as unlabel_ions_match.*; the column mapping is
-# missing - unfinished feature, skipped since ) - the unlabeled needs
+# missing - unfinished feature, skipped since 2026-09-06) - the unlabeled needs
 # are fully covered by stageA/report_A.tsv and stageA/classification_A.tsv.
-# （无标记通道=0）：全标记样本无成对报告，主表（依赖成对列）一并
+# v1.0（无标记通道=0）：全标记样本无成对报告，主表（依赖成对列）一并
 # 跳过——科学需求由 report_A/classification_A 与两分法报告覆盖。
 if (identical(ul_ch_ur, "0")) {
   cat("[跳过] 主表导出：无标记通道的全标记样本暂不支持（依赖成对报告列）。\n")
   cat("[Skip] master-table export: not available for fully labeled samples",
       "without an unlabeled channel (depends on paired-report columns).\n")
 } else if (label_type == "unlabeled") {
-  # v1.0无标记流程也出主表——由阶段 A 的
+  # v1.0（2026-10-05 用户口径）：无标记流程也出主表——由阶段 A 的
   # scan_details_A（逐谱×逐候选）透视 58 列宽表（cand1..cand5＋判定列，
   # 标记侧列留空），落在 1.unlabeled_result/master_table.tsv。
-  # (user ruling): unlabeled runs also get a master table - pivots
+  # v1.0 (user ruling): unlabeled runs also get a master table - pivots
   # the stage-A scan_details_A into a 58-column wide table (cand1..cand5 +
   # conclusion columns, labeled columns blank) at
   # 1.unlabeled_result/master_table.tsv.
@@ -1573,13 +1600,13 @@ if (identical(ul_ch_ur, "0")) {
 # ---- 谱图 PDF 导出（标记样本：阶段 B 与冲突报告完成后自动执行）----
 # 用 Fig.7 定稿判定模型对成对报告逐谱判定，自动渲染两类 PDF：
 #   error_match_spectra.pdf ＝ 判需校正谱；ambiguous_matches_spectra.pdf ＝ 难区分带谱
-# 默认关闭；
+# 默认关闭（用户口径 2026-09-10：PDF 导出暂不需要、后续要大改）；
 # 设 PDF_ON=1 显式开启（PDF_LIMIT 仍可限制张数，自检用）
 # ---- spectrum PDF export (labeled samples: runs automatically after stage B
 # and the conflict report) - applies the finalized Fig.7 judgment model to the
 # paired report and renders two PDFs: error_match_spectra.pdf (need-correction
 # spectra) and ambiguous_matches_spectra.pdf (hard-to-judge band)
-# OFF by default (user ruling: PDF export not needed for now,
+# OFF by default (user ruling 2026-09-10: PDF export not needed for now,
 # pending a redesign); set PDF_ON=1 to enable (PDF_LIMIT still caps pages)
 if (exists("stb_out", inherits = FALSE) && label_type != "unlabeled" &&
     file.exists(stb_out) && identical(pdf_on, "1")) {
@@ -1590,15 +1617,15 @@ if (exists("stb_out", inherits = FALSE) && label_type != "unlabeled" &&
              RESULT_DIR = result_dir))
 }
 
-}  #: closes the non-pure wrapper (predict_file stop point + stage A/B)
+}  # v2.0.154: closes the non-pure wrapper (predict_file stop point + stage A/B)
 
-# ---- SAP 索引留档到最终结果文件夹（用户 规格：SAP 单独记录、
+# ---- SAP 索引留档到最终结果文件夹（用户 2026-09-05 规格：SAP 单独记录、
 # 不影响理论谱预测、结果可还原）----
 # 第二步已在 merge/ 与 Competitive_search_result/ 写出 SAP_spectra_index.txt
 #（原序列＋"pos,XXX->YYY[site]" 修饰＋revised_peptide/ref_protein 映射）；
 # 这里再复制一份到本项目的最终结果文件夹，使任何下游 SAP 替换序列都能在
 # 结果旁直接还原为原始形式
-# ---- SAP index archived next to the final results (user spec:
+# ---- SAP index archived next to the final results (user 2026-09-05 spec:
 # SAP recorded separately, prediction unaffected, results restorable) ----
 # step 2 already wrote SAP_spectra_index.txt to merge/ and
 # Competitive_search_result/ (original sequence + "pos,XXX->YYY[site]"
@@ -1617,12 +1644,12 @@ if (file.exists(sap_idx)) {
   }
 }
 
-# ---- v1.0 多预测器余弦叠加------------------
+# ---- v1.0 多预测器余弦叠加（用户口径 2026-10-08）------------------
 # 各预测器 predict.txt → 逐谱算余弦 → master_table 加 cand1_predict_<type> 列
 # 列名直接含软件名（cand1_predict_pdeep2 / cand1_predict_pdeep3）
-#：纯预测模式无 master_table（阶段 A/B 未跑），本块跳过——相似性
+# v2.0.154：纯预测模式无 master_table（阶段 A/B 未跑），本块跳过——相似性
 # 列已由 pure_prediction.R 的 export 段直接写进 pure_prediction.tsv
-#: no master_table in pure prediction mode (stage A/B skipped) -
+# v2.0.154: no master_table in pure prediction mode (stage A/B skipped) -
 # the similarity columns are written into pure_prediction.tsv instead
 if (!pure_mode) {
 tryCatch({
@@ -1641,5 +1668,5 @@ tryCatch({
 
 cat("\n==== [总程序 / Master] 全部完成 @ ", format(Sys.time(), "%H:%M:%S"), " ====\n")
 cat("==== [Master] all done @ ", format(Sys.time(), "%H:%M:%S"), " ====\n")
-try(unlink(master_pid_file), silent = TRUE)   #：正常结束清理 pidfile
-try(unlink(master_lock_file), silent = TRUE)  #：正常结束清理硬锁
+try(unlink(master_pid_file), silent = TRUE)   # v2.0.167：正常结束清理 pidfile
+try(unlink(master_lock_file), silent = TRUE)  # v2.0.176：正常结束清理硬锁

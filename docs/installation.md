@@ -116,7 +116,7 @@ you; it reads their result files. Two modes are supported per row in STEP 2:
   yourself and use **Manual result** rows (engine score formats: see
   `docs/parameters.md`).
 
-### Casanovo / PrimeNovo de novo (r, s slots; )
+### Casanovo / PrimeNovo de novo (r, s slots; v2.0.162)
 
 Two open-source de novo sequencing engines integrate as **user-added,
 off-by-default** strategy rows. Both run on the STEP-1 MGF directly and their
@@ -134,7 +134,7 @@ spectrum indices, so register the **converted** `.spectra` (command:
 `Rscript search_adapter_denovo.R --convert casanovo --in <mztab> --mgf <source
 MGF> --out <out.spectra>`; the automatic run does this for you).
 
-**SSH/VM bridge for PrimeNovo ().** Set `primenovo_python` to
+**SSH/VM bridge for PrimeNovo (v2.0.163).** Set `primenovo_python` to
 `ssh:user@host` (public-key auth required: `ssh-keygen` on the Windows host,
 append the pubkey to the Linux side `~/.ssh/authorized_keys`) and
 `primenovo_exe` to the remote repo root (`~/pi-PrimeNovo`). isoPSV then pushes
@@ -188,9 +188,9 @@ instruments map to Lumos.
 ### 4.3 AlphaPeptDeep (Python 3.10 + torch)
 ```bat
 conda create -n peptdeep python=3.10 -y && conda activate peptdeep
-pip install torch:: CPU build is enough; use the CUDA index URL for GPU
+pip install torch            :: CPU build is enough; use the CUDA index URL for GPU
 pip install "transformers==4.39.3" "alphabase==1.1.0"
-pip install peptdeep:: or: pip install -e <alphapeptdeep source folder>
+pip install peptdeep         :: or: pip install -e <alphapeptdeep source folder>
 :: verify
 python -c "from peptdeep.pretrained_models import ModelManager; ModelManager().load_installed_models(); print('ok')"
 ```
@@ -251,7 +251,7 @@ CPU. Without a CUDA build, install the CPU wheels (as in section 4.3).
    `result_dir`. Click *Generate config*. The MGF folder must hold one file
    per raw, named `<raw>.mgf` or `<raw>_HCDFT.mgf`, where `<raw>` equals the
    raw name in `File_Name` (before the first dot); a merged multi-raw
-   collection under one filename is not matched ( stops with an
+   collection under one filename is not matched (v2.0.157 stops with an
    explicit stem-mismatch error).
 2. **STEP 2** - add one row per search strategy (Auto = engine path, Manual =
    result file). Default seeding is pFind open + restrict.
@@ -284,8 +284,8 @@ A worked example (data -> config -> run -> expected outputs) is in
 | pUniFind re-score blocked | open-pFind arm missing | enable the `b` row first |
 | Chinese path errors | external tools read GBK | extract isoPSV and put data under an ASCII path |
 | predictor adapter "cannot open the connection" | adapter `--in/--out` paths pass through the Windows command line | keep the result folder and project paths ASCII (same rule as above) |
-| pure-prediction columns empty on labeled samples | `label_type` not registered in the export stage, or combined label+ordinary modifications fell outside the key fallback (both fixed in ) | update to >=; keep `unlabeled_channel` at the non-1 value so label modifications are stripped for the predictor input while observation-side matching uses the labeled masses |
-| `"NaN"` strings in `predict_cosine_*` | observed and predicted vectors both all-zero (fixed in ) |  writes empty and reports NaN rows separately |
+| pure-prediction columns empty on labeled samples | `label_type` not registered in the export stage, or combined label+ordinary modifications fell outside the key fallback (both fixed in v2.0.156) | update to >= v2.0.156; keep `unlabeled_channel` at the non-1 value so label modifications are stripped for the predictor input while observation-side matching uses the labeled masses |
+| `"NaN"` strings in `predict_cosine_*` | observed and predicted vectors both all-zero (fixed in v2.0.156) | v2.0.156 writes empty and reports NaN rows separately |
 
 ### 7.1 Labeled samples in pure prediction mode
 
@@ -379,7 +379,7 @@ label_type	NeuCode_R040|ANY|R|2H(4)
   （实测可用版本：**ProteoWizard 4.0.26293**，build `f1156f1`，
   `ProteoWizard-Setup-4.0.26293-f1156f1.exe`，镜像
   https://mc-tca-01.s3.us-west-2.amazonaws.com/ProteoWizard/bt83/4227942/ProteoWizard-Setup-4.0.26293-f1156f1.exe），
-  安装（本地装在 `D:\Bioinformatics\ProteoWizard`），验证：
+  安装（本机装在 `D:\Bioinformatics\ProteoWizard`），验证：
   ```bat
   D:\Bioinformatics\ProteoWizard\msconvert.exe --help
   ```
@@ -392,7 +392,7 @@ label_type	NeuCode_R040|ANY|R|2H(4)
   （https://www.matrixscience.com/）只能 GUI 导出，用 **Manual result** 行
   导入（分数格式见 `docs/parameters.md`）。
 
-### Casanovo / PrimeNovo de novo（r、s 槽）
+### Casanovo / PrimeNovo de novo（r、s 槽；v2.0.162）
 
 两个开源 de novo 测序引擎，以**用户自添加、默认不启用**的策略行接入。
 均直接用第一步 MGF，候选进合并的口径与 pUniFind de novo（e 槽）完全一致
@@ -408,7 +408,7 @@ label_type	NeuCode_R040|ANY|R|2H(4)
 `Rscript search_adapter_denovo.R --convert casanovo --in <mztab> --mgf <源
 MGF> --out <输出.spectra>`；自动运行时软件代做）。
 
-**PrimeNovo 的 SSH/VM 桥。** `primenovo_python` 填
+**PrimeNovo 的 SSH/VM 桥（v2.0.163）。** `primenovo_python` 填
 `ssh:user@host`（须公钥免密——宿主 `ssh-keygen`，公钥追加到 Linux 侧
 `~/.ssh/authorized_keys`），`primenovo_exe` 填远端仓库根（`~/pi-PrimeNovo`）。
 isoPSV 自动把 MGF 推到远端、远端跑 PrimeNovo、拉回结果（驱动＝
@@ -501,7 +501,7 @@ Python 3.7＋TF 1.15，AlphaPeptDeep 要 3.10＋torch，MS2PIP 要 ≥3.11。混
    文件夹、采样模式（标记／无标记）、`result_dir`，点“生成参数文件”。MGF
    文件夹须每个 raw 一个文件，命名 `<raw>.mgf` 或 `<raw>_HCDFT.mgf`，`<raw>`
    等于 `File_Name` 中第一个点号前的 raw 名；多 raw 合并成单文件的合集不被
-   匹配（ 起显式报 stem 不匹配错误）。
+   匹配（v2.0.157 起显式报 stem 不匹配错误）。
 2. **第二步**：每个策略一行（Auto＝填引擎路径，Manual＝填结果文件），默认
    预置 pFind open＋restrict。**纯预测模式**：一行都不加直接生成——基础表直送
    预测器。
@@ -522,7 +522,7 @@ Python 3.7＋TF 1.15，AlphaPeptDeep 要 3.10＋torch，MS2PIP 要 ≥3.11。混
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
-| MS2PIP 列为空、manifest FAIL | venv 解释器未解析到（早期实现）或缺模型 | 填 venv 根（v1.1 会解析 `Scripts\python.exe`）；检查 `~/.ms2pip` |
+| MS2PIP 列为空、manifest FAIL | venv 解释器未解析到（旧版）或缺模型 | 填 venv 根（v1.1 会解析 `Scripts\python.exe`）；检查 `~/.ms2pip` |
 | pDeep2 报 `py37 not found` | 文件夹层级不对 | 填含 `py37\` 与 `pDeep\` 的 pDeep2 根目录 |
 | pDeep3 导入报错 | TF 版本不符 | 用 pDeep2 的 `py37`（TF 1.15） |
 | Sage／MSFragger 失败 | 缺 `msconvert_exe` | 装 ProteoWizard 后填 `msconvert_exe` |
@@ -530,10 +530,10 @@ Python 3.7＋TF 1.15，AlphaPeptDeep 要 3.10＋torch，MS2PIP 要 ≥3.11。混
 | pUniFind re-score 被挡 | 缺开放式 pFind 行 | 先启用 `b` 行 |
 | 中文路径报错 | 外部工具按 GBK 读路径 | isoPSV 与数据放 ASCII 路径 |
 | 预测器适配器 "cannot open the connection" | 适配器 `--in/--out` 经 Windows 命令行传参 | 结果文件夹与项目路径保持 ASCII（同上） |
-| 标记样品纯预测列全空 | export 段未注册 `label_type`，或「标记＋常规修饰」组合行超出键回退链（ 均已修复） | 升级到  及以上；`unlabeled_channel` 保持非 1——预测器输入剥标记，观测侧按标记质量匹配 |
-| `predict_cosine_*` 出现 "NaN" 字符串 | 观测与理论向量全零（ 已修复） |  起写空串并单独报 NaN 行数 |
+| 标记样品纯预测列全空 | export 段未注册 `label_type`，或「标记＋常规修饰」组合行超出键回退链（v2.0.156 均已修复） | 升级到 v2.0.156 及以上；`unlabeled_channel` 保持非 1——预测器输入剥标记，观测侧按标记质量匹配 |
+| `predict_cosine_*` 出现 "NaN" 字符串 | 观测与理论向量全零（v2.0.156 已修复） | v2.0.156 起写空串并单独报 NaN 行数 |
 
-### 7.1 标记样品的纯预测口径
+### 7.1 标记样品的纯预测口径（v2.0.156）
 
 标记样品（如 NeuCode）在 `config_step1` 注册 `label_type` 并保持 `unlabeled_channel` 非 1：预测器输入为剥标记后的普通肽段（常规理论谱），观测侧匹配经原样修饰串按标记质量计算。课题组实测可用的四标记示例（E. coli NeuCode；组成式质量与 pFind 修饰定义一致，偏差 ≤5×10⁻⁶ Da）：
 

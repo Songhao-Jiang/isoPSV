@@ -1,7 +1,7 @@
-# arbiter_v3.R - isoPSV  judgment layer (R port of isoPSV_arbiter_v3.py)
+# arbiter_v3.R - isoPSV v2.0.157 judgment layer (R port of isoPSV_arbiter_v3.py)
 #
 # Codifies the per-spectrum conflict-adjudication doctrine fixed on
-# /29 through the benchmark (ii)/(iii) per-spectrum reviews
+# 2026-10-28/29 through the benchmark (ii)/(iii) per-spectrum reviews
 # (54 individual + 180 batch rulings); Python reference =
 # Agent/isoPSV_arbiter_v3.py (98.0% agreement with the user-ruled final
 # classification on benchmark (iii)).

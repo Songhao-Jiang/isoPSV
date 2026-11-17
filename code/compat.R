@@ -250,21 +250,22 @@ melt <- function(data, ..., na.rm = FALSE, value.name = "value") {
   # Stop with an error for non-data.frame input
   stop("melt: unsupported input (data.frame expected)")
 }
-# 编码容错 CSV 读取UTF-8 BOM / UTF-8 / 本地编码（GBK 等）
+# 编码容错 CSV 读取（P3-5，2026-09-25）：UTF-8 BOM / UTF-8 / 本地编码（GBK 等）
 # 依次判定，供搜索引擎适配器读取外部导出件（Mascot/PEAKS CSV 常带 BOM 或
 # ANSI/GBK）。其余参数原样传给 read.csv。
-# Encoding-tolerant CSV read tries UTF-8 BOM, UTF-8, then
+# Encoding-tolerant CSV read (P3-5, 2026-09-25): tries UTF-8 BOM, UTF-8, then
 # the native encoding (GBK etc.), for the engine adapters reading external
 # exports (Mascot/PEAKS CSVs often carry a BOM or ANSI/GBK). Extra arguments
 # pass through to read.csv unchanged.
 read_csv_tolerant <- function(path, ...) {
   sz <- file.info(path)$size
   if (is.na(sz) || sz == 0) stop("empty input: ", path)
-  # N-3编码判定只需文件头——只读前 64 KB
+  # N-3（2026-09-25）：编码判定只需文件头——只读前 64 KB（旧实现整文件读 raw
+  # 再全量 validUTF8，数百 MB 导出件峰值内存翻倍且多一次 O(n) 校验）
   fh <- file(path, "rb"); on.exit(close(fh), add = TRUE)
   raw <- readBin(fh, "raw", n = min(sz, 65536L))
   has_bom <- length(raw) >= 3 && identical(raw[1:3], as.raw(c(0xEF, 0xBB, 0xBF)))
-  # N-3 配套64 KB 截断点可能切在多字节字符中间，此时
+  # N-3 配套（2026-09-26）：64 KB 截断点可能切在多字节字符中间，此时
   # validUTF8 误判为 FALSE 而错误落入本地编码分支（GBK 代码页 R ≤ 4.1 上
   # UTF-8 导出件会整篇乱码）。校验前先退到最后一个完整字符边界再判定。
   # The 64 KB cutoff may split a multi-byte character; back off to the last
@@ -284,25 +285,54 @@ read_csv_tolerant <- function(path, ...) {
   read.csv(path, ...)   # 本地编码（如 GBK 控制台导出件）
 }
 
-# Python 解释器探测
+# Python 解释器探测（P1-4，2026-09-25；F-6 公共化，2026-09-26）：
 # python → py -3 启动器 → python3 回退；返回 list(cmd, pre) 或 NULL。
 # 旧写法硬用 "python"，官方安装器/商店版常只有 py 启动器在 PATH 上，
 # renumber_mgf.py 静默失败且返回码被忽略。
-# Python interpreter probe (P1-4,; shared here per F-6, ):
+# Python interpreter probe (P1-4, 2026-09-25; shared here per F-6, 2026-09-26):
 # python -> py -3 launcher -> python3 fallback; returns list(cmd, pre) or NULL.
 # The old code hardcoded "python", but installer/store Python often exposes only
 # the py launcher on PATH, so renumber_mgf.py silently failed with its exit code
+#' E6（v2.0.184）：阶段看门狗——心跳环超时大声 WARN（不杀进程）。
+#' config_step1 键 stage_timeout_min（默认 240＝4h；0＝禁用）。各心跳环在
+#' 打点时顺带调 watchdog_check()，超时打一次双语 WARN 带阶段名与已用时长，
+#' 提示运维介入排查。与 pidfile/lock（所有权）和心跳（可见性）互补——
+#' 看门狗管"活着但太久"。
+#' E6 (v2.0.184): stage watchdog - a loud WARN (never a kill) when a
+#' heartbeat loop exceeds the timeout. The config_step1 key stage_timeout_min
+#' (default 240 = 4h; 0 = disabled). Heartbeat loops call watchdog_check()
+#' alongside their progress prints; on breach one bilingual WARN fires with
+#' the stage name and elapsed time, prompting operator investigation.
+#' Complements pidfile/lock (ownership) and heartbeats (visibility) -
+#' the watchdog covers "alive but taking too long".
+watchdog_check <- function(stage, elapsed_s, timeout_min = NULL) {
+  if (is.null(timeout_min)) {
+    timeout_min <- 240
+    v <- Sys.getenv("ISOPSV_STAGE_TIMEOUT_MIN", unset = "")
+    tv <- suppressWarnings(as.integer(v))
+    if (nzchar(v) && !is.na(tv) && tv >= 0L) timeout_min <- tv
+  }
+  if (timeout_min <= 0L) return(invisible(NULL))
+  if (elapsed_s > timeout_min * 60L) {
+    cat(sprintf("[看门狗][WARN] 阶段 %s 已运行 %.0f 分钟（超时阈值 %d 分钟）——进程仍活着，请检查是否卡死/外引等待\n",
+                stage, elapsed_s / 60, timeout_min))
+    cat(sprintf("[watchdog][WARN] stage %s has been running %.0f min (timeout %d min) - still alive; check for a hang or external wait\n",
+                stage, elapsed_s / 60, timeout_min))
+  }
+  invisible(NULL)
+}
+
 # ignored. Shared by user_step2.R and sysinfo_probe.R so the environment probe
 # and the pipeline always agree on the interpreter.
 py_detect <- function(hint = NULL) {
-  # 自带 runtime 优先锁定——与 start_isoPSV.bat 的
+  # v2.0.144（2026-10-15）：自带 runtime 优先锁定——与 start_isoPSV.bat 的
   # "bundled portable runtimes take precedence" 同规则（网页层一直如此，
   # 管线此前唯独依赖 PATH，PATH 首个 python 损坏时报 initfsencoding/
   # No module named 'encodings' 而流程中断）。自带 python 为嵌入式 3.12
   # 纯标准库全隔离——本函数消费方（renumber_mgf.py 等）均 stdlib-only；
   # 需三方包的场景走各自专属键（如 punifind_python 的 torch 环境），
   # 不经本函数。runtime 缺失（开发树/裸副本）时按下方 hint → PATH 链回退。
-  #  the bundled runtime wins (same rule as
+  # v2.0.144 (2026-10-15): the bundled runtime wins (same rule as
   # start_isoPSV.bat's "bundled portable runtimes take precedence" - the web
   # layer always did this; the pipeline alone used PATH and aborted when the
   # first PATH python was broken). The bundled python is an embedded,
@@ -314,10 +344,10 @@ py_detect <- function(hint = NULL) {
   # 工作目录）的上一级包根。
   bund <- file.path(dirname(getwd()), "runtime", "python", "python.exe")
   if (file.exists(bund)) return(list(cmd = bund, pre = character(0)))
-  # v1.0python_exe 显式键（runtime 缺失布局时的覆盖）。
+  # v1.0（2026-09-27）：python_exe 显式键（runtime 缺失布局时的覆盖）。
   # 用户 Python 未写入环境目录（PATH）时，config_step1.txt 的 python_exe
   # 指向解释器完整路径即可；hint 指向的文件不存在时报消息并回退 PATH。
-  # v1.0 the explicit python_exe key (override for layouts
+  # v1.0 (2026-09-27): the explicit python_exe key (override for layouts
   # without the bundled runtime). When the user's Python is NOT on PATH,
   # config_step1.txt's python_exe points at the full interpreter path; a hint
   # that does not exist is reported and PATH probing is used as fallback.
@@ -336,14 +366,14 @@ py_detect <- function(hint = NULL) {
   NULL
 }
 
-# 失败侧日志回贴引擎/步骤失败在主日志里只有一行
-# exit code 时，真正的错因藏在各自的侧日志里（外部测试机 实测：sage 自动段逐文件
+# 失败侧日志回贴（v2.0.145，2026-10-15）：引擎/步骤失败在主日志里只有一行
+# exit code 时，真正的错因藏在各自的侧日志里（Mch_TL 实测：sage 自动段逐文件
 # "引擎失败（exit 1）"，而 sage_exe 指错这一事实只在侧日志里可见）。把侧日志
-# 尾部回贴主日志——与  的 renumber 回贴同格式、同诊断目的。日志可能是
+# 尾部回贴主日志——与 v2.0.144 的 renumber 回贴同格式、同诊断目的。日志可能是
 # GBK 输出，按字节读取直通（不做转码，避免多字节标点编码错配）。
 # Echo the tail of a step/engine side log into the main log when a failure is
 # otherwise reported as a bare exit code (same format and purpose as the
-#  renumber echo). Logs may be GBK; read as bytes and pass through
+# v2.0.144 renumber echo). Logs may be GBK; read as bytes and pass through
 # (no transcoding - avoids multi-byte punctuation encodes mismatches).
 log_fail_tail <- function(logf, tag = "", n = 8L) {
   # file.exists 前置守卫：文件缺失时 readLines 会经 warning 通道漏一条
@@ -363,9 +393,9 @@ log_fail_tail <- function(logf, tag = "", n = 8L) {
   invisible(NULL)
 }
 
-# sage 配置参数 CLI 形式探测不同 sage 构建对配置
-# 文件参数的解析不同——本地 v0.15.0-beta.2 只收 file:///D:/... 形式（普通路径
-# 被 object_store 报 "Unable to recognise URL"）；外部测试机构建的则对 file:///
+# sage 配置参数 CLI 形式探测（v2.0.146，2026-10-17）：不同 sage 构建对配置
+# 文件参数的解析不同——本机 v0.15.0-beta.2 只收 file:///D:/... 形式（普通路径
+# 被 object_store 报 "Unable to recognise URL"）；Mch_TL 机构建的则对 file:///
 # 报 os error 123（URL→Windows 路径转换产物非法）。用一份故意无效的 json
 # 一次性试三种形式：能过"读取层"（报错不是 "Failed to read parameters"）
 # 即为该构建可用形式，供 json 内路径与 CLI 参数统一采用。
@@ -407,9 +437,9 @@ sage_probe_arg_form <- function(exe, work_dir) {
   chosen
 }
 
-# Python 子进程环境净化机器级 PYTHONHOME/PYTHONPATH
+# Python 子进程环境净化（v2.0.146，2026-10-17）：机器级 PYTHONHOME/PYTHONPATH
 # 污染会让任何解释器以 initfsencoding / No module named 'encodings' 假死
-# （外部测试机 实测：PATH python 与附加包 python37 同症状；自带 3.12 因 python312
+# （Mch_TL 实测：PATH python 与附加包 python37 同症状；自带 3.12 因 python312
 # ._pth 全隔离免疫）。Windows 经 cmd 的 set VAR= 剥离后再启动；其余平台透传。
 # Launch a python child with PYTHONHOME/PYTHONPATH stripped (cmd set VAR= on
 # Windows); machine-wide pollution of those vars kills any interpreter with
@@ -423,10 +453,10 @@ py_system2 <- function(py, args = character(0)) {
   } else system2(py, args)
 }
 
-# 引擎适配器共用输入解析。
+# 引擎适配器共用输入解析（2026-09-26 九份副本合并；变量名可读化）。
 # 输入路径可为文件或文件夹：文件夹按模式递归找目标文件、多候选取最新 mtime、
 # 无文件报错；文件路径直接返回。
-# Shared input resolution for the engine adapters (: nine duplicated
+# Shared input resolution for the engine adapters (2026-09-26: nine duplicated
 # copies consolidated; variable names made self-documenting). The input path may
 # be a file or a folder: a folder is searched recursively for files matching the
 # pattern (newest mtime wins among multiple hits; error when none); a file path

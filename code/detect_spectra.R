@@ -1,9 +1,9 @@
-#  全场景谱图入口检测
+# v2.0.136 全场景谱图入口检测（用户口径 2026-10-11 晚）
 # 按优先级依次检测，覆盖文件夹/文件列表 × raw/mgf/混合 × MaxQuant raw 警告
-# 全场景检测
+# 全场景检测（用户口径 2026-10-11 晚）：
 # 输入为文件夹：查 mgf+raw→两者有则保存双值；仅 raw→pParse 转；仅 mgf→MaxQuant 警告；空→报错
 # 输入为文件列表：raw→先查同文件夹 mgf→无则 pParse 转；mgf→MaxQuant 警告
-# mgf 键空：从 psm_file 旁边找（ 已有）
+# mgf 键空：从 psm_file 旁边找（v2.0.135 已有）
 detect_spectra_entries <- function(mgf_entries, cfg) {
   ent <- mgf_entries[trimws(mgf_entries) != ""]
 
@@ -63,7 +63,7 @@ detect_spectra_entries <- function(mgf_entries, cfg) {
 
     if (length(need_conv) > 0) {
       cat("[第一步] ", length(need_conv), " 个 raw 无对应 MGF，启动 pParse 转换\n", sep = "")
-      # 调用已有转换链（ 的 pParse/msconvert 回退）
+      # 调用已有转换链（v2.0.129 的 pParse/msconvert 回退）
       converted <- pp_convert(need_conv, cfg)
       mgf_result <- c(mgf_result, converted)
     } else {

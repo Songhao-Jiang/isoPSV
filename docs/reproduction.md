@@ -87,7 +87,7 @@ the long poles; results are fingerprint-cached across reruns).
      `auto_search=1`＋`pfind_exe` 自动执行；外部引擎结果（Comet/MSFragger/
      Sage/MaxQuant/MetaMorpheus）经 `search_file` 登记亦可。
   3. isoPSV 三步——无标记谱提取、去诱饵＋多策略合并、阶段 A 竞争仲裁；
-     标记通道设 `label_type=N15`并填 `all_mgf`，
+     标记通道设 `label_type=N15`（或 C13/SILAC/NeuCode）并填 `all_mgf`，
      即启用阶段 B 成对谱图验证。
   4. 新事件（正文图 6）——六框翻译库＋预测 ORF（AUGUSTUS＋joingenes，见
      Methods）搜库后走 Part2 新肽段竞争；正文级参考值：179 张新谱支撑

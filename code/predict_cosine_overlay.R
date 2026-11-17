@@ -13,14 +13,14 @@ for (.p in c(
   if (file.exists(file.path(.p, "ReadMGF_script.R"))) { CODE <- .p; break }
 }
 if (is.null(CODE)) stop("ReadMGF_script.R not found from getwd: ", getwd())
-# （工作站 170 报告新发现）：独立 CLI 调用时的 LC_CTYPE 兜底——
+# v2.0.171（工作站 170 报告新发现）：独立 CLI 调用时的 LC_CTYPE 兜底——
 # 继承 LC_CTYPE=C.UTF-8 的环境里 source(..., encoding="UTF-8") 对中文注释
 # 文件报 invalid input、ReadMGF 只部分载入、后续 "could not find function"
-# 炸。探针对
+# 炸（本站 CLI 测试法与开发侧本机 E2E 同源踩坑；清 LC_* 即愈）。探针对
 # "locale 名义 utf8 但 CRT 实际坏" 的场景不触发，故加哨兵验证：源后若
 # 关键函数缺席，强制切换候选 locale 重源一遍；仍失败则以可操作信息终止。
 # master 启动器场景本就受 user_run.R 探针保护，本块只服务独立调用。
-#  (workstation 170-round finding): LC_CTYPE fallback for standalone
+# v2.0.171 (workstation 170-round finding): LC_CTYPE fallback for standalone
 # CLI invocation - under an inherited LC_CTYPE=C.UTF-8, source(...,
 # encoding="UTF-8") fails with "invalid input" on Chinese-commented files,
 # ReadMGF loads partially and the run later dies with "could not find
@@ -150,13 +150,13 @@ for (mf in mgf_files) {
 }
 cat("[predict_cosine_overlay] 谱图索引: ", ls(spec_map), " 条\n", sep = "")
 
-# ----：行主序重构＋心跳（工作站 run8 实测单列 30-65 分钟）----------
+# ---- v2.0.170：行主序重构＋心跳（工作站 run8 实测单列 30-65 分钟）----------
 # 旧列主序在每行×每列重复调 spectrum_params——同一行的实验 b/y 离子强度
 # 对全部预测器列是同一个向量，却被算了一遍又一遍（4 列＝4 遍；65 分钟
 # 零日志单核 grind 的病根）。行主序：每行提取一次离子强度向量，内层
 # 只做各预测器的键查＋余弦（O(1) 查表）；总 spectrum_params 次数＝行数，
 # 与列数无关。每 2,000 行打心跳，列开始前打印列清单。
-# ----: row-major restructure + heartbeat (workstation run8
+# ---- v2.0.170: row-major restructure + heartbeat (workstation run8
 # measured 30-65 min PER COLUMN). The old column-major order called
 # spectrum_params once per row per column - the same row's experimental
 # b/y ion intensities are one vector shared by every predictor column but

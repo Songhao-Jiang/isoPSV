@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """alphapeptdeep_driver.py — isoPSV 的 AlphaPeptDeep(peptdeep) 调用桥
-（工作站自写；契约同 pdeep3_driver.py； 修饰名映射层）。
+（工作站自写 2026-10-05；契约同 pdeep3_driver.py；v2.0.161 修饰名映射层）。
 
 用法：
   python alphapeptdeep_driver.py --in <spec_id/peptide/modinfo/charge TSV> \
@@ -12,10 +12,10 @@
   y1/y2 ＝ y1..y_{n-1} 正序（peptdeep y_z1/y_z2 行为位点序 y_{n-1}..y1，
           此处翻转，R 侧组块时再翻回位点序——与 pDeep3 桥一致）。
 
-修饰名映射层（外部机器 KeyError 修复；合并步骤输出的统一 pFind
+修饰名映射层（v2.0.161，外部机器 KeyError 修复；合并步骤输出的统一 pFind
 族格式在此翻译，与 ms2pip 适配器同"未知名跳过并计数"纪律）：
   1) 位置令牌正规化——pFind 终端位点常带残基后缀（AnyN-termQ / AnyN-termK
-     / ProteinN-term 等）。早期实现只认裸 "AnyN-term"，带后缀令牌漏进残基分支，
+     / ProteinN-term 等）。旧版只认裸 "AnyN-term"，带后缀令牌漏进残基分支，
      拼出 "Gln->pyro-Glu@AnyN-termQ" 之类名字交给 peptdeep，featurize 直接
      KeyError 整批崩。现按前缀识别终端令牌（残基后缀剥离并利用）。
   2) 名字三层解析——别名表 → 运行时 alphabase 词表直查（MOD_INFO_DICT，
@@ -34,7 +34,7 @@ import re
 import sys
 
 # 别名表：pFind/引擎槽名 -> alphabase(Unimod) 名。同名条目不必列。
-#  首批覆盖现场点名的名字与常见变体；运行时词表直查承担其余。
+# v2.0.161 首批覆盖现场点名的名字与常见变体；运行时词表直查承担其余。
 MOD_ALIAS = {
     "Carboxymethylation": "Carbamidomethyl",
     "Carboxyamidomethylation": "Carbamidomethyl",
@@ -42,7 +42,7 @@ MOD_ALIAS = {
     "Phosphorylation": "Phospho",
     "Deamidation": "Deamidated",
     "Acetylation": "Acetyl",
-    #：工作站双项目 APD 故障取证报告点名的变体名（212 令牌家族）
+    # v2.0.164：工作站双项目 APD 故障取证报告点名的变体名（212 令牌家族）
     "Acetyl_2H(3)": "Acetyl",
     "Dimethyl_2H(4)": "Dimethyl",
     "Dimethyl_2H(6)_13C(2)": "Dimethyl",
@@ -54,7 +54,7 @@ MOD_ALIAS = {
     "Cation_K[II]": "",
 }
 
-# [site] 缺失且 pos 处残基解析失败时的默认位点（承接早期实现 MOD_MAP 的默认位）
+# [site] 缺失且 pos 处残基解析失败时的默认位点（承接旧版 MOD_MAP 的默认位）
 MOD_DEFAULT_SITE = {
     "Oxidation": "M",
     "Carbamidomethyl": "C",
@@ -79,12 +79,12 @@ def parse_args():
     ap.add_argument("--instrument", default="Lumos")
     ap.add_argument("--ce", default="30")
     ap.add_argument("--batch", default="1024")
-    #：可选直写 isoPSV predict.txt（BEGIN IONS 块）。R 适配器的
+    # v2.0.166：可选直写 isoPSV predict.txt（BEGIN IONS 块）。R 适配器的
     # 逐行 parse/format 重建在 66.8 万行实测重入 79 分钟（工作站 11-05
     # T2 计时反例）；python 侧写字符串快一个量级，适配器退化为透传。
     # 数值串为 %.5f 定长小数，与旧 R format(as.numeric(...)) 输出经
     # as.numeric 回读后为同一双精度（仅尾零字节差，余弦零漂移）。
-    #: optionally write the isoPSV predict.txt directly (BEGIN IONS
+    # v2.0.166: optionally write the isoPSV predict.txt directly (BEGIN IONS
     # blocks). The adapter's per-row parse/format rebuild measured 79 min on
     # a 668k-row re-entry (workstation 11-05 T2 counterexample); python-side
     # string writing is an order of magnitude faster, reducing the adapter to
@@ -158,9 +158,9 @@ def pfind_mods_to_peptdeep(modinfo, peptide, vocab, stats):
         else:
             aa = site.strip() or aa_at_pos or MOD_DEFAULT_SITE.get(base, "")
             if aa:
-                #：pyro-Glu 等已知终端类修饰以 [Q]/[E] 残基形态
+                # v2.0.164：pyro-Glu 等已知终端类修饰以 [Q]/[E] 残基形态
                 # 写入时（如 1,Gln->pyro-Glu[Q]），补试终端复合键
-                #: known-terminal mods written as [Q]/[E] residue
+                # v2.0.164: known-terminal mods written as [Q]/[E] residue
                 # sites (e.g. 1,Gln->pyro-Glu[Q]) also try terminal keys
                 cands_r = ["%s@%s" % (base, aa)]
                 if base in ("Gln->pyro-Glu", "Glu->pyro-Glu"):
@@ -191,8 +191,8 @@ def main():
     if not rows:
         sys.stderr.write("[alphapeptdeep_driver] 输入为空：%s\n" % args.inp)
         return 3
-    #：输入行数日志（工作站 11-05 报告——加载阶段零日志盲区）
-    #: input row-count log (workstation 11-05: the load phase was a
+    # v2.0.166：输入行数日志（工作站 11-05 报告——加载阶段零日志盲区）
+    # v2.0.166: input row-count log (workstation 11-05: the load phase was a
     # zero-log blind spot)
     sys.stderr.write("[alphapeptdeep_driver] 输入 %d 行 -> %s\n" % (len(rows), args.inp))
 
@@ -230,10 +230,10 @@ def main():
         return 0
     precursor_df = pd.DataFrame(prec)
 
-    #  mod_sites 预验证：残基位点须 ≤ 肽长（防短肽＋终端修饰越界
+    # v2.0.164 mod_sites 预验证：残基位点须 ≤ 肽长（防短肽＋终端修饰越界
     # 进入 torch 索引——工作站 peptdeep 1.3.1/alphabase 1.1.0 在第 9 批
     # IndexError 的防线；越界行跳过并计数）
-    #  mod_sites pre-validation: residue sites must be <= nAA
+    # v2.0.164 mod_sites pre-validation: residue sites must be <= nAA
     # (guards short-peptide+terminal-mod combinations from reaching torch
     # indexing — the workstation peptdeep 1.3.1/alphabase 1.1.0 batch-9
     # IndexError; out-of-range rows are skipped and counted)
@@ -268,10 +268,10 @@ def main():
 
     mgr = ModelManager(mask_modloss=False, device="cpu")
     mgr.load_installed_models()
-    #  predict_ms2 分批重试：内部 IndexError（peptdeep 按肽长分带
+    # v2.0.164 predict_ms2 分批重试：内部 IndexError（peptdeep 按肽长分带
     # 的特定长度档崩——工作站双项目同第 9 批实测）时二分输入逐半重试，
     # 跳过致崩行；最终全部行失败才 exit 4。
-    #  predict_ms2 split-retry: on internal IndexError (peptdeep
+    # v2.0.164 predict_ms2 split-retry: on internal IndexError (peptdeep
     # crashes on a specific length band — workstation dual-project batch-9
     # repro), bisect the input and retry each half, dropping crash rows;
     # only exit 4 when every row fails.
@@ -309,7 +309,7 @@ def main():
         return 4
 
     # predict_ms2 会按肽长/序列重排 precursor_df——一律以 spec_id 列对齐，
-    # 绝不按行序对齐
+    # 绝不按行序对齐（2026-10-05 实测：重排曾致切片错位＋强度错标）
     pep_len = {r["spec_id"]: len(r["peptide"]) for r in rows}
     out_rows, skip = [], 0
     for _, prow in precursor_df.iterrows():
@@ -344,10 +344,10 @@ def main():
                      "碎片不足跳过 %d；词表=%s；instrument=%s ce=%s）\n"
                      % (len(out_rows), len(rows), dropped, skip,
                         "alphabase" if vocab else "内置别名表", args.instrument, args.ce))
-    # ----：直写 isoPSV predict.txt（TITLE 键＝peptide|orig_mod|charge，
+    # ---- v2.0.166：直写 isoPSV predict.txt（TITLE 键＝peptide|orig_mod|charge，
     # 与消费端 read_predict_txt 逐字节同口径；y 行写位点序＝正序反转）。orig_mod
     # 列由 R 适配器在输入 TSV 提供（缺列回退 modinfo）。
-    # ----: write the isoPSV predict.txt directly (TITLE key =
+    # ---- v2.0.166: write the isoPSV predict.txt directly (TITLE key =
     # peptide|orig_mod|charge, byte-compatible with read_predict_txt; y rows
     # stored site-order = reversed positive order). The orig_mod column is
     # supplied by the R adapter in the input TSV (modinfo fallback).

@@ -1,5 +1,5 @@
 # =============================================================================
-# pred_ms2pip.R —— MS2PIP 理论谱图预测器 L1 适配器
+# pred_ms2pip.R —— MS2PIP 理论谱图预测器 L1 适配器（v1.0，2026-09-26）
 #
 # 多理论谱图预测器接入（deepseek 总体设计）的第一个外部适配器。把 isoPSV 的
 # merge/peptide.txt（peptide / modification / charge 三列）转成 MS2PIP peprec，
@@ -17,34 +17,24 @@
 # =============================================================================
 
 # ---- 参数解析（--flag=value 与 --flag 开关，纯 base R）----
-parse_cli <- function(args = commandArgs(TRUE)) {
-  # parsed_args：解析结果（flag 名 → 值/TRUE）；token：当前命令行片段；
-  # flag_key：去掉 -- 的 flag 名；flag_value_pair：--k=v 的键值对
-  parsed_args <- list()
-  i <- 1L
-  while (i <= length(args)) {
-    token <- args[i]
-    if (startsWith(token, "--")) {
-      flag_key <- sub("^--", "", token)
-      if (grepl("=", flag_key, fixed = TRUE)) {
-        flag_value_pair <- strsplit(flag_key, "=", fixed = TRUE)[[1]]
-        parsed_args[[flag_value_pair[1]]] <- paste(flag_value_pair[-1], collapse = "=")
-      } else {
-        parsed_args[[flag_key]] <- if (i < length(args) && !startsWith(args[i + 1], "--")) {
-          flag_value <- args[i + 1]; i <- i + 1L; flag_value
-        } else TRUE
-      }
-    }
-    i <- i + 1L
-  }
-  parsed_args
-}
+# v2.0.179：parse_cli／指纹侧车三件套（input_fp/sidecar_matches/
+# write_run_params）已上收到 predictors/_common.R（三适配器原为逐字三胞胎）；
+# --file= 同目录定位，任何 cwd 均可。
+# v2.0.179: parse_cli and the fingerprint-sidecar trio moved up to
+# predictors/_common.R (they were verbatim triplets); located via the
+# --file= sibling dir, any cwd works.
+.sc_dir <- local({
+  f <- grep("^--file=", commandArgs(FALSE), value = TRUE)
+  if (length(f)) dirname(sub("^--file=", "", tail(f, 1))) else "predictors"
+})
+source(file.path(.sc_dir, "_common.R"))
+# （parse_cli 自 v2.0.179 起来自 _common.R——上方 source 引导）
 
 # ---- pFind 修饰名 → MS2PIP/Unimod 名 ----
-#  #7：词表扩张——pFind 名与 Unimod 标题基本同名（psm_utils 直接认），
+# v2.0.162 #7：词表扩张——pFind 名与 Unimod 标题基本同名（psm_utils 直接认），
 # 常见修饰直通补齐（现场曾点名 Carbamyl/Formyl/ICPL_13C(6) 等"未知名跳过"）；
 # 引擎槽特有名（非 Unimod 标题形态）仍走跳过＋警告。
-#  #7: vocabulary expansion - pFind names are mostly Unimod titles
+# v2.0.162 #7: vocabulary expansion - pFind names are mostly Unimod titles
 # (accepted by psm_utils directly); common mods pass through. Engine-slot-only
 # names (non-Unimod-looking) keep the skip-and-warn path.
 mod_name_map <- c(Oxidation = "Oxidation", Deamidated = "Deamidated",
@@ -60,14 +50,14 @@ mod_name_map <- c(Oxidation = "Oxidation", Deamidated = "Deamidated",
                   GG = "GG", Amidated = "Amidated", Biotin = "Biotin",
                   `Sodium` = "Sodium", `Potassium` = "Potassium",
                   `Cysteine->Selenocysteine` = "Cysteine->Selenocysteine")
-#：同位点双修饰括号记法拆分。工作站 11-05 测试报告一例：
+# v2.0.166：同位点双修饰括号记法拆分。工作站 11-05 测试报告一例：
 # "11,Carbamidomethyl[K](Gly[K])" —— pFind 对同一位点的第二个修饰以括号
 # 内嵌；整条 token 在旧解析里既匹配不上映射表（尾部只剥到 [K]，剩下
 # "Carbamidomethyl[K](Gly"），连本可映射的 Carbamidomethyl 也被连坐丢弃，
 # 且该肽以无修饰态送去预测（预测口径失真）。拆成两个独立 token 后各自
 # 走既有映射/未知名跳过路径：主修饰正常映射，次修饰（如 Gly）按未知名
 # 跳过并警告——与分号分隔的多修饰同纪律。
-#: split the same-site double-modification paren notation seen in
+# v2.0.166: split the same-site double-modification paren notation seen in
 # the workstation 11-05 report ("11,Carbamidomethyl[K](Gly[K])"). The whole
 # token previously failed to map (the trailing-bracket strip left
 # "Carbamidomethyl[K](Gly"), dragging the mappable Carbamidomethyl down with
@@ -89,7 +79,7 @@ split_paren_mod <- function(mod_token) {
 }
 
 #' pFind 修饰串（"3,Oxidation[M];0,Acetyl[AnyN-term];"）→ peprec modifications 串
-#' （"3|Oxidation|0|Acetyl"， 起多修饰以 "|" 扁平连接）。未知名丢弃并
+#' （"3|Oxidation|0|Acetyl"，v2.0.154c 起多修饰以 "|" 扁平连接）。未知名丢弃并
 #' 警告（与 pDeep2 路径的 sanitize 同理）。
 #' 无修饰返回 "-"（N-11：MS2PIP peprec 对未修饰肽要求写 "-"，空串会解析失败）。
 pfind_mods_to_peprec <- function(mod, warn = TRUE) {
@@ -109,7 +99,7 @@ pfind_mods_to_peprec <- function(mod, warn = TRUE) {
       cat("未知修饰名（跳过）:", mod_token, "\n")
     }
   }
-  # 同位点双修饰防线。psm_utils 把同一
+  # v2.0.167（工作站 11-05 R4 根因）：同位点双修饰防线。psm_utils 把同一
   # peprec 位置的两个修饰序列化成堆叠标签（如 N 端 "[Acetyl][Gln->pyro-Glu]-"），
   # pyteomics 的 ProForma 状态机解析不了（post_tag_before unexpected [），
   # ms2pip v4 读 PSM 阶段即整批崩——实测 peprec 667,889 行中 73,276 行
@@ -117,7 +107,7 @@ pfind_mods_to_peprec <- function(mod, warn = TRUE) {
   # 把同一修饰写两遍的伪迹。两级处理：①完全重复的 pos|Name 条目折叠（纯
   # 伪迹，零语义变化）；②折叠后仍有同位点异名修饰→该肽按未知名同款纪律
   # 整条跳过（返回 NA，build_peprec 剔行＋计数）——牺牲 11% 换 89% 全量产出。
-  #  (workstation 11-05 R4 root cause): same-position double-mod
+  # v2.0.167 (workstation 11-05 R4 root cause): same-position double-mod
   # guard. psm_utils serializes two mods at one peprec position as stacked
   # tags (e.g. "[Acetyl][Gln->pyro-Glu]-" at the N-terminus), which the
   # pyteomics ProForma state machine cannot parse (post_tag_before
@@ -137,25 +127,25 @@ pfind_mods_to_peprec <- function(mod, warn = TRUE) {
       return(NA_character_)
     }
   }
-  #：多修饰以 "|" 扁平连接（ms2pip 4.x/psm_utils 的 PEPREC 语法＝
+  # v2.0.154c：多修饰以 "|" 扁平连接（ms2pip 4.x/psm_utils 的 PEPREC 语法＝
   # 位置|名称|位置|名称…；分号连接会被当成单个标签名解析失败）。位置 0＝N 端
   # （psm_utils peprec_to_proforma 的 peptide_list[0] 即 N-term）。
-  #: join multiple mods with "|" (ms2pip 4.x / psm_utils PEPREC
+  # v2.0.154c: join multiple mods with "|" (ms2pip 4.x / psm_utils PEPREC
   # grammar = flat position|name|position|name...; the previous "; " join was
   # parsed as one giant label and failed). Position 0 = N-terminus.
   if (length(mapped_mods)) paste(mapped_mods, collapse = "|") else "-"
 }
 
 #' peptide.txt → MS2PIP peprec 数据框（spec_id / modifications / peptide / charge /
-#' orig_mod）。N-2orig_mod 保留 peptide.txt 修饰原串（尾分号
+#' orig_mod）。N-2（2026-09-26，GLM）：orig_mod 保留 peptide.txt 修饰原串（尾分号
 #' 剥掉一层，与消费端 read_predict_txt 的 sub(";+$","",...) 完全同口径），预测块
 #' TITLE 键用它拼接——保证与下游键逐字节一致（写 peprec 文件时不含此列）。
 build_peprec <- function(pep_df) {
   # pep_df：peptide.txt 三列表（peptide/modification/charge）；返回 peprec 表。
-  #：同位点双修饰肽返回 NA → 剔行＋spec_id 重编号（v4 长表的
+  # v2.0.167：同位点双修饰肽返回 NA → 剔行＋spec_id 重编号（v4 长表的
   # psm_index 按首现顺序对齐 p000001..pK 连续编号，剔行后必须重编）＋
   # attr(same_site_dropped) 计数（warn=FALSE 关闭逐行告警防刷屏）。
-  #: same-position double-mod peptides map to NA and are dropped
+  # v2.0.167: same-position double-mod peptides map to NA and are dropped
   # with spec_id renumbered (the v4 long table aligns psm_index to contiguous
   # p000001..pK by first appearance); attr(same_site_dropped) carries the
   # count (warn=FALSE silences the per-row flood).
@@ -163,12 +153,12 @@ build_peprec <- function(pep_df) {
   mods_v <- vapply(seq_len(n), function(i)
     pfind_mods_to_peprec(as.character(pep_df$modification[i]), warn = FALSE),
     character(1))
-  # （工作站 run8 实锤，全表崩因之二）：肽序列含 "|"＝pFind 二选一
+  # v2.0.169（工作站 run8 实锤，全表崩因之二）：肽序列含 "|"＝pFind 二选一
   # 异构体记法（如 QDPAAAQ…EEGEK|QDPAAAQ…GEGEK，实测 918 条、最多 5+ 变体
   # 连写）——pyteomics 不认，ms2pip v4 在 Reading PSMs 阶段整批崩。167 的
   # 修饰防线通过后（跳 8,687 条）仍死于此。取首变体会发明搜库未做的指认，
   # 按未知名同款纪律整肽跳过＋计数。
-  #  (workstation run8, batch-killer #2): a "|" inside the peptide is
+  # v2.0.169 (workstation run8, batch-killer #2): a "|" inside the peptide is
   # pFind's either-or isoform notation (e.g. QDPAAAQ...EEGEK|QDPAAAQ...GEGEK,
   # 918 rows observed, up to 5+ variants chained) - pyteomics cannot parse it
   # and ms2pip v4 dies batch-wide at Reading PSMs even after the 167 mod guard
@@ -176,14 +166,14 @@ build_peprec <- function(pep_df) {
   # assignment the search never made; skip the peptide whole like the
   # unknown-name discipline, with a count.
   pipe_hit <- grepl("|", as.character(pep_df$peptide), fixed = TRUE)
-  # U/X 哨兵残基第四道
+  # v2.0.175（工作站 174 轮 P1 定案，本地数据链定位）：U/X 哨兵残基第四道
   # 卫兵。T@174 全表实测"长度不符 584,043（89%）"的根因链＝v4 把 39 条
   # U/X PSM 从输出丢弃但保留原 psm_index（留洞）→ 本适配器"排序后顺序
   # 命名 p%06d"在第一个洞（≈28,339 位）之后全部错位 → 长度门大量巧合性
   # 失配（幸存 74,202＝洞前前缀＋邻位长度巧合，Σp²≈11% 吻合）；"无产物
   # 39"＝末尾 39 个 spec_id 无组而非 U/X 计数。4,200 样本零 U/X→零洞→
   # 97.5% 过，同证。适配器侧先跳过 U/X → v4 永无洞、对齐恒成立。
-  #  (workstation 174-round P1 verdict, chained locally): the
+  # v2.0.175 (workstation 174-round P1 verdict, chained locally): the
   # fourth guard for U/X sentinel residues. The full-table "length mismatch
   # 584,043 (89%)" root chain: v4 drops the 39 U/X PSMs from its output
   # while KEEPING their original psm_index values (gaps) -> this adapter's
@@ -215,9 +205,9 @@ build_peprec <- function(pep_df) {
 #' y_ion, y_ion_mz, y_int；每个 ion 行按电荷 1..z 各一行，z=母离子电荷）。
 #' 返回 list(by_id=按 spec_id 分组的命名 list(seq, b1, b2, y1, y2),
 #' charge3plus_ids=含电荷 3+ 行的 spec_id 数)——y1/y2 为 y1..y_{n-1} 正序。
-#' N-12原实现对每个 spec_id 全表扫描 O(ids×rows)，
+#' N-12（2026-09-26，GLM）：原实现对每个 spec_id 全表扫描 O(ids×rows)，
 #' 改为一次 split()；分组顺序与 unique() 的首现顺序一致。
-#' P0-3isoPSV 预测块只承载 b+1/b+2/y+1/y+2（与
+#' P0-3（2026-09-26，MiniMax）：isoPSV 预测块只承载 b+1/b+2/y+1/y+2（与
 #' pDeep2 同口径），电荷 3+ 行的强度不进入预测表——但必须计数上报，不得静默。
 parse_ms2pip_csv <- function(csv_file) {
   raw_csv <- read.delim(csv_file, sep = ",", check.names = FALSE,
@@ -274,12 +264,12 @@ build_predict_txt <- function(peprec_table, parsed_by_id) {
   # parsed_ions：当前肽的离子强度；predict_key：isoPSV 预测表 TITLE 键
   # （N-2：用 orig_mod 原串拼接，与消费端逐字节一致）；residue_count：肽长
   # （各离子向量须为 n-1，不符的行跳过按缺失处理）
-  # （工作站 173 报告发现②，T@171/run11 实测）：原逐行 c() 累积
+  # v2.0.174（工作站 173 报告发现②，T@171/run11 实测）：原逐行 c() 累积
   # ＝平方级（65.8 万块逐块全量重扫），与 parse_ms2pip_long 的逐组全表扫描
   # 同为 166 在 APD 侧修过的病根在 ms2pip 侧重演。本版向量化：match 对齐＋
   # 预分配交错写入＋分片 10 万块心跳。语义不变（TITLE 键/跳过计数/y 位点序
   # 反转/format 口径逐字保留）。
-  #  (workstation 173-round find 2, T@171/run11): the per-row c()
+  # v2.0.174 (workstation 173-round find 2, T@171/run11): the per-row c()
   # accumulation was quadratic (658k blocks), the same disease 166 fixed on
   # the APD side replaying here. Vectorized: match alignment + pre-allocated
   # interleaved writes + a heartbeat every 100k blocks. Semantics unchanged
@@ -336,17 +326,17 @@ build_predict_txt <- function(peprec_table, parsed_by_id) {
   list(lines = out, skip_no_rows = skip_no_rows, skip_len = skip_len)
 }
 
-#' MS2PIP v4 现代契约的长表解析。
+#' MS2PIP v4 现代契约的长表解析（工作站补丁 2026-10-05）。
 #' v4.0+ 正式版 predict-batch -f tsv 输出：psm_index/ion_type/ion_number/
 #' mz/predicted（log2 强度、单电荷 b/y）。b2/y2 以 0 填充（v4 批量输出无
 #' 电荷维度）；psm_index 0 起按首现顺序对齐 peprec 的 p000001 起 spec_id。
 parse_ms2pip_long <- function(tsv_file) {
-  #：split-once O(n) 重写——原 raw[raw$psm_index==idx,] 逐组全表
+  # v2.0.174：split-once O(n) 重写——原 raw[raw$psm_index==idx,] 逐组全表
   # 扫描＝组数×行数（65.8 万组×1,850 万行），843MB 长表实测 65min+ 仍在磨
   # ＝实质挂起（T@171 与 run11 的 2h+ 零 python 空转同源——v4 本体 2.5 分钟
   # 已完成、R 卡在此处）。列先抽取向量、data.frame 早期释放；每 10 万组
   # 心跳。
-  #: split-once O(n) rewrite - the original per-group full-table
+  # v2.0.174: split-once O(n) rewrite - the original per-group full-table
   # scan cost groups x rows (658k x 18.5M); the 843 MB long table ground for
   # 65+ minutes without finishing (an effective hang; T@171 and run11's 2h+
   # zero-python spins share this root - the v4 prediction itself finishes in
@@ -389,28 +379,17 @@ parse_ms2pip_long <- function(tsv_file) {
   stats::setNames(by_id, sprintf("p%06d", seq_along(by_id)))
 }
 
-# ----：产物指纹复用（与 pred_pdeep3/pred_alphapeptdeep 同款；      ----
+# ---- v2.0.168：产物指纹复用（与 pred_pdeep3/pred_alphapeptdeep 同款；      ----
 # ---- 工作站 167 轮建议：四个适配器统一"产物在即复用"语义）。指纹＝输入       ----
 # ---- md5＋size（master 的 file.copy 每轮刷新 peptides.txt mtime，mtime 序    ----
-# ---- 恒失效），侧车 <out>.run_params。早期实现产物无侧车＝不可证新鲜→重跑。
-# ----: artifact fingerprint reuse (same pattern as the pdeep3 and
+# ---- 恒失效），侧车 <out>.run_params。旧版产物无侧车＝不可证新鲜→重跑。
+# ---- v2.0.168: artifact fingerprint reuse (same pattern as the pdeep3 and
 # ---- alphapeptdeep adapters; the workstation's 167-round request to unify
 # ---- "artifact present means reusable" across all four adapters). The
 # ---- fingerprint is input md5 + size (the master's file.copy refreshes
 # ---- peptides.txt mtime every run, so mtime ordering never holds) in an
 # ---- <out>.run_params sidecar. Legacy artifacts without a sidecar rerun once.
-input_fp <- function(in_path) {
-  c(paste0("in_md5=", unname(tools::md5sum(in_path))),
-    paste0("in_size=", file.info(in_path)$size))
-}
-sidecar_matches <- function(out_path, fp) {
-  sc <- paste0(out_path, ".run_params")
-  file.exists(sc) && identical(trimws(readLines(sc, warn = FALSE)), fp)
-}
-write_run_params <- function(out_path, in_path) {
-  try(writeLines(input_fp(in_path), paste0(out_path, ".run_params"),
-                 useBytes = TRUE), silent = TRUE)
-}
+# （指纹侧车三件套自 v2.0.179 起来自 _common.R；ms2pip 的管道符/U-X 卫兵为结构性变体，保留在本文件）
 
 # ---- 主入口 ----
 main <- function() {
@@ -420,8 +399,8 @@ main <- function() {
   missing_args <- setdiff(required_args, names(cli_args))
   if (length(missing_args)) stop("缺参数: ", paste(paste0("--", missing_args), collapse = " "))
 
-  #：产物指纹复用——输入未变则整跑跳过（ms2pip 本体小时级 CPU）
-  #: fingerprint reuse - an unchanged input skips the whole run
+  # v2.0.168：产物指纹复用——输入未变则整跑跳过（ms2pip 本体小时级 CPU）
+  # v2.0.168: fingerprint reuse - an unchanged input skips the whole run
   # (the ms2pip prediction itself costs CPU-hours on full tables)
   if (file.exists(cli_args$`out`) && sidecar_matches(cli_args$`out`, input_fp(cli_args$`in`))) {
     cat("[MS2PIP] 复用已有产物（指纹匹配；删除 predict.txt 可强制重跑）：",
@@ -432,10 +411,10 @@ main <- function() {
     cat("[MS2PIP] 肽表变化或旧产物无指纹——旧产物失效，重新预测\n")
     cat("[MS2PIP] stale predict invalidated (peptide table changed or no fingerprint); re-predicting\n")
   }
-  #：--params 改为可选——网页的 MS2PIP 行按设计留空（默认取适配器
+  # v2.0.154h：--params 改为可选——网页的 MS2PIP 行按设计留空（默认取适配器
   # 内置 HCD 模型），此前把它列入必填，导致"网页填参数→跑"这条路径上 ms2pip
   # 恒失败（exit 1，缺 --params），该列整列丢失。空/缺省一律按 HCD 处理。
-  #: --params is optional - the web form intentionally leaves the
+  # v2.0.154h: --params is optional - the web form intentionally leaves the
   # MS2PIP row empty (default = the adapter's built-in HCD model). Requiring it
   # made ms2pip fail on every form-driven run (exit 1, missing --params) and
   # dropped the whole column. Missing/empty now means HCD.
@@ -447,10 +426,10 @@ main <- function() {
   required_cols2 <- c("peptide", "modification", "charge")
   missing_cols2 <- setdiff(required_cols2, colnames(pep_df))
   if (length(missing_cols2)) stop("peptide.txt 缺列: ", paste(missing_cols2, collapse = ","))
-  #：modification 列全空时 read.delim 推断为 logical 全 NA（与
+  # v2.0.154b：modification 列全空时 read.delim 推断为 logical 全 NA（与
   # merge_search_results 的列类型守卫同源坑）——orig_mod 拼出 "seq|NA|z" 键，
   # 下游 seq||z 查键全部落空、ms2pip 列整列丢失。此处统一 NA/字面 "NA" → ""。
-  #: an all-empty modification column is inferred as logical NA by
+  # v2.0.154b: an all-empty modification column is inferred as logical NA by
   # read.delim (the same trap as the column-type guard in merge_search_results)
   # - orig_mod then builds "seq|NA|z" keys and every downstream seq||z lookup
   # misses, dropping the whole ms2pip column. Normalize NA / literal "NA" here.
@@ -460,9 +439,9 @@ main <- function() {
   if (is.na(threads) || threads < 1) threads <- 8L
 
   peprec_table <- build_peprec(pep_df)
-  #：同位点双修饰整条跳过计数上报（ms2pip v4 对堆叠标签整批崩，
+  # v2.0.167：同位点双修饰整条跳过计数上报（ms2pip v4 对堆叠标签整批崩，
   # 跳过是换取其余肽全量产出的必要降级）
-  #: report the same-position double-mod skips (ms2pip v4 dies
+  # v2.0.167: report the same-position double-mod skips (ms2pip v4 dies
   # batch-wide on stacked tags; skipping is the necessary degrade)
   ss_dropped <- attr(peprec_table, "same_site_dropped")
   if (!is.null(ss_dropped) && ss_dropped > 0L) {
@@ -471,7 +450,7 @@ main <- function() {
     cat("[MS2PIP] skipped ", ss_dropped,
         " same-position double-mod peptides (stacked ProForma tags crash ms2pip v4 batch-wide)\n", sep = "")
   }
-  #：管道符异构体肽计数上报（全表崩因之二）
+  # v2.0.169：管道符异构体肽计数上报（全表崩因之二）
   pipe_dropped <- attr(peprec_table, "pipe_dropped")
   if (!is.null(pipe_dropped) && pipe_dropped > 0L) {
     cat("[MS2PIP] 管道符异构体肽（pFind 二选一记法，pyteomics 不认）整条跳过 ",
@@ -479,8 +458,8 @@ main <- function() {
     cat("[MS2PIP] skipped ", pipe_dropped,
         " pipe-notation isoform peptides (pFind either-or notation, unparseable by pyteomics)\n", sep = "")
   }
-  #：U/X 哨兵残基计数上报（对齐防线——见 build_peprec 注）
-  #: U/X sentinel-residue count (the alignment guard - see build_peprec)
+  # v2.0.175：U/X 哨兵残基计数上报（对齐防线——见 build_peprec 注）
+  # v2.0.175: U/X sentinel-residue count (the alignment guard - see build_peprec)
   ux_dropped <- attr(peprec_table, "ux_dropped")
   if (!is.null(ux_dropped) && ux_dropped > 0L) {
     cat("[MS2PIP] U/X 哨兵残基肽（v4 会静默丢弃并使 psm_index 留洞、错位全部对齐）整条跳过 ",
@@ -498,10 +477,10 @@ main <- function() {
     cat("dry-run: peprec 已写", peprec_file, "（", nrow(peprec_table), "行），未调用 ms2pip\n")
     return(0L)
   }
-  # N-11CLI 契约按官方两代——4.x 用 predict-batch +
+  # N-11（2026-09-26，GLM）：CLI 契约按官方两代——4.x 用 predict-batch +
   # --model-dir/-o；3.x 无 predict 子命令（-c 配置 + -n 并行）。--threads 两代
   # 都不存在。先试 4.x，失败自动回退 3.x；两代都不行则报错并留两份日志。
-  # P2-2两代日志分开——此前共用一条
+  # P2-2（2026-09-26，deepseek v1.0 审查）：两代日志分开——此前共用一条
   # 路径，3.x 运行覆盖 4.x 失败证据，恰好丢失最需要诊断的那半。
   # ms2pip_log_4x/3x：两代独立日志路径；cli_contract_used：实际生效的契约
   ms2pip_log_4x <- paste0(cli_args$`out`, ".ms2pip.log")
@@ -510,7 +489,7 @@ main <- function() {
     suppressWarnings(system2(cli_args$python, arg_list,
       stdout = log_path, stderr = log_path))
   }
-  # v4 现代契约位置参数 PSMS ＋ -t peprec ＋
+  # v4 现代契约（工作站补丁 2026-10-05）：位置参数 PSMS ＋ -t peprec ＋
   # --model <名>（params 非目录时作模型名，默认 HCD）＋ -f tsv；-o 为输出名
   # 前缀（实际写 <prefix>.tsv）。官方 4.0-4.2 无 --peprec 旗标（原 4.x 契约
   # 系预发布口径，保留于下方作回退）。
@@ -527,10 +506,10 @@ main <- function() {
                        peprec_file), ms2pip_log_v4)
   if (stv4 == 0 && file.exists(ms2pip_tsv_file)) {
     long_by_id <- parse_ms2pip_long(ms2pip_tsv_file)
-    #：组数一致性告警——v4 若静默丢弃任何 PSM（如未卫兵的非法残基），
+    # v2.0.175：组数一致性告警——v4 若静默丢弃任何 PSM（如未卫兵的非法残基），
     # psm_index 留洞会使顺序命名错位、长度门大量巧合失配（174 轮 89% 实锤）。
     # 卫兵齐备时组数应恰等于 peprec 行数；不等＝仍有被丢的 PSM，大声告警。
-    #: group-count consistency warning - if v4 silently drops any
+    # v2.0.175: group-count consistency warning - if v4 silently drops any
     # PSM (e.g. an unguarded illegal residue), the gapped psm_index breaks
     # the sequential naming and the length gate fails coincidentally en
     # masse (the 174-round 89%). With the guards in place the group count
@@ -550,7 +529,7 @@ main <- function() {
     if (!length(predict_result$lines))
       stop("MS2PIP v4 结果与 peptide.txt 无匹配（肽长/离子数不符）")
     writeLines(predict_result$lines, cli_args$`out`, useBytes = TRUE)
-    write_run_params(cli_args$`out`, cli_args$`in`)   #：指纹侧车
+    write_run_params(cli_args$`out`, cli_args$`in`)   # v2.0.168：指纹侧车
     cat("[MS2PIP] v4 现代契约完成（b+2/y+2 单电荷无维度以 0 填充）；跳过：无产物 ",
         predict_result$skip_no_rows, "，长度不符 ", predict_result$skip_len,
         " -> ", cli_args$`out`, "\n", sep = "")
@@ -583,8 +562,8 @@ main <- function() {
   predict_lines <- predict_result$lines
   if (!length(predict_lines)) stop("MS2PIP 结果与 peptide.txt 无匹配（肽长/离子数不符）")
   writeLines(predict_lines, cli_args$`out`, useBytes = TRUE)
-  write_run_params(cli_args$`out`, cli_args$`in`)   #：指纹侧车
-  # P0-3电荷 3+ 行的强度不进入预测表（表格式与 pDeep2
+  write_run_params(cli_args$`out`, cli_args$`in`)   # v2.0.168：指纹侧车
+  # P0-3（2026-09-26，MiniMax）：电荷 3+ 行的强度不进入预测表（表格式与 pDeep2
   # 同口径只含 +1/+2）——计数上报，绝不静默；无产物/长度不符的跳过数同样上报
   if (parsed_result$charge3plus_ids > 0L || predict_result$skip_no_rows > 0L ||
       predict_result$skip_len > 0L) {
@@ -615,7 +594,7 @@ self_test <- function() {
     if (!isTRUE(pass)) ok <<- FALSE
   }
   cat("== pred_ms2pip 自检 ==\n")
-  # 1) pFind 修饰 → peprec（期望串随  的 "|" 扁平连接更新——旧断言
+  # 1) pFind 修饰 → peprec（期望串随 v2.0.154c 的 "|" 扁平连接更新——旧断言
   #    "3|Oxidation;0|Acetyl" 系 154c 改连接符前遗留，此前未随版本重跑）
   say(identical(pfind_mods_to_peprec("3,Oxidation[M];0,Acetyl[AnyN-term];"), "3|Oxidation|0|Acetyl"),
       "pFind 修饰转 peprec", pfind_mods_to_peprec("3,Oxidation[M];0,Acetyl[AnyN-term];"))
@@ -670,7 +649,7 @@ self_test <- function() {
       "修饰肽键与消费端逐字节一致", lines2[2])
   # 6) N-11：未修饰肽 peprec modifications 写 "-" 而非空串
   say(identical(pfind_mods_to_peprec(""), "-"), "未修饰肽写 -")
-  # 4b)：v4 长表 split-once 解析（此前无自检覆盖）＋向量化组装
+  # 4b) v2.0.174：v4 长表 split-once 解析（此前无自检覆盖）＋向量化组装
   td4 <- tempfile("ms2pip_long_"); dir.create(td4)
   lt <- file.path(td4, "pred.tsv")
   writeLines(c("psm_index\tion_type\tion_number\tmz\tpredicted",
@@ -686,7 +665,7 @@ self_test <- function() {
       "v4 长表 split-once 解析（b/y 装配＋2^predicted＋p%06d 命名＋b2 零填）",
       paste(sapply(lg, function(z) paste(z$b1, collapse = ",")), collapse = " / "))
   unlink(td4, recursive = TRUE)
-  # 6b)：同位点双修饰括号记法——主修饰保住、次修饰按未知名跳过
+  # 6b) v2.0.166：同位点双修饰括号记法——主修饰保住、次修饰按未知名跳过
   say(identical(pfind_mods_to_peprec("11,Carbamidomethyl[K](Gly[K])"),
                 "11|Carbamidomethyl"),
       "同位点双修饰括号拆分（Gly 跳过、Carbamidomethyl 保留）",
@@ -695,14 +674,14 @@ self_test <- function() {
                 "3|Oxidation|2|Acetyl"),
       "双修饰括号拆分后扁平连接",
       pfind_mods_to_peprec("3,Oxidation[M](2,Acetyl[K])"))
-  # 6c)：同位点双修饰两级防线——完全重复折叠 / 真双修饰整肽 NA
+  # 6c) v2.0.167：同位点双修饰两级防线——完全重复折叠 / 真双修饰整肽 NA
   say(identical(pfind_mods_to_peprec("0,Gln->pyro-Glu[AnyN-term];0,Gln->pyro-Glu[AnyN-term];"),
                 "0|Gln->pyro-Glu"),
       "同位点同一修饰写两遍＝伪迹折叠",
       pfind_mods_to_peprec("0,Gln->pyro-Glu[AnyN-term];0,Gln->pyro-Glu[AnyN-term];"))
   say(is.na(pfind_mods_to_peprec("0,Acetyl[AnyN-term];0,Gln->pyro-Glu[Q];")),
       "同位点异名双修饰→整肽 NA（ProForma 堆叠标签防线）")
-  # 6d)：build_peprec 剔行＋spec_id 重编号＋计数
+  # 6d) v2.0.167：build_peprec 剔行＋spec_id 重编号＋计数
   df_ss <- data.frame(peptide = c("PEPT", "PEPT", "PEPT"),
                       modification = c("", "0,Acetyl[AnyN-term];0,Gln->pyro-Glu[Q];", ""),
                       charge = "2", stringsAsFactors = FALSE)
@@ -712,7 +691,7 @@ self_test <- function() {
         identical(attr(pr_ss, "same_site_dropped"), 1L),
       "同位点双修饰剔行＋spec_id 重编号＋attr 计数",
       paste0(nrow(pr_ss), " 行 / dropped=", attr(pr_ss, "same_site_dropped")))
-  # 6e)：管道符异构体肽（pFind 二选一记法）整肽跳过＋计数
+  # 6e) v2.0.169：管道符异构体肽（pFind 二选一记法）整肽跳过＋计数
   df_pipe <- data.frame(peptide = c("PEPT", "QDPAAAQEKG|QDPAAAQEGK", "ALAMAR"),
                         modification = c("", "", ""),
                         charge = "2", stringsAsFactors = FALSE)
@@ -723,7 +702,7 @@ self_test <- function() {
         identical(attr(pr_pipe, "same_site_dropped"), 0L),
       "管道符异构体肽整肽跳过＋计数＋重编号",
       paste0(nrow(pr_pipe), " 行 / pipe=", attr(pr_pipe, "pipe_dropped")))
-  # 6f)：U/X 哨兵残基第四道卫兵（对齐防线——v4 静默丢弃留洞）
+  # 6f) v2.0.175：U/X 哨兵残基第四道卫兵（对齐防线——v4 静默丢弃留洞）
   df_ux <- data.frame(peptide = c("PEPT", "PEPTIDXK", "ALAMAR"),
                       modification = c("", "", ""),
                       charge = "2", stringsAsFactors = FALSE)

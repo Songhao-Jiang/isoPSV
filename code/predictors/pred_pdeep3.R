@@ -1,5 +1,5 @@
 # =============================================================================
-# pred_pdeep3.R —— pDeep3 理论谱图预测器 L1 适配器
+# pred_pdeep3.R —— pDeep3 理论谱图预测器 L1 适配器（v1.0，2026-10-04）
 #
 # 把 isoPSV 的 merge/peptide.txt（peptide / modification / charge 三列）转成
 # pDeep3 输入，经 pdeep3_driver.py 调用 pDeep3（pFindStudio/pDeep3，
@@ -15,37 +15,30 @@
 #          --python <python-with-pDeep3> --params <instrument,ce，如 Lumos,30>
 #   Rscript pred_pdeep3.R --self-test   # 无需 pDeep3 安装，只测适配层
 # 退出码：0 成功；非 0 失败（user_run 据此把该预测列标缺失并继续）。
-# 依赖：仅 base R；pDeep3 运行于用户提供的 python 环境。pDeep3 为用户自装独立软件，本适配器不随包分发其本体。
+# 依赖：仅 base R；pDeep3 运行于用户提供的 python 环境（TF1.13/Py3.7 或 TF2，
+# 含 pDeep 包）。pDeep3 为用户自装独立软件，本适配器不随包分发其本体。
 # 状态：适配层自测通过；pDeep3 侧返回结构的强度排序假设（b+1,b+2,y+1,y+2）
-# 待 pDeep3 实测环境核验（driver 内有两代返回形态的防御分支与明确报错）。
+# 待 pDeep3 实弹环境核验（driver 内有两代返回形态的防御分支与明确报错）。
 # =============================================================================
 
 # ---- 参数解析（--flag=value 与 --flag 开关，纯 base R；与 pred_ms2pip 同款）----
-parse_cli <- function(args = commandArgs(TRUE)) {
-  parsed_args <- list()
-  i <- 1L
-  while (i <= length(args)) {
-    token <- args[i]
-    if (startsWith(token, "--")) {
-      flag_key <- sub("^--", "", token)
-      if (grepl("=", flag_key, fixed = TRUE)) {
-        flag_value_pair <- strsplit(flag_key, "=", fixed = TRUE)[[1]]
-        parsed_args[[flag_value_pair[1]]] <- paste(flag_value_pair[-1], collapse = "=")
-      } else {
-        parsed_args[[flag_key]] <- if (i < length(args) && !startsWith(args[i + 1], "--")) {
-          flag_value <- args[i + 1]; i <- i + 1L; flag_value
-        } else TRUE
-      }
-    }
-    i <- i + 1L
-  }
-  parsed_args
-}
+# v2.0.179：parse_cli／指纹侧车三件套（input_fp/sidecar_matches/
+# write_run_params）已上收到 predictors/_common.R（三适配器原为逐字三胞胎）；
+# --file= 同目录定位，任何 cwd 均可。
+# v2.0.179: parse_cli and the fingerprint-sidecar trio moved up to
+# predictors/_common.R (they were verbatim triplets); located via the
+# --file= sibling dir, any cwd works.
+.sc_dir <- local({
+  f <- grep("^--file=", commandArgs(FALSE), value = TRUE)
+  if (length(f)) dirname(sub("^--file=", "", tail(f, 1))) else "predictors"
+})
+source(file.path(.sc_dir, "_common.R"))
+# （parse_cli 自 v2.0.179 起来自 _common.R——上方 source 引导）
 
 #' pFind/pDeep 修饰串（"3,Oxidation[M];0,Acetyl[AnyN-term];"）→ pDeep3 modinfo
 #' （同族格式，剥尾分号；空串返回 ""——driver 侧按无修饰处理）。
 pfind_mods_to_pdeep3 <- function(mod) {
-  # 实测教训read.delim 缺省 na.strings 会把空修饰转 NA，
+  # 实弹教训（2026-10-04）：read.delim 缺省 na.strings 会把空修饰转 NA，
   # TITLE 键随之变 "PEPTIDEK|NA|2"——与消费端 "PEPTIDEK||2" 失配、预测列全缺。
   # 两道保险：读表 na.strings=character(0)＋此处 NA 兜底归 ""。
   if (is.null(mod) || is.na(mod) || !nzchar(mod)) return("")
@@ -102,9 +95,9 @@ block_lines <- function(title, b1, b2, y1, y2) {
 
 #' 输入表 + driver 结果 → predict.txt 行组。离子向量长度须为 n-1；不符或无
 #' 产物的行跳过并计数（下游按缺失处理，不阻断）。
-#'：组块累积改 list 预分配＋一次 unlist——早期实现逐行 c() 追加是二次方
-#' 拷贝，79k 谱（55 万行）实测要拖数分钟；O(n) 后秒级。
-#': blocks accumulate into a pre-allocated list + one unlist - the old
+#' v100-7：组块累积改 list 预分配＋一次 unlist——旧版逐行 c() 追加是二次方
+#' 拷贝，79k 谱（55 万行）实弹要拖数分钟；O(n) 后秒级。
+#' v100-7: blocks accumulate into a pre-allocated list + one unlist - the old
 #' per-line c() append is quadratic copying (minutes at 79k spectra / 554k
 #' lines); O(n) assembly takes seconds.
 build_predict_txt <- function(input_table, by_id) {
@@ -166,30 +159,19 @@ self_test <- function() {
   TRUE
 }
 
-# ----：产物指纹复用（工作站 167 轮实测：pdeep3 无产物复用，master ----
+# ---- v2.0.168：产物指纹复用（工作站 167 轮实测：pdeep3 无产物复用，master ----
 # ---- 每轮重启全量重跑 30-60 分钟/项目）。master 的 file.copy 每轮刷新       ----
 # ---- peptides.txt 的 mtime，mtime 序比对恒失效——指纹用内容不变量 md5＋size，  ----
-# ---- 侧车 <out>.run_params（与 pDeep2 侧车同名同风格）。早期实现产物无侧车＝     ----
+# ---- 侧车 <out>.run_params（与 pDeep2 侧车同名同风格）。旧版产物无侧车＝     ----
 # ---- 不可证新鲜→重跑（一次性代价，升版后首轮全量）。
-# ----: artifact fingerprint reuse (workstation 167-round finding:
+# ---- v2.0.168: artifact fingerprint reuse (workstation 167-round finding:
 # ---- pdeep3 had no product reuse, so every master restart re-ran the full
 # ---- 30-60 min prediction). The master's file.copy refreshes peptides.txt
 # ---- mtime every run, so mtime ordering can never hold - the fingerprint
 # ---- uses content invariants (md5 + size) in a <out>.run_params sidecar
 # ---- (same name and style as the pDeep2 sidecar). Legacy artifacts without
 # ---- a sidecar are unverifiable and rerun once.
-input_fp <- function(in_path) {
-  c(paste0("in_md5=", unname(tools::md5sum(in_path))),
-    paste0("in_size=", file.info(in_path)$size))
-}
-sidecar_matches <- function(out_path, fp) {
-  sc <- paste0(out_path, ".run_params")
-  file.exists(sc) && identical(trimws(readLines(sc, warn = FALSE)), fp)
-}
-write_run_params <- function(out_path, in_path) {
-  try(writeLines(input_fp(in_path), paste0(out_path, ".run_params"),
-                 useBytes = TRUE), silent = TRUE)
-}
+# （指纹侧车三件套自 v2.0.179 起来自 _common.R）
 
 # ---- 主入口 ----
 main <- function() {
@@ -202,38 +184,31 @@ main <- function() {
   pep_df <- read.delim(cli_args$`in`, sep = "\t", check.names = FALSE,
                        stringsAsFactors = FALSE, na.strings = character(0))
   # 空修饰列会被类型推断成 logical NA（na.strings 拦不住）——统一归空串，
-  # 保 TITLE 键 "PEPTIDEK||2" 与消费端口径一致
+  # 保 TITLE 键 "PEPTIDEK||2" 与消费端口径一致（实弹教训 2026-10-04）
   pep_df$modification[is.na(pep_df$modification)] <- ""
   missing_cols <- setdiff(c("peptide", "modification", "charge"), colnames(pep_df))
   if (length(missing_cols)) stop("peptide.txt 缺列: ", paste(missing_cols, collapse = ","))
-  # （工作站 169 报告建议，ms2pip 管道符防线推广）：pFind 二选一
+  # v2.0.170（工作站 169 报告建议，ms2pip 管道符防线推广）：pFind 二选一
   # 异构体记法（肽序列含 "|"，全表实测 918 条）对 pDeep3 是非法残基；入侧
   # 统一跳过＋计数（与 pred_alphapeptdeep/pred_ms2pip 同口径）。
-  # （工作站 170 报告）：卫兵移到指纹复用判断**之前**——与 APD 同
+  # v2.0.171（工作站 170 报告）：卫兵移到指纹复用判断**之前**——与 APD 同
   # 次序，复用命中时也能看到跳过计数行（此前复用判断在前，重入零计数行，
   # 两适配器行为不一致是排障坑；产物语义两版一致，纯可观测性对齐）。
-  #  (workstation 169-round request, generalizing the ms2pip pipe
+  # v2.0.170 (workstation 169-round request, generalizing the ms2pip pipe
   # guard): pFind's either-or isoform notation ("|" inside the peptide) is an
   # illegal residue for pDeep3; skip at the input side with a count (same
   # contract as pred_alphapeptdeep / pred_ms2pip).
-  #  (workstation 170-round): the guard moved BEFORE the fingerprint
+  # v2.0.171 (workstation 170-round): the guard moved BEFORE the fingerprint
   # reuse check - same order as APD, so a reuse hit still prints the skip
   # count (previously the reuse branch returned first with zero count lines;
   # product semantics were identical either way, this is observability
   # alignment only).
-  pipe_hit_p3 <- grepl("|", pep_df$peptide, fixed = TRUE)
-  if (any(pipe_hit_p3)) {
-    cat("[pred_pdeep3] 管道符异构体肽（pFind 二选一记法）整条跳过 ",
-        sum(pipe_hit_p3), " 条\n", sep = "")
-    cat("[pred_pdeep3] skipped ", sum(pipe_hit_p3),
-        " pipe-notation isoform peptides (pFind either-or notation)\n", sep = "")
-    pep_df <- pep_df[!pipe_hit_p3,, drop = FALSE]
-  }
+  pep_df <- guard_pipe_peptides(pep_df, "pred_pdeep3")
 
-  #：产物指纹复用——输入 md5/size 未变则直接复用 predict.txt
-  #：自卫兵之后移入（见上）
-  #: fingerprint reuse - an unchanged input reuses predict.txt as is
-  #: moved after the pipe guard (see above)
+  # v2.0.168：产物指纹复用——输入 md5/size 未变则直接复用 predict.txt
+  # v2.0.171：自卫兵之后移入（见上）
+  # v2.0.168: fingerprint reuse - an unchanged input reuses predict.txt as is
+  # v2.0.171: moved after the pipe guard (see above)
   if (file.exists(cli_args$`out`) && sidecar_matches(cli_args$`out`, input_fp(cli_args$`in`))) {
     cat("[pred_pdeep3] 复用已有产物（指纹匹配；删除 predict.txt 可强制重跑）：",
         cli_args$`out`, "\n", sep = "")
@@ -245,10 +220,10 @@ main <- function() {
   }
 
   input_table <- build_pdeep3_table(pep_df)
-  #：中间件入预测器独立夹（与 --out 同目录），peptides.tsv＝pDeep3 专属
+  # v100-7：中间件入预测器独立夹（与 --out 同目录），peptides.tsv＝pDeep3 专属
   # 输入列表（spec_id/peptide/modinfo/charge 格式，与 pDeep2 的 peptides.txt
   # 同源不同形）——目录不存在时（旧布局调用）先建。
-  #: intermediates live beside --out in the predictor folder;
+  # v100-7: intermediates live beside --out in the predictor folder;
   # peptides.tsv is the pDeep3-specific input list (same source, different
   # format than pDeep2's peptides.txt). Folder is created when missing.
   dir.create(dirname(cli_args$`out`), recursive = TRUE, showWarnings = FALSE)
@@ -290,7 +265,7 @@ main <- function() {
   by_id <- parse_driver_tsv(drv_out)
   built <- build_predict_txt(input_table, by_id)
   writeLines(built$lines, cli_args$`out`, useBytes = TRUE)
-  write_run_params(cli_args$`out`, cli_args$`in`)   #：指纹侧车
+  write_run_params(cli_args$`out`, cli_args$`in`)   # v2.0.168：指纹侧车
   cat("[pred_pdeep3] 完成：", length(built$lines), " 行（跳过：无产物 ",
       built$skip_no_rows, "，长度不符 ", built$skip_len, "）-> ", cli_args$`out`, "\n", sep = "")
   0L

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""primenovo_ssh_driver.py — isoPSV 的 PrimeNovo SSH/VM 调用桥
+"""primenovo_ssh_driver.py — isoPSV 的 PrimeNovo SSH/VM 调用桥（v2.0.163）
 
 场景：PrimeNovo 部署在 Linux 主机/VM（ctcdecode 无 Windows 原生构建），
 isoPSV 在 Windows 宿主上运行。本驱动把一个 MGF 推到远端、远端跑
@@ -104,7 +104,7 @@ def main():
                   model=model_remote, dir=REMOTE_DIR, tsv=tsv_remote_name)
         rc, out, err = run(cmd, timeout=7200)
         if rc != 0:
-            # 回贴远端日志尾部（ 纪律）
+            # 回贴远端日志尾部（v2.0.155 纪律）
             _, log_tail, _ = run("tail -15 %s/run.log" % REMOTE_DIR)
             print("[pn-ssh] remote run failed (exit %s):\n%s" % (
                 rc, log_tail), file=sys.stderr)

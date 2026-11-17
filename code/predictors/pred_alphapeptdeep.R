@@ -1,6 +1,6 @@
 # =============================================================================
 # pred_alphapeptdeep.R —— AlphaPeptDeep(peptdeep) 理论谱图预测器 L1 适配器
-# （工作站自写；结构同 pred_pdeep3.R，契约同 pred_ms2pip.R）
+# （工作站自写 2026-10-05；结构同 pred_pdeep3.R，契约同 pred_ms2pip.R）
 #
 # 把 isoPSV 的 merge/peptide.txt（peptide / modification / charge 三列）转成
 # driver 输入，经 alphapeptdeep_driver.py 调用 peptdeep（MannLabs，
@@ -14,32 +14,24 @@
 #          --python <python-with-peptdeep> --params <instrument,ce，如 Lumos,30>
 #   Rscript pred_alphapeptdeep.R --self-test   # 无需 peptdeep，只测适配层
 # 退出码：0 成功；非 0 失败（user_run 据此把该预测列标缺失并继续）。
-# 依赖：仅 base R；peptdeep 运行于用户提供的 python 环境（本地
+# 依赖：仅 base R；peptdeep 运行于用户提供的 python 环境（本机
 # C:\software\miniconda3\envs\alphapeptdeep）。
-# 行序口径peptdeep 碎片表 b 行＝正序 b1..b_{n-1}，
+# 行序口径（2026-10-05 实测定标）：peptdeep 碎片表 b 行＝正序 b1..b_{n-1}，
 # y 行＝位点序 y_{n-1}..y1——driver 已翻转为 y 正序，本适配器组块时再翻回。
 # =============================================================================
 
-parse_cli <- function(args = commandArgs(TRUE)) {
-  parsed_args <- list()
-  i <- 1L
-  while (i <= length(args)) {
-    token <- args[i]
-    if (startsWith(token, "--")) {
-      flag_key <- sub("^--", "", token)
-      if (grepl("=", flag_key, fixed = TRUE)) {
-        flag_value_pair <- strsplit(flag_key, "=", fixed = TRUE)[[1]]
-        parsed_args[[flag_value_pair[1]]] <- paste(flag_value_pair[-1], collapse = "=")
-      } else {
-        parsed_args[[flag_key]] <- if (i < length(args) && !startsWith(args[i + 1], "--")) {
-          flag_value <- args[i + 1]; i <- i + 1L; flag_value
-        } else TRUE
-      }
-    }
-    i <- i + 1L
-  }
-  parsed_args
-}
+# v2.0.179：parse_cli／指纹侧车三件套（input_fp/sidecar_matches/
+# write_run_params）已上收到 predictors/_common.R（三适配器原为逐字三胞胎）；
+# --file= 同目录定位，任何 cwd 均可。
+# v2.0.179: parse_cli and the fingerprint-sidecar trio moved up to
+# predictors/_common.R (they were verbatim triplets); located via the
+# --file= sibling dir, any cwd works.
+.sc_dir <- local({
+  f <- grep("^--file=", commandArgs(FALSE), value = TRUE)
+  if (length(f)) dirname(sub("^--file=", "", tail(f, 1))) else "predictors"
+})
+source(file.path(.sc_dir, "_common.R"))
+# （parse_cli 自 v2.0.179 起来自 _common.R——上方 source 引导）
 
 pfind_mods_strip <- function(mod) {
   if (is.null(mod) || is.na(mod) || !nzchar(mod)) return("")
@@ -70,7 +62,7 @@ block_lines <- function(title, b1, b2, y1, y2) {
     "END IONS")
 }
 
-# （工作站 11-05 T2 计时反例）：driver 产物 → predict.txt 的向量化
+# v2.0.166（工作站 11-05 T2 计时反例）：driver 产物 → predict.txt 的向量化
 # 重建。165 线性化只修掉了 c() 累积（输入装填 ≤1 分钟已达标），但逐行
 # strsplit×4＋as.numeric×4＋format×4 仍在——66.8 万行重入实测 79 分钟单核。
 # 本版两处换掉：①主路径＝driver 直写 predict.txt（--predict-out，python 侧
@@ -79,7 +71,7 @@ block_lines <- function(title, b1, b2, y1, y2) {
 # format(as.numeric) 回读后同一双精度，仅尾零字节差），无逐行数值解析。
 # 心跳打到 stdout（165 打 stderr 在 master 捕获链下不可见——工作站实测
 # 全程零心跳行）。
-#  (workstation 11-05 T2 counterexample): vectorized rebuild from the
+# v2.0.166 (workstation 11-05 T2 counterexample): vectorized rebuild from the
 # driver output. The 165 linearization only fixed the c() accumulation (input
 # loading <=1 min, on target), but the per-row strsplit/as.numeric/format
 # remained - 79 single-core minutes on a 668k-row re-entry. This version
@@ -146,13 +138,13 @@ build_predict_txt_fast <- function(input_table, drv_df) {
   list(lines = out, skip_no_rows = skip_no_rows, skip_len = skip_len)
 }
 
-# ----：产物指纹复用（升级 166 的两层存在性复用；工作站 run7 实锤：----
+# ---- v2.0.168：产物指纹复用（升级 166 的两层存在性复用；工作站 run7 实锤：----
 # ---- "predict＋driver 均在"复用了 11-04 23:59 的旧 predict 而 peptide.txt ----
 # ---- 12:45 刚重建，陈旧预测流入 step3——策略增删/换库场景必错）。指纹＝     ----
 # ---- 输入 md5＋size（master 的 file.copy 每轮刷新 peptides.txt mtime，      ----
-# ---- mtime 序恒失效），侧车 <out>.run_params。早期实现产物无侧车＝不可证新鲜→   ----
+# ---- mtime 序恒失效），侧车 <out>.run_params。旧版产物无侧车＝不可证新鲜→   ----
 # ---- 重跑（一次性代价，升版后首轮全量）。
-# ----: fingerprint-based artifact reuse (upgrading the 166
+# ---- v2.0.168: fingerprint-based artifact reuse (upgrading the 166
 # ---- existence-only two-tier check; workstation run7 proved it reused a
 # ---- predict from 11-04 23:59 while peptide.txt had just been rebuilt at
 # ---- 12:45, letting stale predictions flow into step3 - guaranteed wrong
@@ -160,18 +152,7 @@ build_predict_txt_fast <- function(input_table, drv_df) {
 # ---- <out>.run_params sidecar (the master's file.copy refreshes peptides.txt
 # ---- mtime every run, so mtime ordering never holds). Legacy artifacts
 # ---- without a sidecar are unverifiable and rerun once.
-input_fp <- function(in_path) {
-  c(paste0("in_md5=", unname(tools::md5sum(in_path))),
-    paste0("in_size=", file.info(in_path)$size))
-}
-sidecar_matches <- function(out_path, fp) {
-  sc <- paste0(out_path, ".run_params")
-  file.exists(sc) && identical(trimws(readLines(sc, warn = FALSE)), fp)
-}
-write_run_params <- function(out_path, in_path) {
-  try(writeLines(input_fp(in_path), paste0(out_path, ".run_params"),
-                 useBytes = TRUE), silent = TRUE)
-}
+# （指纹侧车三件套自 v2.0.179 起来自 _common.R）
 
 self_test <- function() {
   cat("[self-test] pred_alphapeptdeep 适配层\n")
@@ -181,8 +162,8 @@ self_test <- function() {
   tab <- build_table(pep_df)
   stopifnot(tab$modinfo[1] == "2,Oxidation[M]", tab$modinfo[2] == "")
   cat("  [ok] 修饰串转换（剥尾分号/空串）\n")
-  #：driver 产物直连（spec_id 对齐）＋数值串原样透传（%.5f 不重排）
-  #: direct driver-table join on spec_id + verbatim value strings
+  # v2.0.166：driver 产物直连（spec_id 对齐）＋数值串原样透传（%.5f 不重排）
+  # v2.0.166: direct driver-table join on spec_id + verbatim value strings
   # (%.5f passes through, not reformatted)
   drv <- data.frame(spec_id = tab$spec_id,
                     b1 = c("1.00000,2.00000,3.00000,4.00000,5.00000,6.00000,7.00000",
@@ -238,28 +219,21 @@ main <- function() {
   pep_df$modification[is.na(pep_df$modification)] <- ""
   missing_cols <- setdiff(c("peptide", "modification", "charge"), colnames(pep_df))
   if (length(missing_cols)) stop("peptide.txt 缺列: ", paste(missing_cols, collapse = ","))
-  # （工作站 169 报告建议，ms2pip 管道符防线推广）：pFind 二选一
+  # v2.0.170（工作站 169 报告建议，ms2pip 管道符防线推广）：pFind 二选一
   # 异构体记法（肽序列含 "|"，全表实测 918 条）对 peptdeep 是非法残基——
   # 此前靠 164 的二分重试逐批丢弃（代价高且无计数）；入侧统一跳过＋计数。
-  #  (workstation 169-round request, generalizing the ms2pip pipe
+  # v2.0.170 (workstation 169-round request, generalizing the ms2pip pipe
   # guard): pFind's either-or isoform notation ("|" inside the peptide, 918
   # rows on the full table) is an illegal residue for peptdeep - previously
   # absorbed by the v164 bisection retry (expensive and uncounted); skip at
   # the input side with a count.
-  pipe_hit_apd <- grepl("|", pep_df$peptide, fixed = TRUE)
-  if (any(pipe_hit_apd)) {
-    cat("[pred_alphapeptdeep] 管道符异构体肽（pFind 二选一记法）整条跳过 ",
-        sum(pipe_hit_apd), " 条\n", sep = "")
-    cat("[pred_alphapeptdeep] skipped ", sum(pipe_hit_apd),
-        " pipe-notation isoform peptides (pFind either-or notation)\n", sep = "")
-    pep_df <- pep_df[!pipe_hit_apd,, drop = FALSE]
-  }
+  pep_df <- guard_pipe_peptides(pep_df, "pred_alphapeptdeep")
 
   input_table <- build_table(pep_df)
   in_tsv <- paste0(cli_args$`out`, ".apd.tsv")
-  #：orig_mod 列随输入 TSV 下发（driver 直写 TITLE 用，与消费端
+  # v2.0.166：orig_mod 列随输入 TSV 下发（driver 直写 TITLE 用，与消费端
   # read_predict_txt 的 sub(";+$","",...) 同口径；旧 driver 忽略该列）
-  #: orig_mod rides along in the input TSV for the driver's direct
+  # v2.0.166: orig_mod rides along in the input TSV for the driver's direct
   # TITLE writing (same sub(";+$","",...) key as read_predict_txt; old
   # drivers ignore the extra column)
   write.table(input_table[, c("spec_id", "peptide", "modinfo", "charge", "orig_mod")],
@@ -278,12 +252,12 @@ main <- function() {
 
   drv_out <- paste0(cli_args$`out`, ".driver.tsv")
   drv_log <- paste0(cli_args$`out`, ".driver.log")
-  #：指纹制复用（升级 166 的存在性两层）。
+  # v2.0.168：指纹制复用（升级 166 的存在性两层）。
   # ① predict 在且指纹匹配 → 复用（删除 driver.tsv 可强制重跑）；
   # ② predict 缺/删而 driver 产物在且指纹匹配 → R 侧向量化重建（分钟级）；
-  # ③ 指纹失配（肽表变化）或无侧车（早期实现产物）→ 全量重跑（旧 predict/driver
+  # ③ 指纹失配（肽表变化）或无侧车（旧版产物）→ 全量重跑（旧 predict/driver
   #    删除防误读；一次性代价，升版后首轮全量）。
-  #: fingerprint-based reuse (upgrading the 166 existence tiers).
+  # v2.0.168: fingerprint-based reuse (upgrading the 166 existence tiers).
   # (1) predict present with a matching fingerprint -> reuse (delete
   #     driver.tsv to force a rerun);
   # (2) predict absent but the driver output present with a matching
@@ -326,12 +300,12 @@ main <- function() {
       return(1L)
     }
     if (file.exists(cli_args$`out`)) {
-      write_run_params(cli_args$`out`, cli_args$`in`)   #：指纹侧车
+      write_run_params(cli_args$`out`, cli_args$`in`)   # v2.0.168：指纹侧车
       cat("[pred_alphapeptdeep] driver 直写完成（输入 ", nrow(input_table),
           " 行）-> ", cli_args$`out`, "（详记 ", drv_log, "）\n", sep = "")
       return(0L)
     }
-    cat("[pred_alphapeptdeep] driver 未直写 predict（早期实现 driver？），R 侧重建\n")
+    cat("[pred_alphapeptdeep] driver 未直写 predict（旧版 driver？），R 侧重建\n")
   }
 
   if (need_rebuild) {
@@ -343,7 +317,7 @@ main <- function() {
                                     paste(missing_dcols, collapse = ","))
     built <- build_predict_txt_fast(input_table, drv_df)
     writeLines(built$lines, cli_args$`out`, useBytes = TRUE)
-    write_run_params(cli_args$`out`, cli_args$`in`)   #：指纹侧车
+    write_run_params(cli_args$`out`, cli_args$`in`)   # v2.0.168：指纹侧车
     cat("[pred_alphapeptdeep] 重建完成：", length(built$lines), " 行（跳过：无产物 ",
         built$skip_no_rows, "，长度不符 ", built$skip_len, "）-> ", cli_args$`out`, "\n", sep = "")
   }

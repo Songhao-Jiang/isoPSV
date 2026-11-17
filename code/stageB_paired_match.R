@@ -14,7 +14,7 @@
 #     Rscript stageB_paired_match.R
 # 标记质量模型取自第一步参数文件的 label_type
 # The label mass model comes from the step-1 parameter file's label_type
-#；输出写到 <config dir>/stageB/。
+# （N15 / C13 / SILAC）；输出写到 <config dir>/stageB/。
 # (N15 / C13 / SILAC); outputs go to <config dir>/stageB/.
 # =============================================================================
 
@@ -50,21 +50,21 @@ pt_mark <- function(tag, tag_en = tag) {
   pt0 <<- pt1
 }
 
-# 读取第三步参数文件与基础配置，确定标记类型与原始 MGF 目录
+# 读取第三步参数文件与基础配置，确定标记类型（默认 N15）与原始 MGF 目录
 # Read the step-3 parameter file and the base config; determine the label type (default N15) and the raw MGF folder
 cfg3 <- read_param_file(if (nzchar(Sys.getenv("CONFIG3"))) Sys.getenv("CONFIG3") else
                            file.path(getwd(), "config_step3.txt"))
 cfg_dir <- cfg3$config_dir
-if (is.null(cfg_dir) || length(cfg_dir) == 0 || !nzchar(cfg_dir[1]))   # 审查 P0-3/P3-6：config_dir 缺失/为空时给可读报错
+if (is.null(cfg_dir) || length(cfg_dir) == 0 || !nzchar(cfg_dir[1]))   # 2026-09-26 审查 P0-3/P3-6：config_dir 缺失/为空时给可读报错
   stop("config_step3 的 config_dir 缺失或为空，请检查配置（或删除 result_* 后重跑）
 config_dir missing/empty in config_step3")
 # 结果文件夹（RESULT_DIR 由总程序注入；独立运行按时间戳定位/新建）
 # result folder (RESULT_DIR injected by the master; standalone runs locate/create by timestamp)
 result_dir <- get_result_dir(cfg_dir)
 base_cfg <- read_param_file(resolve_cfg_paths(cfg3, "base_config")[1])
-# v1.0label_type 为多行键（每行一个标记）。旧单值
-# 口径走 legacy 路径、行为逐字节不变；新多行口径：
-# 类 1 全标记作理论离子标签，类 2 修饰标记清单经 labels 追加进
+# v1.0（2026-09-28 用户口径）：label_type 为多行键（每行一个标记）。旧单值
+# 口径（unlabeled/N15/C13/SILAC）走 legacy 路径、行为逐字节不变；新多行口径：
+# 类 1 全标记（N15/C13）作理论离子标签，类 2 修饰标记清单经 labels 追加进
 # 修饰串（paired_match_candidate 内按适用残基/N 端展开）。
 label_spec <- parse_label_spec(base_cfg$label_type)
 if (!is.null(label_spec$legacy)) {
@@ -95,7 +95,7 @@ cat("label_type:", label_type, "| ALL_MGF:", all_mgf_dir, "| out:", out_dir, "\n
 merged <- read.delim(resolve_cfg_paths(cfg3, "merge_result")[1], sep = "\t",
                      stringsAsFactors = FALSE, check.names = FALSE,
                      na.strings = character(0), colClasses = "character")
-# colClasses="character"某策略列全空时 read.table 会把它定成
+# colClasses="character"（2026-09-12）：某策略列全空时 read.table 会把它定成
 # logical 型、空值变 NA——含该策略候选的行在 by_ions_position 里
 # if(modification != "") 崩溃（576 运行 f 槽候选全崩、整块连坐的根因）
 # use_pdeep2=0 时构造空预测表：预测余弦全 NA（缺省处理：不填 0、标注、投票降级）
@@ -123,11 +123,11 @@ aa_tab <- amino_acid_table
 is_disagree <- merged$Peptide_state != "Same" | merged$Modification_state != "Same"
 cat("五策略不一致谱行：", sum(is_disagree), "/", nrow(merged), "\n")
 cat("disagreeing spectra: ", sum(is_disagree), "/", nrow(merged), "\n")
-#：阶段 B 对全部谱做原始鉴定配对——一致谱仅 a 候选（combine 对
-# Same 状态返回 "a"），使主表的成对状态覆盖每一行。设计约定：筛选级联第 2 步
+# 2026-09-12：阶段 B 对全部谱做原始鉴定配对——一致谱仅 a 候选（combine 对
+# Same 状态返回 "a"），使主表的成对状态覆盖每一行。用户口径：筛选级联第 2 步
 # 的配对证据是"原始 pFind 结果自身配对（cos>0.7）"，与竞争仲裁无关；此前仅
 # 不一致谱入配对报告，主表其余行成对状态为占位符，与逐谱配对文件不一致。
-#: stage B pair-checks EVERY spectrum with its original
+# 2026-09-12: stage B pair-checks EVERY spectrum with its original
 # identification (consistent rows carry only the "a" candidate, which is what
 # combine() returns for "Same" states), so the master table's paired state
 # covers every row. The cascade step-2 evidence is the ORIGINAL pFind result's
@@ -179,13 +179,13 @@ if (is.na(nc) || nc < 2L) nc <- 2L
 use_cores <- max(1L, min(nc - 1L, 16L))
 cl <- parallel::makeCluster(use_cores)
 on.exit(parallel::stopCluster(cl), add = TRUE)
-# 统一 bootstrap（绝对路径 source + 健康检查），
-# worker 错误处理器单独设置
+# 2026-09-25（P0-2）：统一 bootstrap（绝对路径 source + 健康检查），
+# worker 错误处理器单独设置（B1 层，2026-09-12）
 ispsv_bootstrap_cluster(cl)
 parallel::clusterEvalQ(cl, {
   options(error = function() {
-    #：worker stdout 会被丢弃，堆栈改写入 worker_error_log.txt
-    # 
+    # 2026-09-12：worker stdout 会被丢弃，堆栈改写入 worker_error_log.txt
+    # （B1 层的 traceback 只能看到 snow 包装帧，看不到真实出错函数）
     tb <- paste(vapply(sys.calls(), function(cc) {
       h <- deparse(cc[[1]], nlines = 1L)
       if (length(h) == 0) "?" else substr(h[1], 1, 80)
@@ -201,9 +201,10 @@ parallel::clusterEvalQ(cl, {
   })
   invisible(NULL)
 })
-# 原始 MGF 谱缓存：缓存存在且 raw 集合＋文件 mtime 一致时复用否则重新加载并保存
+# 原始 MGF 谱缓存：缓存存在且 raw 集合＋文件 mtime 一致时复用（B2 优化 2026-09-10：
+# 加入文件新鲜度校验，防止 MGF 修改后旧缓存仍被使用），否则重新加载并保存
 # Raw MGF cache: reuse when the raw set AND file mtimes match (B2 optimization
-#: file-freshness validation added so a modified MGF invalidates the
+# 2026-09-10: file-freshness validation added so a modified MGF invalidates the
 # cache); otherwise reload and save
 loaded <- NULL
 cache_file <- file.path(out_dir, paste0("raw_loaded_", label_name, ".rds"))
@@ -225,7 +226,13 @@ if (file.exists(cache_file) && file.exists(cache_sig_file)) {
 if (is.null(loaded)) {
   loaded <- load_mgf_shared(mgf_files[need_idx], cl)
   names(loaded) <- mgf_stems[need_idx]
-  saveRDS(loaded, cache_file)
+  # v2.0.180（画像轮 E）：缓存改不压缩写——1.5GB 级 S4 对象表的 gzip 压缩
+  # 占加载段可观时长，盘换时间（readRDS 同步提速；旧压缩缓存仍可读）。
+  # v2.0.180 (profiling round E): the cache writes uncompressed - gzip on a
+  # ~1.5GB S4 object list is a visible slice of the load phase; disk is
+  # traded for time (readRDS speeds up alike; old compressed caches still
+  # read fine).
+  saveRDS(loaded, cache_file, compress = FALSE)
   writeLines(paste(mgf_files[need_idx],
                    format(file.mtime(mgf_files[need_idx]), "%Y%m%d%H%M%S"),
                    sep = ":", collapse = "|"), cache_sig_file, useBytes = TRUE)
@@ -243,7 +250,7 @@ payloads <- lapply(names(raw_idx), function(rw) {
   objs <- loaded[[rw]]
   if (is.null(objs)) return(NULL)   # 缺失 raw：目标谱跳过成对核查（已打印警告）
   pars <- extractParameters_MGF(objs)
-  list(raw = rw, rows = rows, datsub = target[rows,, drop = FALSE],
+  list(raw = rw, rows = rows, datsub = target[rows, , drop = FALSE],
        pars = pars, objs = objs)
 })
 n_miss_raws <- sum(vapply(payloads, is.null, logical(1)))
@@ -255,9 +262,9 @@ if (n_miss_raws > 0) {
 rm(loaded, target)
 invisible(gc())
 
-# P1 优化raw 内再分块（每块 ≤2000 行），充分利用全部 worker。
+# P1 优化（2026-09-10）：raw 内再分块（每块 ≤2000 行），充分利用全部 worker。
 # 此前 7 个 raw = 7 个并行任务，16 个 worker 中 9 个空闲；分块后 ~35 个任务。
-# P1 optimization split each raw's rows into chunks of <=2000
+# P1 optimization (2026-09-10): split each raw's rows into chunks of <=2000
 # to utilise all workers. Previously 7 raws = 7 parallel tasks with 9 of 16
 # workers idle; chunking yields ~35 tasks.
 CHUNK_N <- 2000L
@@ -271,7 +278,7 @@ for (p in payloads) {
     for (ci in seq_len(nc)) {
       idx <- ((ci - 1L) * CHUNK_N + 1L):min(ci * CHUNK_N, nr)
       chunked[[length(chunked) + 1]] <- list(
-        raw = p$raw, datsub = p$datsub[idx,, drop = FALSE],
+        raw = p$raw, datsub = p$datsub[idx, , drop = FALSE],
         pars = p$pars, objs = p$objs)
     }
   }
@@ -291,22 +298,22 @@ cat("[P1] 分块后 payload 数：", length(payloads), "\n")
 # Input: pp - the per-raw payload list (raw, rows, datsub, pars, objs)
 # Output: a data.frame of all target spectra of this raw (empty when there are no results)
 scan_worker <- function(pp) {
-  # P2 优化标题 O(1) 命名向量索引取代线性 which() 扫描
-  # P2 optimization O(1) named-vector title index replaces
+  # P2 优化（2026-09-10）：标题 O(1) 命名向量索引取代线性 which() 扫描
+  # P2 optimization (2026-09-10): O(1) named-vector title index replaces
   # the linear which() scan
   title_ix <- setNames(seq_along(pp$pars$Title), pp$pars$Title)
-  # v1.0RT 排序每 raw 分块算一次，随
+  # v1.0（P1-2，deepseek v1.0 审查）：RT 排序每 raw 分块算一次，随
   # 参数传入 paired_match_candidate（函数内挂 attr 因写时复制从不跨调用生效，
   # 每候选重排整 raw 参数表 O(R log R)）
   pp$rt_ord <- order(pp$pars$RTinSeconds, na.last = NA)
-  # P3 优化worker 级理论离子缓存——同一 (seq, mod, label) 在
+  # P3 优化（2026-09-11）：worker 级理论离子缓存——同一 (seq, mod, label) 在
   # 预测余弦与 Xle 变体分支反复调用 by_ions_position，哈希缓存避免重算。
-  # （性能第二轮）：缓存本体提升到库级进程缓存 cached_by_ions_position
+  # v1.0（性能第二轮）：缓存本体提升到库级进程缓存 cached_by_ions_position
   # （跨分块复用，此前每 chunk 重建即失效）；本闭包只保留 NULL 语义包装。
-  # P3 optimization worker-level theoretical-ion cache - the
+  # P3 optimization (2026-09-11): worker-level theoretical-ion cache - the
   # predicted-cosine and Xle-variant branches call by_ions_position repeatedly
   # for the same (seq, mod, label); a hash cache avoids recomputation.
-  # (perf round 2): the cache itself moved to the library-level
+  # v1.0 (perf round 2): the cache itself moved to the library-level
   # cached_by_ions_position (reused across chunks - the old per-chunk env was
   # rebuilt every chunk); this closure keeps only the NULL-semantics wrapper.
   theo_cached <- function(seq, mod, lab) {
@@ -319,7 +326,7 @@ scan_worker <- function(pp) {
   dat <- pp$datsub
   n <- nrow(dat)
   rep <- vector("list", n)
-  #：行体提取为闭包，循环内 tryCatch 按行隔离（单谱崩溃不再
+  # 2026-09-12：行体提取为闭包，循环内 tryCatch 按行隔离（单谱崩溃不再
   # 连坐整个分块）；行体内 next 改为 return(NULL)
   row_fun <- function(j) {
     fn <- dat$File_Name[j]
@@ -349,14 +356,14 @@ scan_worker <- function(pp) {
       ci <- seq_cols[match(k1, slot_syms)]
       sq <- as.character(dat[j, ci])
       md <- as.character(dat[j, ci + 1])
-      if (is.na(md)) md <- ""            # 空修饰列被读成 logical NA 的防御
+      if (is.na(md)) md <- ""            # 空修饰列被读成 logical NA 的防御（2026-09-12）
       if (is.na(sq) || sq == "") return(NULL)
       cand[[length(cand) + 1]] <- list(idx = strsplit(st, "", fixed = TRUE)[[1]],
                                        seq = sq, mod = md)
     }
     if (length(cand) == 0) return(NULL)
-    # P4 优化结果向量预分配＋下标赋值（取代逐次 c() 的 O(n²) 增长）
-    # P4 optimization preallocated result vectors with indexed
+    # P4 优化（2026-09-11）：结果向量预分配＋下标赋值（取代逐次 c() 的 O(n²) 增长）
+    # P4 optimization (2026-09-11): preallocated result vectors with indexed
     # assignment (replaces the O(n^2) growth of repeated c() appends)
     nc <- length(cand)
     states <- character(nc); ul_cov <- character(nc); ul_by <- character(nc)
@@ -371,7 +378,7 @@ scan_worker <- function(pp) {
       # Look up the pDeep2 prediction index by seq|mod|charge; fall back to the no-modification key when missing
       pi <- unname(pred_idx[paste0(sq, "|", md, "|", z)])
       if (is.na(pi)) pi <- unname(pred_idx[paste0(sq, "||", z)])
-      if (is.na(pi)) {                                            # SAP 代入键
+      if (is.na(pi)) {                                            # SAP 代入键（2026-09-03）
         fxk <- apply_sap_to_sequence(sq, md)
         pi <- unname(pred_idx[paste0(fxk$seq, "|", fxk$mod, "|", z)])
         if (is.na(pi)) pi <- unname(pred_idx[paste0(fxk$seq, "||", z)])
@@ -393,7 +400,7 @@ scan_worker <- function(pp) {
       if (!is.na(pi)) {
         pc <- pred_cos_one(pi, sq, md)
       }
-      if (is.na(pc) && grepl("Xle->", md, fixed = TRUE)) {       # Xle 双条目取最高
+      if (is.na(pc) && grepl("Xle->", md, fixed = TRUE)) {       # Xle 双条目取最高（2026-09-03）
         best <- NA_real_
         for (v_k in apply_sap_variants(sq, md)) {
           pj <- unname(pred_idx[paste0(v_k$seq, "|", v_k$mod, "|", z)])
@@ -416,7 +423,7 @@ scan_worker <- function(pp) {
       # missing: the label-side metrics and the paired cosine are NA, shown empty and
       # flagged by pair_missing); otherwise record the dual-spectrum scores and cosines
       if (is.null(pm)) {
-        states[k] <- "single"; ul_cov[k] <- ""              # 二值小写
+        states[k] <- "single"; ul_cov[k] <- ""              # 二值小写（用户 2026-09-02 定）
         ul_by[k] <- ""; ul_all[k] <- ""
         lb_fn[k] <- ""; lb_cov[k] <- ""; lb_by[k] <- ""
         lb_all[k] <- ""; dcos[k] <- NA_real_; prd[k] <- round(pc, 4)
@@ -482,7 +489,7 @@ scan_worker <- function(pp) {
   }
   for (j in seq_len(n)) {
     rep[[j]] <- tryCatch(row_fun(j), error = function(e) {
-      #：按行隔离——单谱崩溃不再连坐整个分块（576 运行 73 行
+      # 2026-09-12：按行隔离——单谱崩溃不再连坐整个分块（576 运行 73 行
       # 被整块丢弃的根因排查发现）；行号＋出错函数名堆栈写入日志
       tb <- paste(vapply(sys.calls(), function(cc) {
         h <- deparse(cc[[1]], nlines = 1L)
@@ -502,7 +509,7 @@ scan_worker <- function(pp) {
 # 将工作函数挂到全局环境并显式导出所需变量，避免闭包序列化问题
 # Bind the worker to the global environment and explicitly export the required variables to avoid closure serialization issues
 environment(scan_worker) <- globalenv()
-# 小样本空配对报告根因：B1 的 tryCatch 匿名闭包把 scan_worker 变成
+# 2026-09-11 小样本空配对报告根因：B1 的 tryCatch 匿名闭包把 scan_worker 变成
 # 自由符号，工作进程全局环境里没有该函数（旧代码直接传 scan_worker 作为 FUN，
 # 按值序列化所以可用）。out_dir 同样被错误处理分支引用，必须一并导出，
 # 否则 worker_error_log.txt 写入会静默失败（try(silent=TRUE) 吞掉）。
@@ -514,28 +521,77 @@ parallel::clusterExport(cl, c("scan_worker", "out_dir", "seq_cols", "mod_cols", 
 # Print the paired-matching task size, then run all chunked payloads in parallel
 cat("[stage B] 成对匹配：", length(payloads), " 个分块，使用 ", use_cores, " 个进程\n")
 cat("[stage B] paired matching: ", length(payloads), " chunks with ", use_cores, " workers\n")
-# B1 优化tryCatch 防单块崩溃杀死全管线；parLapplyLB 动态分配
-# B1 optimization tryCatch prevents a single chunk crash from
-# killing the entire pipeline; parLapplyLB distributes chunks dynamically
-res <- parallel::parLapplyLB(cl, payloads, function(p) {
-  tryCatch(scan_worker(p), error = function(e) {
-    # 错误除打印外同时写入 worker_error_log.txt（parLapply 工作进程 stdout
-    # 会被丢弃，仅打印会导致错误静默——小样本空配对报告追查发现）；
-    # 附函数名堆栈（snow 协议会在 worker 层吞掉内层帧，
-    # 行级 tryCatch 才记录真实出错函数，这里只记分块级）
-    msg <- paste0("WORKER-ERROR raw=", p$raw, ": ", conditionMessage(e))
-    tb <- paste(vapply(sys.calls(), function(cc) {
-      h <- deparse(cc[[1]], nlines = 1L)
-      if (length(h) == 0) "?" else substr(h[1], 1, 80)
-    }, character(1)), collapse = " -> ")
-    cat(msg, "
-")
-    try(write(c(msg, tb), file.path(out_dir, "worker_error_log.txt"), append = TRUE),
-        silent = TRUE)
-    NULL
-  })
-})
-res <- Filter(Negate(is.null), res)
+# v2.0.180（画像轮 C，二稿）：组级 parLapplyLB——首稿静态 bin（clusterApply
+# 每 worker 一 bin）实测 807.8s→1,025s 回退：行数均衡≠耗时均衡，丢了动态
+# LB 尾部吃满。二稿兼得两头：把同 raw 的相邻 chunk 归并为约 2×workers 个
+# 「组」任务（组内 chunk 共享该 raw 的 pars/objs，随组只序列化一次——旧
+# parLapplyLB 每 2000 行 chunk 整包序列化，595MB raw≈16 次），组仍走
+# parLapplyLB 动态分配；结果按原始 chunk 序号排序后 rbind，行序与旧法
+# 完全一致、输出逐字节不变。B1 单块 tryCatch＋worker_error_log 语义保留。
+# v2.0.180 (profiling round C, second take): group-level parLapplyLB. The
+# first take (static per-worker bins via clusterApply) REGRESSED 807.8s ->
+# 1,025s: row-count balance is not time balance, and the static split lost
+# dynamic load balancing. This take keeps both: adjacent same-raw chunks
+# merge into ~2x-workers GROUP tasks (chunks inside a group share the raw's
+# pars/objs, serialized once per group - the old parLapplyLB serialized the
+# full objs with every 2000-row chunk, 16x for a 595MB raw), and the groups
+# still dispatch via parLapplyLB; results reassemble by ORIGINAL chunk index
+# before rbind, byte-identical to the old dispatch. The B1 per-chunk tryCatch
+# + worker_error_log semantics are kept.
+{
+  np <- length(payloads)
+  n_groups <- max(use_cores, min(np, 2L * use_cores))
+  gsz <- ceiling(np / n_groups)
+  g_raw_all <- vapply(payloads, function(p) p$raw, character(1))
+  groups <- list()
+  j0 <- 1L
+  while (j0 <= np) {
+    j1 <- min(np, j0 + gsz - 1L)
+    jj <- j0:j1
+    for (rw in unique(g_raw_all[jj])) {
+      kj <- jj[g_raw_all[jj] == rw]
+      groups[[length(groups) + 1L]] <- list(
+        raw = payloads[[kj[1]]]$raw,
+        pars = payloads[[kj[1]]]$pars,
+        objs = payloads[[kj[1]]]$objs,
+        seqs = as.integer(kj),
+        datsubs = lapply(kj, function(k) payloads[[k]]$datsub))
+    }
+    j0 <- j1 + 1L
+  }
+  group_worker <- function(g) {
+    out <- list()
+    for (ci in seq_along(g$seqs)) {
+      p <- list(raw = g$raw, datsub = g$datsubs[[ci]],
+                pars = g$pars, objs = g$objs)
+      df <- tryCatch(scan_worker(p), error = function(e) {
+        msg <- paste0("WORKER-ERROR raw=", g$raw, ": ", conditionMessage(e))
+        tb <- paste(vapply(sys.calls(), function(cc) {
+          h <- deparse(cc[[1]], nlines = 1L)
+          if (length(h) == 0) "?" else substr(h[1], 1, 80)
+        }, character(1)), collapse = " -> ")
+        cat(msg, "\n")
+        try(write(c(msg, tb), file.path(get("out_dir", envir = .GlobalEnv),
+                                        "worker_error_log.txt"), append = TRUE),
+            silent = TRUE)
+        NULL
+      })
+      out[[length(out) + 1L]] <- list(seq = g$seqs[ci], df = df)
+    }
+    out
+  }
+  environment(group_worker) <- globalenv()
+  parallel::clusterExport(cl, "group_worker", envir = environment())
+  cat(sprintf("[stage B] 组级派发：%d 组（chunk %d），每组共享 raw 对象一次\n",
+              length(groups), np))
+  cat(sprintf("[stage B] group dispatch: %d groups (%d chunks), each group ships its raw objects once\n",
+              length(groups), np))
+  grp_res <- parallel::parLapplyLB(cl, groups, group_worker)
+  flat <- unlist(grp_res, recursive = FALSE)
+  ord <- order(vapply(flat, function(x) x$seq, integer(1)))
+  res <- lapply(flat[ord], function(x) x$df)
+  res <- Filter(Negate(is.null), res)
+}
 pt_mark("成对匹配打分", "paired matching + scoring")
 
 # 合并各 raw 的并行结果并写出配对报告 paired_report_<label_type>.tsv

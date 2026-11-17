@@ -1,5 +1,5 @@
 # =============================================================================
-# sysinfo_probe.R - 独立运行环境探测脚本
+# sysinfo_probe.R - 独立运行环境探测脚本（用户口径 2026-09-21：软件质控之一）
 #
 # 检测：CPU（型号/核数/线程）、内存（总量/可用）、磁盘（各盘剩余）、GPU、
 #       R 与 Python 是否安装及版本、管线依赖的外部引擎路径是否存在。
@@ -57,15 +57,15 @@ py  <- tryCatch(suppressWarnings(system2("python", c("--version"), stdout = TRUE
 py3 <- tryCatch(suppressWarnings(system2("py", c("-3", "--version"), stdout = TRUE, stderr = TRUE)),
                 error = function(e) character(0))
 py4 <- tryCatch(suppressWarnings(system2("python3", c("--version"), stdout = TRUE, stderr = TRUE)),
-                error = function(e) character(0))   # F-6与 py_detect 三段回退对齐
+                error = function(e) character(0))   # F-6（2026-09-26）：与 py_detect 三段回退对齐
 add("Python (python)", "Python via python", if (length(py)) trimws(py[1]) else "未安装 / not installed")
 add("Python (py -3)", "Python via py launcher", if (length(py3)) trimws(py3[1]) else "未安装 / not installed")
 add("Python (python3)", "Python via python3", if (length(py4)) trimws(py4[1]) else "未安装 / not installed")
-#：自带 runtime python（管线锁定使用的解释器）单列一行——PATH 无
+# v2.0.144：自带 runtime python（管线锁定使用的解释器）单列一行——PATH 无
 # Python 或 PATH 首个 Python 损坏时流程仍可跑（renumber 等 stdlib 脚本）。
 # 双锚点兜底：脚本绝对路径的上级包根；相对路径调用时退回 cwd 上级
 # （调用约定：以 code 为工作目录）。
-#: one row for the bundled runtime python (the interpreter the
+# v2.0.144: one row for the bundled runtime python (the interpreter the
 # pipeline is locked to) - the flow still runs when PATH has no Python or a
 # broken first Python (stdlib-only scripts such as renumber). Two anchors:
 # the package root above the script's absolute path, falling back to the cwd
@@ -83,10 +83,10 @@ add("Python (软件自带 runtime)", "Python (bundled runtime)",
     if (length(py_bv)) trimws(py_bv[1]) else "未随包分发 / not bundled")
 
 # ---- 外部引擎存在性（常见安装位置探测；未配置路径时报未检出而非错误）----
-# R3 P3：固定路径之外，按安装根做有界深度模式搜索（覆盖工作站
+# 2026-09-24 R3 P3：固定路径之外，按安装根做有界深度模式搜索（覆盖工作站
 # C:/software 下的新装布局 MaxQuant/MSFragger/Comet/Sage/MetaMorpheus/MSBooster/
 # X!Tandem）；固定路径命中优先（不触发深搜）。
-# R3 P3: beyond the fixed paths, a bounded-depth pattern search
+# 2026-09-24 R3 P3: beyond the fixed paths, a bounded-depth pattern search
 # under the install roots (covers the workstation C:/software layouts of
 # MaxQuant/MSFragger/Comet/Sage/MetaMorpheus/MSBooster/X!Tandem); fixed-path
 # hits win (no deep walk).

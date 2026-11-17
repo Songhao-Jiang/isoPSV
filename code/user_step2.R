@@ -28,9 +28,9 @@
 
 # 加载通用工具函数（配置解析、路径解析、合并/校正/SAP 提取等）
 # Load the shared utility functions (config parsing, path resolution, merge/revise/SAP extraction, etc.)
-# 核心库统一入口按 --file= 定位代码目录、绝对路径加载
+# 核心库统一入口（N-1，2026-09-25）：按 --file= 定位代码目录、绝对路径加载
 # （boot.R），替代裸相对 source——此前仅当启动 cwd 恰为 code/ 时成立。
-# core-library entry locate the code dir via --file= and
+# core-library entry (N-1, 2026-09-25): locate the code dir via --file= and
 # load by absolute path (boot.R), replacing the bare relative source().
 sd0 <- dirname(tryCatch(normalizePath(sub("^--file=", "",
     grep("^--file=", commandArgs(FALSE), value = TRUE)[1]), winslash = "/"),
@@ -38,21 +38,21 @@ sd0 <- dirname(tryCatch(normalizePath(sub("^--file=", "",
 if (is.na(sd0) || !dir.exists(sd0)) sd0 <- getwd()
 source(file.path(sd0, "boot.R"))
 
-# Windows 下 source(file, encoding="UTF-8") 的
+# v2.0.138（2026-10-13）：Windows 下 source(file, encoding="UTF-8") 的
 # connection 层偶发 "invalid input found on input connection"（文件本体合法
 # UTF-8、逐行 iconv 无坏字符仍复现），致 punifind_gpu_compat.R 的 pf_run 未定
 # 义、自动 rescore 假失败。改为 readLines+parse+eval，语义等同 source。
-#  source(file, encoding="UTF-8") sporadically fails at
+# v2.0.138 (2026-10-13): source(file, encoding="UTF-8") sporadically fails at
 # the connection layer on Windows (valid UTF-8, clean per-line iconv), leaving
 # pf_run undefined and faking an auto-rescore failure. readLines+parse+eval is
 # semantically identical.
 source_utf8 <- function(path) {
-  # （D8，NTM 实测）：Mch 子集在动态 parse 阶段
+  # v2.0.177（D8，NTM 实测）：Mch 子集在动态 parse 阶段
   # "invalid multibyte character in parser" 整体退出且无法定位（只有
   # <input>:28:46）——readLines(encoding="UTF-8") 对含 GBK 字节的源产出
   # 非法 UTF-8 字符串。兜底：逐行 iconv GBK→UTF-8 清洗（ASCII 恒等），
   # parse 失败时打印源文件与出错行上下文再抛错。
-  #  (D8, NTM live fire): the Mch subsets died at the dynamic parse
+  # v2.0.177 (D8, NTM live fire): the Mch subsets died at the dynamic parse
   # stage with "invalid multibyte character" and no locatable context - 
   # readLines(encoding="UTF-8") yields invalid UTF-8 strings for sources
   # carrying GBK bytes. Fallback: per-line iconv GBK->UTF-8 (ASCII identical),
@@ -89,7 +89,7 @@ cfg2 <- read_param_file(cfg2_path)
 code_dir <- getwd()
 base_path <- resolve_cfg_paths(cfg2, "base_config")[1]
 base_cfg <- read_param_file(base_path)
-# candidate_scopefiltered=现状；top5=忽略引擎 1% FDR
+# candidate_scope（2026-09-27 用户口径）：filtered=现状；top5=忽略引擎 1% FDR
 # 过滤、每引擎每谱取引擎自身排序前 5 候选进竞争池。top5 下经 ISOPSV_CAND_ALL
 # 环境变量让适配器子进程输出全部候选（合并步封顶 5，由 merge_search_results
 # 的 candidate_scope 参数接收）。须在引擎自动运行循环之前设置——适配器经
@@ -107,20 +107,176 @@ if (cand_scope == "top5") {
   cat("[candidate scope] candidate_scope=top5: engine FDR ignored, top-5 candidates per engine per spectrum enter the pool\n")
 }
 
+# v2.0.184：管道符肽（pFind 二选一异构体 "PEPT|IDEK"）处置——
+# pipe_peptide_expand 键（默认 0＝整条跳过＋计数，现行口径；1＝展开为各变体
+# 分别进竞争池）。展开会放大候选行数（918 条→最多 5 变体/条），须评估
+# 仲裁语义后再启用；默认关闭＝输出与 183 及以前完全一致。
+# v2.0.184: pipe-notation peptides (pFind either-or isoform "PEPT|IDEK") -
+# the key pipe_peptide_expand (default 0 = skip whole + count, the current
+# behavior; 1 = expand to individual variants entering the competition pool).
+# Expansion inflates candidate rows (918 -> up to 5 variants each); evaluate
+# the arbitration semantics before enabling; default off = outputs identical
+# to 183 and earlier.
+pipe_expand <- "0"
+for (src in list(base_cfg, cfg2)) {
+  if (!is.null(src$pipe_peptide_expand) && length(src$pipe_peptide_expand) > 0 &&
+      src$pipe_peptide_expand[1] %in% c("0", "1")) {
+    pipe_expand <- src$pipe_peptide_expand[1]
+  }
+}
+if (identical(pipe_expand, "1")) {
+  cat("[管道符肽] pipe_peptide_expand=1：展开为各变体（非默认口径，候选行数将增加）\n")
+  cat("[pipe peptides] pipe_peptide_expand=1: expanding to variants (non-default; candidate rows will grow)\n")
+  # TODO v185：展开逻辑落在 revise_search_result 的 I→L 归一前——须先评估
+  # 展开后 ΔScore/投票语义再实施；此键本轮只做声明与告警，不改行为。
+  # TODO v185: the expansion logic goes before revise's I->L normalization;
+  # evaluate the DeltaScore/vote semantics first. This key is declared and
+  # warned this round; behavior is unchanged.
+}
+
+# 统一配置键读取（v2.0.179 合并两处定义）：step1（base_cfg）优先于 step2（cfg2）
+# ——与 cfg_get_preferred 同口径；verbose=TRUE 时打印生效值与来源（pUniFind
+# 块的口径），默认静默（引擎块口径）。
+# Unified config-key read (v2.0.179, merging the two former definitions):
+# step1 (base_cfg) wins over step2 (cfg2), same rule as cfg_get_preferred;
+# verbose=TRUE prints the effective value and its source (the pUniFind-block
+# convention), silent by default (the engine-block convention).
+cfg_get <- function(key, default = NULL, validate = NULL, verbose = FALSE) {
+  r <- cfg_get_preferred(base_cfg, cfg2, key, default, validate)
+  if (verbose && nzchar(r$source)) {
+    cat("[pUniFind 配置] ", key, " = ", as.character(r$value),
+        "（来源：", r$source, "）\n", sep = "")
+  }
+  r$value
+}
+
 # 解析 PSM 文件、补充搜库结果列表（仅 .spectra）与输出目录（merge/revised/）
-# 输出目录位于结果文件夹 result_YYYYMMDDHHMMSS 内（用户 规格：
+# 输出目录位于结果文件夹 result_YYYYMMDDHHMMSS 内（用户 2026-09-05 规格：
 # 全部流程产出统一入结果文件夹；RESULT_DIR 由总程序注入，独立运行按时间戳定位）
 # Resolve the PSM file, the supplementary search-result list (.spectra only) and the output dir (merge/revised/)
 # the output dir lives inside the result folder result_YYYYMMDDHHMMSS (user
-# spec: all pipeline outputs go into the result folder; RESULT_DIR
+# 2026-09-05 spec: all pipeline outputs go into the result folder; RESULT_DIR
 # is injected by the master, standalone runs locate by timestamp)
 psm_file <- resolve_cfg_paths(base_cfg, "psm_file")[1]
+# v2.0.182（工作站测评 F2，P0）：pg_mode=1 时 a 槽 psm 表在进入清洗/revise/
+# 合并前先裁到本轮 unlabeled/ 逐 raw MGF 的标题集——这些行没有对应谱图、
+# 下游阶段 A 标题匹配时必然丢弃，但会全程穿行清洗+revise+合并（工作站实测
+# 89 万行只有 ~3 万行为目标侧，合并段 5-6h/轮×4 轮）。预过滤后 psm_file 指向
+# merge/ 下过滤副本；pg_mode=0（默认）零改动零影响。标题提取走 findstr /B
+# （C 速扫描，不走 readLines）。全行命中时写跳过提示、不动 psm_file。
+# v2.0.182 (workstation review F2, P0): under pg_mode=1 the a-slot psm table
+# is trimmed to the title set of this run's unlabeled/ per-raw MGFs BEFORE
+# cleaning/revise/merge - rows without spectra are necessarily dropped by
+# stage A's title matching, yet they ride the whole clean+revise+merge chain
+# (measured on the workstation: only ~30k of 890k rows are on-target, 5-6h
+# of merge per round x 4 rounds). The filtered copy lands under merge/ and
+# psm_file points at it; pg_mode=0 (the default) is untouched. Titles come
+# from findstr /B (a C-speed scan, not readLines). When every row hits, a
+# skip note is printed and psm_file stays.
+{
+  pg2 <- "0"
+  for (src in list(base_cfg, cfg2)) {
+    if (!is.null(src$proteogenomics_mode) && length(src$proteogenomics_mode) > 0 &&
+        tail(src$proteogenomics_mode, 1) %in% c("0", "1", "2")) {
+      pg2 <- tail(src$proteogenomics_mode, 1)
+    }
+  }
+  if (identical(pg2, "1") && nzchar(psm_file) && file.exists(psm_file)) {
+    unl_dir2 <- file.path(cfg2$config_dir, "unlabeled")
+    mgfs2 <- setdiff(sort(list.files(unl_dir2, pattern = "\\.mgf$")), "unlabeled.mgf")
+    if (length(mgfs2) > 0) {
+      t0f <- Sys.time()
+      titles2 <- unique(unlist(lapply(file.path(unl_dir2, mgfs2), function(f) {
+        oo <- suppressWarnings(shell(sprintf('findstr /B /C:"TITLE= "%s',
+                                             shQuote(f, type = "cmd")),
+                                     intern = TRUE, mustWork = FALSE))
+        sub("^TITLE=", "", oo[nzchar(oo)])
+      })))
+      hdr2 <- strsplit(readLines(psm_file, n = 1, warn = FALSE), "\t", fixed = TRUE)[[1]]
+      icol2 <- which(hdr2 == "File_Name")
+      if (length(titles2) > 0 && length(icol2) == 1) {
+        # v2.0.183（G4）：单次全表读入（旧版两遍＝File_Name 列预读＋全表复读）；
+        # 标题集仍走 findstr（标题只能来自 MGF 文件本体，findstr＝C 速扫描）。
+        # v2.0.183 (G4): one full-table read (the old path read twice - a
+        # File_Name-only pass then the full table); the title set still comes
+        # from findstr (titles live only inside the MGFs, and findstr is the
+        # C-speed scan).
+        tab2 <- read.delim(psm_file, sep = "\t", header = TRUE,
+                           stringsAsFactors = FALSE, check.names = FALSE,
+                           na.strings = character(0), quote = "")
+        fn2 <- as.character(tab2[[icol2]])
+        keep2 <- fn2 %in% titles2
+        # v2.0.183（P1-2/G2）：保留率统计＋未命中 top-5 诊断＋<50% WARN——
+        # 标题口径漂移（大小写/_HCDFT 后缀等）会把 PSM 静默裁出仲裁且难察觉
+        # （工作站 _HCDFT 后缀坑前科）；诊断行让过度过滤一眼可见。
+        # v2.0.183 (P1-2/G2): retention stats + top-5 unmatched diagnostics +
+        # a WARN below 50% retention - a title-vocabulary drift (case,
+        # _HCDFT suffix, ...) silently pulls PSMs out of arbitration
+        # (the workstation lost a whole segment to the _HCDFT suffix once);
+        # the diagnostics make over-filtering visible at a glance.
+        rate2 <- sum(keep2) / max(length(keep2), 1L)
+        cat(sprintf("[pg 预过滤] a 槽 %d 行 → 保留 %d 行（保留率 %.1f%%），涉及 %d 张谱；unlabeled 标题集 %d 条（%.0fs）\n",
+                    length(keep2), sum(keep2), 100 * rate2,
+                    length(unique(fn2[keep2])), length(titles2),
+                    as.numeric(difftime(Sys.time(), t0f, units = "secs"))))
+        cat(sprintf("[pg pre-filter] a-slot %d rows -> kept %d (%.1f%%), %d spectra; unlabeled title set %d (%.0fs)\n",
+                    length(keep2), sum(keep2), 100 * rate2,
+                    length(unique(fn2[keep2])), length(titles2),
+                    as.numeric(difftime(Sys.time(), t0f, units = "secs"))))
+        if (any(!keep2)) {
+          cat("[pg 预过滤] 未命中 File_Name top-5（标题口径核对线索）：",
+              paste(utils::head(unique(fn2[!keep2]), 5), collapse = " | "), "\n")
+          cat("[pg pre-filter] top-5 unmatched File_Name (title-vocabulary clues): ",
+              paste(utils::head(unique(fn2[!keep2]), 5), collapse = " | "), "\n")
+        }
+        if (rate2 < 0.5) {
+          cat("[pg 预过滤][WARN] 保留率 <50%——若非注释谱为主的正常形态，请核对 psm 表与 unlabeled/ 的标题口径（大小写/后缀）\n")
+          cat("[pg pre-filter][WARN] retention <50% - unless annotated spectra dominate, check the title vocabulary (case/suffix) between the psm table and unlabeled/\n")
+        }
+        if (any(!keep2)) {
+          rd2 <- get_result_dir(cfg2$config_dir)
+          merge_dir2 <- file.path(rd2, "merge")
+          dir.create(merge_dir2, recursive = TRUE, showWarnings = FALSE)
+          psm_f2 <- file.path(merge_dir2, "psm_pg_prefiltered.spectra")
+          write.table(tab2[keep2, , drop = FALSE], psm_f2, sep = "\t",
+                      row.names = FALSE, col.names = TRUE, quote = FALSE,
+                      na = "")
+          cat("[pg 预过滤] 过滤副本：", psm_f2, "（后续清洗/合并走此件）\n")
+          cat("[pg pre-filter] filtered copy: ", psm_f2, " (clean/merge use this file)\n")
+          psm_file <- psm_f2
+        } else {
+          cat("[pg 预过滤] 全行命中，无需过滤，psm_file 不变\n")
+          cat("[pg pre-filter] every row on-target; psm_file unchanged\n")
+        }
+      }
+    }
+  }
+}
 # search_file 先保留原始条目（文件或文件夹均可）；按 search_file_type 的类型
 # 相关文件发现（文件夹 → 递归找目标文件、取最新）推迟到 search_types 确定之后。
 # search_file keeps its raw entries first (a file OR a folder both work); the
 # per-type file discovery (folder -> recursive target-file search, newest wins)
 # runs after search_types is settled.
 search_files <- resolve_cfg_paths(cfg2, "search_file")
+# v2.0.182（工作站测评 F3）：策略条目存在性前置校验——旧版路径不存在时报错
+# 发生在深层 readLines（"cannot open the connection"）不指明哪个策略条目。
+# 逐条校验并打印；有缺失即停、列出全部缺失项（一次看全，不用逐个跑逐个修）。
+# v2.0.182 (workstation review F3): upfront existence check for the strategy
+# entries - a missing path used to surface deep inside readLines ("cannot
+# open the connection") without naming the entry. Each entry is checked and
+# reported; any miss stops with the FULL missing list in one shot.
+if (length(search_files) > 0) {
+  miss3 <- which(!file.exists(search_files))
+  for (j in seq_along(search_files)) {
+    cat(sprintf("[策略条目 %d] %s %s\n", j,
+                if (j %in% miss3) "**路径不存在** file missing:" else "路径存在 OK:",
+                search_files[j]))
+  }
+  if (length(miss3) > 0) {
+    stop("上述 ", length(miss3), " 个 search_file 条目路径不存在（File_Name 详见上方清单，请修正 config_step2 后重跑）\nthe ",
+         length(miss3), " search_file entries above do not exist (see the list above; fix config_step2 and rerun)")
+  }
+}
 # 多引擎版：并行键 search_file_type 指定每个补充搜库结果的策略类型
 # （pfind_open/pfind_restrict/punifind_rescore/punifind_denovo/maxquant/
 # msfragger_open/msfragger/msfragger_boost/sage/comet/xtandem/metamorpheus/peaks/mascot/pnovo/
@@ -138,7 +294,27 @@ search_files <- resolve_cfg_paths(cfg2, "search_file")
 sf_type_cfg <- cfg2$search_file_type
 sf_type_cfg <- if (!is.null(sf_type_cfg)) sf_type_cfg[!is.na(sf_type_cfg) & sf_type_cfg != ""] else character(0)
 if (length(sf_type_cfg) > 0 && length(sf_type_cfg) != length(search_files)) {
-  stop("search_file_type 行数须与 search_file 一致\nsearch_file_type must match search_file")
+  # v2.0.183（测评 G3）：报错升级为指明对不上的那一行——并列两清单到
+  # 首个错位处，手写多一个 type/少一个 file 时一眼可见。
+  # v2.0.183 (review G3): the error now names the first diverging line -
+  # both lists print side by side up to the mismatch, so a hand-edited
+  # extra type or missing file is visible at a glance.
+  n_cmp <- max(length(sf_type_cfg), length(search_files))
+  cat("[配置对齐] search_file=", length(search_files),
+      " 行 vs search_file_type=", length(sf_type_cfg), " 行：\n", sep = "")
+  cat("[config alignment] search_file=", length(search_files),
+      " rows vs search_file_type=", length(sf_type_cfg), " rows:\n", sep = "")
+  first_div <- NA_integer_
+  for (j in seq_len(n_cmp)) {
+    a1 <- if (j <= length(search_files)) search_files[j] else "<缺失 missing>"
+    a2 <- if (j <= length(sf_type_cfg)) sf_type_cfg[j] else "<缺失 missing>"
+    cat(sprintf("  [%d] %-70s | %s\n", j, a1, a2))
+    if (is.na(first_div) && ((j > length(search_files)) || (j > length(sf_type_cfg))))
+      first_div <- j
+  }
+  stop("search_file 与 search_file_type 行数不一致（首个错位＝第 ", first_div,
+       " 行，见上方对照表；请补齐后重跑）\nsearch_file and search_file_type row counts differ (first divergence at line ",
+       first_div, ", see the table above; fix and rerun)")
 }
 infer_strategy_type <- function(sf) {
   sf_dir <- tolower(basename(dirname(dirname(sf))))
@@ -148,7 +324,7 @@ infer_strategy_type <- function(sf) {
   if (grepl("pnovo", sf_dir, fixed = TRUE)) return("pnovo")
   if (grepl("restrict", sf_dir, fixed = TRUE)) return("pfind_restrict")
   if (grepl("standard", sf_dir, fixed = TRUE)) return("pfind_standard")
-  #：外部 de novo 引擎按目录名推断（casanovo/primenovo 文件夹）
+  # v2.0.162：外部 de novo 引擎按目录名推断（casanovo/primenovo 文件夹）
   if (grepl("casanovo", sf_dir, fixed = TRUE)) return("casanovo")
   if (grepl("primenovo", sf_dir, fixed = TRUE)) return("primenovo")
   if (grepl("primenovo", sf_name, fixed = TRUE)) return("primenovo")
@@ -160,22 +336,22 @@ search_types <- if (length(sf_type_cfg) > 0) sf_type_cfg else {
   if (length(search_files) > 0) vapply(search_files, infer_strategy_type, character(1))
   else character(0)
 }
-# 按策略类型的文件夹解析search_file 填文件夹时，按类型
+# 按策略类型的文件夹解析（用户 2026-09-11）：search_file 填文件夹时，按类型
 # 对应的目标文件模式递归（≤4 层）发现结果文件，多个候选取最新，找不到报错；
 # 填文件路径时原样通过。使 CLI 与网页壳都可用"文件或文件夹"配置。
-# per-type folder resolution a directory in search_file is
+# per-type folder resolution (user 2026-09-11): a directory in search_file is
 # resolved by the type-specific file pattern (recursive, depth <= 4, newest
 # wins, clear error when nothing matches); a file path passes through. Both
 # the CLI and the web shell accept a file OR a folder.
 resolve_per_type <- function(sf, ty) {
-  #：auto 标记直通——auto-search 段会替换为真实产物路径
-  #: auto markers pass through; the auto-search section replaces
+  # v1.0：auto 标记直通——auto-search 段会替换为真实产物路径
+  # v1.0: auto markers pass through; the auto-search section replaces
   # them with real result paths
   if (startsWith(sf, "(auto:") || startsWith(basename(sf), "(auto:")) return(sf)
   if (dir.exists(sf)) {
     pat <- switch(ty,
       maxquant = "msms\\.txt$",
-      msfragger =, msfragger_open =, msfragger_boost = "(\\.tsv$|\\.pepXML$|\\.pep\\.xml$)",
+      msfragger = , msfragger_open = , msfragger_boost = "(\\.tsv$|\\.pepXML$|\\.pep\\.xml$)",
       sage = "results\\.sage\\.tsv$",
       comet = "(pep\\.tsv$|\\.txt$)",
       metamorpheus = "AllPeptides\\.psmtsv$",
@@ -183,7 +359,7 @@ resolve_per_type <- function(sf, ty) {
       peaks = "(\\.csv$|\\.tsv$)",
       mascot = "(\\.csv$|\\.dat$)",
       pnovo = "\\.csv$",
-      #：外部 de novo 引擎的产物（mzTab / denovo.tsv / 已转换 .spectra）
+      # v2.0.162：外部 de novo 引擎的产物（mzTab / denovo.tsv / 已转换 .spectra）
       casanovo = "(\\.mztab$|casanovo.*\\.spectra$)",
       primenovo = "(denovo\\.tsv$|primenovo.*\\.spectra$)",
       "\\.spectra$")
@@ -208,21 +384,21 @@ result_dir <- get_result_dir(cfg2$config_dir)
 out_dir <- file.path(result_dir, "merge")
 rev_dir <- file.path(out_dir, "revised")
 dir.create(rev_dir, recursive = TRUE, showWarnings = FALSE)
-# denovo CSV 转换punifind_denovo 类型的
+# denovo CSV 转换（2026-09-23 网页版全流程冒烟修复）：punifind_denovo 类型的
 # search_file 若填 GUI 产出的 .csv（无表头 9 列），先经 denovo_csv_to_spectra
 # 转成 .spectra 再合并——此前 CSV 直接进合并，read 解析错列致 names 长度 0 崩溃
-# a punifind_denovo search_file pointing at the
+# (2026-09-23 web-shell smoke fix): a punifind_denovo search_file pointing at the
 # GUI-produced .csv must first be converted by denovo_csv_to_spectra; the raw CSV
 # went straight into the merge before, whose column parse broke with names[3] vs 0
-# MiniMax P2-1转换失败降级为跳过该 CSV 并打印详情，不整轮崩溃。
+# MiniMax P2-1（2026-09-26）：转换失败降级为跳过该 CSV 并打印详情，不整轮崩溃。
 # 注意转换失败必须把该条目从 search_files/search_types 两个平行向量里一起移除
 # （循环内删会错位，先记 drop_indices 循环后再删）——否则下游合并仍会读到坏 CSV。
 # converted_spectra：转换产物；NULL = 转换失败（降级跳过该 CSV）
 drop_indices <- integer(0)
 search_files_orig <- search_files   # P3-5：原始清单留底（报错列被移除的源文件用）
-#：从合并清单中移除 (auto:...) 标记——auto-search 段独立运行引擎并
+# v1.0：从合并清单中移除 (auto:...) 标记——auto-search 段独立运行引擎并
 # 产出策略文件，标记行不参与合并（防止 merge 读不到文件报错）
-#: drop (auto:...) markers from the merge list; the auto-search
+# v1.0: drop (auto:...) markers from the merge list; the auto-search
 # section runs engines independently and produces strategy files
 auto_marker_idx <- which(startsWith(basename(as.character(search_files)), "(auto:") |
                           startsWith(as.character(search_files), "(auto:"))
@@ -248,10 +424,10 @@ for (k in seq_along(search_files)) {
       cat("punifind_denovo csv -> spectra:", search_files[[k]], "\n")
     }
   }
-  #：手动登记的外部 de novo 结果转换——primenovo 的 denovo.tsv
+  # v2.0.162：手动登记的外部 de novo 结果转换——primenovo 的 denovo.tsv
   # 自带 MGF 标题可直接转换；casanovo 的 mzTab 只有谱序号（需源 MGF 回映射），
   # 手动模式要求直接登记转换好的 .spectra（转换命令见 installation.md）。
-  #: manual external de novo conversions - a primenovo denovo.tsv
+  # v2.0.162: manual external de novo conversions - a primenovo denovo.tsv
   # carries MGF titles and converts standalone; a casanovo mzTab holds only
   # spectrum indices (source-MGF remap needed), so manual casanovo entries
   # must point at the converted .spectra (command in installation.md).
@@ -287,17 +463,17 @@ if (length(drop_indices)) {
   search_types <- search_types[-drop_indices]
   cat("punifind_denovo 转换失败条目已从合并清单移除，剩余策略文件：",
       length(search_files), " 个\n")
-  # P3-5全部条目都被移除时立即报错并
+  # P3-5（2026-09-26，deepseek v1.0 审查）：全部条目都被移除时立即报错并
   # 列出被移除文件——否则错误推迟到下游合并处，信息更远更难读
   if (length(search_files) == 0) {
     stop("punifind_denovo CSV 转换全部失败，合并清单为空；被移除文件：\n",
          paste(search_files_orig[drop_indices], collapse = "\n"))
   }
 }
-# Mascot / PEAKS 原始导出自动转换这两个引擎只有 GUI 导出件
+# Mascot / PEAKS 原始导出自动转换（2026-09-24）：这两个引擎只有 GUI 导出件
 # （Mascot "Export Search Results" CSV、PEAKS DB search 肽段 CSV），合并前由
 # 适配器转成交换格式。Mascot .dat 无法解析，给导出指引后停点。
-# Mascot / PEAKS raw-export conversion these two engines only
+# Mascot / PEAKS raw-export conversion (2026-09-24): these two engines only
 # ship GUI exports (Mascot "Export Search Results" CSV, PEAKS DB-search peptide
 # CSV); the adapters convert them to the interchange format before the merge.
 # Mascot .dat cannot be parsed - stop with export guidance.
@@ -315,7 +491,7 @@ for (k in seq_along(search_files)) {
       search_files[[k]] <- out_i
       cat("mascot csv -> spectra:", out_i, "\n")
     } else {
-      stop("Mascot 结果请导出为 CSV 后填入：在 Mascot 中 Export Search Results 选择 CSV，",
+      stop("Mascot 结果请导出为 CSV 后填入：在 Mascot 中 Export Search Results 选择 CSV，" ,
            "勾选 Query title、Peptide sequence 与 Variable modifications（.dat 文件无法直接解析）\n",
            "export the Mascot result as CSV (Export Search Results, tick Query title, ",
            "Peptide sequence and Variable modifications); .dat files cannot be parsed directly")
@@ -332,7 +508,7 @@ for (k in seq_along(search_files)) {
   }
   if (identical(ty, "xtandem") && grepl("\\.xml$", sf, ignore.case = TRUE)) {
     out_i <- file.path(rev_dir, "xtandem_auto.spectra")
-    # P1新版 X!Tandem 的 group label 是蛋白描述
+    # P1（2026-09-26，deepseek 实弹）：新版 X!Tandem 的 group label 是蛋白描述
     # 而非谱图标题，无 map 时按 label 回退会丢失谱级信息——同目录
     # <同名>_renum_map.tsv（new_scan<TAB>original_title）存在时一并传入，
     # 适配器按 <group id> 解析标题
@@ -357,6 +533,35 @@ cat("search files:", length(search_files), "\n")
 # 第二步各阶段的计时标记（双语输出）
 # bilingual timing marks for the step-2 phases
 pt0 <- proc.time()
+# unlabeled/ 目录下的逐 raw 纯 MGF 枚举（排除合并件 unlabeled.mgf 与无 RT 的
+# *_check.mgf 残留）——pFind 自动臂与外部引擎自动运行共用（v2.0.179 抽取，
+# 原两份逐字拷贝；排除规则自此单一事实源）。
+# Enumerate the per-raw pure MGFs under unlabeled/ (excluding the merged
+# unlabeled.mgf and the RT-less *_check.mgf leftovers) - shared by the pFind
+# auto arm and the external-engine auto run (v2.0.179; the exclusion rule now
+# has a single source of truth).
+list_pure_raw_mgfs <- function(dir) {
+  m <- sort(list.files(dir, pattern = "\\.mgf$", full.names = TRUE))
+  m[basename(m) != "unlabeled.mgf" & !grepl("_check\\.mgf$", basename(m))]
+}
+# 从错误消息中提取 "exit N" 退出码（无匹配按 1）——pUniFind rescore/denovo
+# 自动运行的错误处理器共用（v2.0.179 抽取，原两份逐字拷贝）。
+# Extract an "exit N" code from an error message (1 when absent) - shared by
+# the pUniFind rescore/denovo auto-run error handlers (v2.0.179).
+extract_exit_code <- function(msg) {
+  mm <- regmatches(msg, regexpr("exit [0-9]+", msg))
+  if (length(mm) > 0) sub("exit ", "", mm) else "1"
+}
+# TSV 拼接（首件带头，其余去头追加；useBytes 写出）——pFind 分片合并与外部
+# 引擎分片拼接共用（v2.0.179 抽取，原两份逐字拷贝）。
+# TSV concatenation (first file keeps the header, the rest lose theirs;
+# written with useBytes) - shared by the pFind shard merge and the external
+# engine part concatenation (v2.0.179).
+concat_tsv_with_header <- function(files, out) {
+  heads <- lapply(files, readLines, n = 1, warn = FALSE)
+  bodies <- lapply(files, function(p) readLines(p, warn = FALSE)[-1])
+  writeLines(c(heads[[1]], unlist(bodies, use.names = FALSE)), out, useBytes = TRUE)
+}
 # pt_mark：打印某个阶段的耗时标记（双语），并重置计时起点
 # 作用：记录并打印从上次标记到当前的墙钟/CPU 耗时，便于跟踪各阶段运行时间
 # 输入：tag——阶段名称（字符串，输出时作为标记打印）
@@ -414,34 +619,32 @@ run_pfind_auto <- function(cfg_tpl) {
   # 结果目录中已有 .spectra 时直接复用（优先 Filtered）
   # Reuse an existing .spectra in the result folder when present (Filtered preferred)
   cand0 <- list.files(out_dir_auto, pattern = "\\.spectra$", full.names = TRUE)
-  # N-18复用判据加 MGF 新鲜度——同指纹但 MGF 比产物新
+  # N-18（2026-09-26，GLM）：复用判据加 MGF 新鲜度——同指纹但 MGF 比产物新
   # （换了 raw 数据）时同样强制重搜；此前只查"存在+指纹"，静默复用旧结果。
   # 逐 raw 纯 MGF 清单（排除合并文件与 pFind *_check.mgf），下方搜索段复用。
   mgf_dir <- file.path(cfg2$config_dir, "unlabeled")
-  mgfs <- sort(list.files(mgf_dir, pattern = "\\.mgf$", full.names = TRUE))
-  mgfs <- mgfs[basename(mgfs) != "unlabeled.mgf" &
-               !grepl("_check\\.mgf$", basename(mgfs))]
-  # P2-2复用前比对参数指纹——config 的 enzyme 键 + 模板文件
+  mgfs <- list_pure_raw_mgfs(mgf_dir)
+  # P2-2（2026-09-26）：复用前比对参数指纹——config 的 enzyme 键 + 模板文件
   # mtime/size + fasta 路径；任一变化都强制重跑（旧行为只看产物存在与否，
   # 改酶/改库后静默复用旧结果）
   rp_file <- file.path(out_dir_auto, "pfind.run_params")
   en_raw <- { v <- base_cfg$enzyme; if (!is.null(v) && length(v) > 0) trimws(v[1]) else "" }
-  # B-11指纹存解析后键（"Trypsin/P" 与 "trypsin" 同义，存原始串
+  # B-11（2026-09-26）：指纹存解析后键（"Trypsin/P" 与 "trypsin" 同义，存原始串
   # 会无谓重跑 restrict ~3h）
   en_fp <- if (nzchar(en_raw)) suppressWarnings(tryCatch(enzyme_resolve(en_raw), error = function(e) "unknown")) else "<missing>"
   tpl_stat <- file.info(cfg_tpl)
-  #: fingerprint now includes label_type (fixmod source) - label edits
+  # v2.0.138: fingerprint now includes label_type (fixmod source) - label edits
   # must force a re-search; enzyme/fasta/template alone reused stale fixmod.
   lt_fp <- { v <- base_cfg$label_type
     if (!is.null(v) && length(v) > 0)
       paste(trimws(as.character(v)), collapse = "|") else "" }
-  # 指纹加 FASTA 内容 md5——
+  # v2.0.176（NTM 意见 P1-2 改造，正确性优先）：指纹加 FASTA 内容 md5——
   # restrict 臂的 FASTA＝候选肽库每轮重建，旧指纹只存路径：同路径换候选集
   # 时**陈旧复用**旧结果（上错证据进仲裁），换路径时全量重搜（性能抱怨）。
   # md5 同时实现意见诉求的"候选集 hash 缓存"（改卡值不改候选集→秒级复用）。
   # 迁移安全：存量项目的旧侧车无 fasta_md5 行——其余字段全等且产物不旧于
   # fasta 时放行并原地升级侧车，不付一次性重搜。
-  #  (NTM opinion P1-2 rework, correctness first): the fingerprint
+  # v2.0.176 (NTM opinion P1-2 rework, correctness first): the fingerprint
   # gains the FASTA content md5 - the restrict arm's FASTA is the candidate
   # library rebuilt every run, and the old path-only fingerprint silently
   # reused STALE results when candidates changed at the same path, or forced
@@ -474,7 +677,7 @@ run_pfind_auto <- function(cfg_tpl) {
       cat("[pFind] fingerprint sidecar migration: legacy format matched, fasta_md5 added\n")
     }
   }
-  # N-18MGF 新鲜度（容差 1s）——MGF 比产物新则不复用
+  # N-18（2026-09-26）：MGF 新鲜度（容差 1s）——MGF 比产物新则不复用
   mgf_newest <- if (length(mgfs)) max(file.info(mgfs)$mtime) else NA
   cand_mtime <- if (length(cand0)) max(file.info(cand0)$mtime) else NA
   mgf_fresh_ok <- is.na(mgf_newest) || is.na(cand_mtime) ||
@@ -483,9 +686,9 @@ run_pfind_auto <- function(cfg_tpl) {
     flt0 <- cand0[grepl("Filtered", basename(cand0))]
     cat("pFind 结果已存在，直接复用：", out_dir_auto, "\n")
     cat("reusing existing pFind result: ", out_dir_auto, "\n")
-    # 复用路径同样判空——零行产物曾被无限复用
+    # v2.0.176（NTM 意见 P2-1）：复用路径同样判空——零行产物曾被无限复用
     # （上游坏跑留下的毒件）；首两行 O(1) 读，只拦"表头孤件"。
-    #  (NTM opinion P2-1): the reuse path checks emptiness too - a
+    # v2.0.176 (NTM opinion P2-1): the reuse path checks emptiness too - a
     # zero-row product left by a broken run was being reused forever; an O(1)
     # two-line read catches the header-only case.
     pick0 <- if (length(flt0) > 0) flt0 else cand0
@@ -505,7 +708,7 @@ run_pfind_auto <- function(cfg_tpl) {
     cat("pFind MGF newer than the product (raw data changed), re-searching\n")
   }
   if (length(cand0) > 0 && (!rp_ok || !mgf_fresh_ok)) {
-    # B-6指纹触发的重搜须清除陈旧兼容过滤标记，否则新产物
+    # B-6（2026-09-26）：指纹触发的重搜须清除陈旧兼容过滤标记，否则新产物
     # 跳过 pUniFind 兼容修饰过滤、非兼容名流入 rescore
     unlink(file.path(out_dir_auto, ".compat_filter_done"))
   }
@@ -545,15 +748,15 @@ run_pfind_auto <- function(cfg_tpl) {
   i_name <- which(grepl("^outputname=", lines))
   if (length(i_name) == 1) lines[i_name] <- paste0("outputname=", outputname)
   # 线程数：默认总核数-1（覆盖模板 cfg 里的 thread 值）——留一核给系统与交互；
-  # 不再写死——pfind_workers>1 时自动摊薄
+  # v2.0.176（NTM 意见 P0-2）：不再写死——pfind_workers>1 时自动摊薄
   # ((cores-1)/workers)，pfind_thread 键显式覆盖（用户自担不留核）。
   # threads default to total cores - 1 (overriding the template's thread value,
-  # keeping one core for the OS);  (NTM opinion P0-2): no longer pinned -
+  # keeping one core for the OS); v2.0.176 (NTM opinion P0-2): no longer pinned -
   # divided across workers when pfind_workers>1, or overridden by the
   # pfind_thread key (the no-core-left tradeoff then belongs to the user).
-  pw_thr <- suppressWarnings(as.integer(tail(c("1", base_cfg$pfind_workers), 1)))   # （D2）：默认值在前，tail(,1) 才能取到键值
+  pw_thr <- suppressWarnings(as.integer(tail(c("1", base_cfg$pfind_workers), 1)))   # v2.0.177（D2）：默认值在前，tail(,1) 才能取到键值
   if (is.na(pw_thr) || pw_thr < 1L) pw_thr <- 1L
-  thr_exp <- suppressWarnings(as.integer(tail(c("", base_cfg$pfind_thread), 1)))   # （D2）
+  thr_exp <- suppressWarnings(as.integer(tail(c("", base_cfg$pfind_thread), 1)))   # v2.0.177（D2）
   thread_n <- if (!is.na(thr_exp) && thr_exp >= 1L) thr_exp else
     if (pw_thr > 1L) max(2L, (parallel::detectCores() - 1L) %/% pw_thr) else
       max(parallel::detectCores() - 1L, 1L)
@@ -593,7 +796,7 @@ run_pfind_auto <- function(cfg_tpl) {
     stop("项目内修饰库缺失：", compat_ini)
   }
 
-  # ── ──────────────────────────
+  # ── v2.0.137（用户口径 2026-10-11 深夜）──────────────────────────
   # ① label_type 自定义修饰行 → fixmod（标记修饰不占 maxmod）
   # ② maxmod 统一 4
   # ③ min_pep_len / ms1_ppm / ms2_ppm 键写入模板
@@ -630,18 +833,18 @@ run_pfind_auto <- function(cfg_tpl) {
   # ② maxmod = 4
   i_mm <- which(grepl("^maxmod=", lines))
   if (length(i_mm) == 1) lines[i_mm] <- "maxmod=4"
-  # estrict_maxmod 键——限定式臂可降 maxmod 提速
+  # v2.0.176（NTM 意见 P1-1）：restrict_maxmod 键——限定式臂可降 maxmod 提速
   # （NTM 实测 restrict ~181min/18 MGF 为全流程瓶颈）；科学参数默认 4 不动，
   # 启用前须按意见的 A/B 协议验证：已完成子集用新值重跑，KEEP/DROP 判定
   # 翻转必须 = 0，有翻转则列出多修饰肽复核。open 臂不受此键约束。
-  #  (NTM opinion P1-1): the restrict_maxmod key lets the restricted
+  # v2.0.176 (NTM opinion P1-1): the restrict_maxmod key lets the restricted
   # arm lower maxmod for speed (restrict is the whole-pipeline bottleneck in
   # the NTM measurement); the scientific default stays 4 - enabling requires
   # their A/B protocol first: rerun a finished subset, KEEP/DROP flips must be
   # zero, any flip gets its multi-mod peptides listed for review. The open arm
   # ignores this key.
   if (grepl("restrict", outputname, ignore.case = TRUE)) {
-    rm_v <- suppressWarnings(as.integer(tail(c("", base_cfg$restrict_maxmod), 1)))   # （D2）
+    rm_v <- suppressWarnings(as.integer(tail(c("", base_cfg$restrict_maxmod), 1)))   # v2.0.177（D2）
     if (!is.na(rm_v) && rm_v >= 0L && rm_v <= 4L && length(i_mm) == 1L) {
       lines[i_mm] <- paste0("maxmod=", rm_v)
       cat("[pFind] restrict maxmod -> ", rm_v,
@@ -669,33 +872,24 @@ run_pfind_auto <- function(cfg_tpl) {
     i_m2 <- which(grepl("^msmstolppm=", lines))
     if (length(i_m2) == 1) lines[i_m2] <- paste0("msmstolppm=", val_ms2)
   }
-  # ── end  ──
-  # 酶切类型按 config_step1 键 enzyme 改写 pFind cfg 的
+  # 酶切类型（v1.0，2026-09-26）：按 config_step1 键 enzyme 改写 pFind cfg 的
   # enzyme 行（格式 enzyme=<名> <切点> <禁点> <C/N>，无切点/禁点用 _）；none
   # 保持模板行不变（pFind 无酶切语法随版本而异，留模板）。
-  # Enzyme type rewrite the pFind cfg enzyme line from
+  # Enzyme type (v1.0, 2026-09-26): rewrite the pFind cfg enzyme line from
   # the config_step1 key enzyme (format enzyme=<name> <cut> <nocut> <C/N>,
   # "_" for empty cut/nocut); none keeps the template line (pFind's no-enzyme
   # syntax varies across versions).
   en_v <- base_cfg$enzyme
-  # v1.0键缺失 = 模板即真相——不再无条件按
-  # trypsin 改写，否则会覆盖用户手写进模板的酶行。键缺失且模板酶行非
+  # v1.0（2026-09-26，审查 P1-3）：键缺失 = 模板即真相——不再无条件按
+  # trypsin 改写，否则会覆盖用户手写进模板的酶行（工作站 R29 曾预置
+  # LysargiNase 模板行，键缺失时被改写成 Trypsin）。键缺失且模板酶行非
   # Trypsin 时直接报错要求显式填键（模板搜 LysargiNase 而内部按 trypsin
   # 计数会造成口径错位）。
   en_explicit <- !is.null(en_v) && length(en_v) > 0 && nzchar(trimws(en_v[1]))
   i_en <- which(grepl("^enzyme=", lines))
   if (en_explicit) {
-    # B-2未知酶值必须报错而非静默回退 trypsin——
-    # 旧写法 suppressWarnings 消化了 enzyme_resolve 的警告、把已解析的
-    # "trypsin" 传下去，报错分支不可达
-    w_en <- character(0)
-    en <- withCallingHandlers(enzyme_resolve(en_v[1]),
-                              warning = function(ww) {
-                                w_en <<- c(w_en, conditionMessage(ww)); invokeRestart("muffleWarning")
-                              })
-    if (length(w_en) > 0)
-      stop("未知酶切类型：", trimws(en_v[1]), "
-unknown enzyme type: ", trimws(en_v[1]))
+    # B-2（2026-09-26，GLM 复核）：未知酶值必须报错而非静默回退 trypsin
+    en <- enzyme_resolve_strict(en_v[1])
     if (length(i_en) == 1) {
       lines[i_en] <- pfind_enzyme_line(en)
       cat("pFind enzyme → ", lines[i_en], "（来源 config_step1 键 enzyme）\n")
@@ -718,36 +912,106 @@ unknown enzyme type: ", trimws(en_v[1]))
   con <- file(cfg_run, open = "w", encoding = "GBK")
   writeLines(lines, con)
   close(con)
-  #：探活上提（原定义在单实例分支内）——并行分支同样需要（统一
-  # 轮询的完成判据＝任何 Searcher/PSSearcher 退出且产物在场；launcher 先退
-  # 而子进程仍在跑的孤儿形态已被覆盖）。shell 整条命令（v1.0 tasklist 拆参
-  # 坑同口径）。
-  #: the liveness probe hoisted (previously inside the single-instance
-  # branch) - the parallel branch needs it too (the unified poll's completion
-  # test is "no Searcher/PSSearcher alive AND products present", covering the
-  # orphan shape where the launcher exits while children still run).
+  # 探活探针（单实例/并行两分支共用）：完成判据＝无 Searcher/PSSearcher 存活
+  # 且产物在场——覆盖 launcher 先退而子进程仍在跑的孤儿形态。shell 整条命令
+  # （tasklist 拆参坑口径，勿改 system2 拆参）。
+  # Liveness probe (shared by single-instance and parallel branches): done =
+  # no Searcher/PSSearcher alive AND products present - covers the orphan
+  # shape where the launcher exits while children still run. Whole-command
+  # shell (tasklist arg-splitting trap; do not switch to system2).
   pfind_alive <- function() {
-    o <- suppressWarnings(shell('tasklist /NH | findstr /I /C:"earcher.exe"',
-                                intern = TRUE, mustWork = FALSE))
-    length(o) > 0 && any(grepl("earcher", o))
+    # v2.0.182（工作站测评 F1＝E1 遗留）：探活按项目路径过滤——旧全局
+    # findstr 会把他项目的合法 Searcher 当成本项目进程（T-arb20k 实损：
+    # L 侧 8 个 Searcher 在跑导致空等 6h+、四轮仲裁被迫串行）。首选
+    # CIM 查询 CommandLine 含本项目 outputpath（进程经本 run_pfind_auto
+    # 的 cfg 启动，命令行必含该路径）；路径经环境变量传入、PS 语句体内
+    # 零双引号（cmd/PS 双层引号剥离是首轮实测的崩点）；查询失败/输出
+    # 不可解析时回退全局 tasklist（绝不因过滤机构故障而漏判存活）。
+    # 极端情形＝本项目进程 CommandLine 不可见被误判已结束 → 下游零结果
+    # 断言会以明确报错拦住（响亮停而非静默错）。
+    # v2.0.182 (workstation review F1, the leftover E1): liveness scoped to
+    # this project - the old global findstr matched OTHER projects'
+    # legitimate Searcher processes (measured on T-arb20k: 8 Searchers on
+    # the L side caused a 6h+ idle wait and forced serialized arb runs).
+    # Prefer a CIM query matching this project's outputpath in the command
+    # line (every process launched by this run_pfind_auto carries it); the
+    # path travels via an environment variable and the PS payload contains
+    # ZERO double quotes (the cmd/PS quote-stripping was the first
+    # iteration's measured failure). Fall back to the global tasklist when
+    # the query fails or its output is unparseable (never under-report
+    # liveness due to the filter itself). Pathological case = our own
+    # processes' command lines invisible and misread as finished -> the
+    # downstream zero-result assertion stops loudly, never silently.
+    Sys.setenv(ISOPSV_PROBE = normalizePath(out_dir_auto, winslash = "\\"))
+    # v2.0.183（P1-5/G1）：模式键 pfind_orphan_scope（auto=默认/project/global）
+    # ——global＝旧全局口径；project＝只认 CIM 本项目匹配、查询失败按"已结束"
+    # 处理并醒目告警（多项目共机宁可误报不空等 12h）；auto＝CIM 优先、失败
+    # 回退全局且**首次回退打醒目告警**（运维可分辨口径；工作站与 pAnno 共机
+    # 锁 570min 前科）。回退告警只打一次不刷屏。
+    # v2.0.183 (P1-5/G1): the mode key pfind_orphan_scope (auto=default/
+    # project/global) - global keeps the legacy check; project trusts ONLY
+    # the CIM project match and treats a failed query as "finished" with a
+    # loud warning (on shared machines, a false finish beats a 12h idle
+    # wait); auto prefers CIM and falls back to the global check with a
+    # LOUD one-time warning on the first fallback (operators can tell the
+    # scopes apart; the workstation shared with pAnno once sat locked for
+    # 570min). The fallback warning prints once, not every poll.
+    scope_key <- "auto"
+    for (src in list(base_cfg, cfg2)) {
+      v <- src$pfind_orphan_scope
+      if (!is.null(v) && length(v) > 0 && !is.na(v[1]) &&
+          v[1] %in% c("auto", "project", "global")) scope_key <- v[1]
+    }
+    pfind_global_alive <- function() {
+      o2 <- suppressWarnings(shell('tasklist /NH | findstr /I /C:"earcher.exe"',
+                                   intern = TRUE, mustWork = FALSE))
+      length(o2) > 0 && any(grepl("earcher", o2))
+    }
+    if (identical(scope_key, "global")) return(pfind_global_alive())
+    # 计数必须走 Measure-Object：CIM 对象自带 Count 属性会遮蔽集合计数
+    # （实测 .Count 输出 $null），Measure-Object 对 0/1/N 全正确。
+    # the count MUST go through Measure-Object: CIM instances carry their
+    # own Count property that shadows collection counting (.Count measured
+    # as $null); Measure-Object is correct for 0/1/N alike.
+    o <- suppressWarnings(shell(paste0(
+      "powershell -NoProfile -Command \"Get-CimInstance Win32_Process ",
+      "-Filter 'Name=''Searcher.exe''' | Where-Object { $_.CommandLine ",
+      "-like ('*' + $env:ISOPSV_PROBE + '*') } | Measure-Object ",
+      "| Select-Object -ExpandProperty Count\""),
+      intern = TRUE, mustWork = FALSE))
+    n <- suppressWarnings(as.integer(trimws(tail(o[grepl("^[0-9]+$", trimws(o))], 1))))
+    if (!is.na(n)) return(n > 0)
+    # CIM 不可用（老 PS/权限/命令行不可见）
+    # CIM unavailable (old PS / permissions / command line invisible)
+    if (identical(scope_key, "project")) {
+      cat("[孤儿守卫][WARN] project 模式下 CIM 查询失败，按\"本项目已结束\"处理——若实际仍在跑将由零结果断言拦截\n")
+      cat("[orphan guard][WARN] CIM query failed in project mode; treating THIS project as finished - if it is actually running, the zero-result assertion will stop loudly\n")
+      return(FALSE)
+    }
+    if (!exists(".pfind_fb_warned", envir = parent.frame(), inherits = FALSE)) {
+      assign(".pfind_fb_warned", TRUE, envir = parent.frame())
+      cat("[孤儿守卫][WARN] CommandLine 不可见/CIM 失败，回退口径=全局——如其他项目 Searcher 在跑可能被误判为本项目在跑（多项目并行可设 pfind_orphan_scope=project）\n")
+      cat("[orphan guard][WARN] command line invisible/CIM failed; falling back to the GLOBAL check - other projects' Searcher processes may read as ours (set pfind_orphan_scope=project for shared machines)\n")
+    }
+    pfind_global_alive()
   }
-  # ---- ----
+  # ---- P4（2026-09-27 用户口径：全部搜库流程改逐个 raw/mgf 单独搜库、并行搜库）----
   # pfind_workers（config_step1 键，默认 1=旧行为）>1 时：按 raw 分组，每组一份
   # cfg（msmspath 只含该组 mgf、outputname=<name>_w<k>、线程按 worker 数摊薄），
   # 并行跑 Searcher，完成后把各组产物按 raw 顺序合并回 <outputname>.spectra
   # 与 <outputname>-Filtered.spectra（与旧单 cfg 产物等价，下游合并不变）。
-  # 三处升级：①分组按 MGF
+  # v2.0.176（NTM 意见 P0-1/P2-2/P2-3 ＋ T0 实证）三处升级：①分组按 MGF
   # 大小贪心均衡（原按个数均分，大文件挤同 worker 拖尾）；②PSOCK 阻塞改
   # shell(wait=FALSE) 分离启动＋统一轮询（master 不再卡死、进度对两模式
-  # 同口径）——双实例并行已被本地 T0 实验证实（同 outputpath 不同
+  # 同口径）——双实例并行已被本机 T0 实验证实（同 outputpath 不同
   # outputname 共存、真并行）；③写 progress.json（与 ORFscape 事件流对齐）。
-  #  (NTM opinion P0-1/P2-2/P2-3 + the local T0 experiment): groups
+  # v2.0.176 (NTM opinion P0-1/P2-2/P2-3 + the local T0 experiment): groups
   # are size-balanced (greedy, largest first), workers launch detached with a
   # unified poll loop (the master is no longer blocked inside parLapply, and
   # progress reporting matches the single-instance mode), and progress.json
   # feeds the ORFscape event stream. T0 proved concurrent Searcher instances
   # genuinely run in parallel when outputnames differ.
-  pw <- suppressWarnings(as.integer(tail(c("1", base_cfg$pfind_workers), 1)))   # （D2）
+  pw <- suppressWarnings(as.integer(tail(c("1", base_cfg$pfind_workers), 1)))   # v2.0.177（D2）
   if (is.na(pw) || pw < 1L) pw <- 1L
   if (pw > 1L && length(mgfs) > 1L) {
     # ① 大小贪心均衡（组内保持 raw 序，合并语义不变）
@@ -761,9 +1025,10 @@ unknown enzyme type: ", trimws(en_v[1]))
     }
     groups <- lapply(seq_len(pw), function(w) sort(which(gvec == w)))
     groups <- groups[lengths(groups) > 0]
-    # （D3）：thread_n 已按 workers 摊薄（(cores-1)/workers），此处
+    # v2.0.177（D3）：thread_n 已按 workers 摊薄（(cores-1)/workers），此处
     # 不再二次除——176 把 19 核摊成每 worker 1 线程，提速大打折扣
-    thread_w <- max(thread_n, 1L)
+    # （thread_n 构造上下限≥1，无需再 max 防护）
+    thread_w <- thread_n
     cfg_files <- character(length(groups))
     i_ms0 <- which(grepl("^msmspath", lines))
     i_num0 <- which(grepl("^msmsnum=", lines))
@@ -781,7 +1046,7 @@ unknown enzyme type: ", trimws(en_v[1]))
       }
       if (length(i_name0) == 1) lw[i_name0] <- paste0("outputname=", outputname, "_w", w)
       if (length(i_thr0) == 1) lw[i_thr0] <- paste0("thread=", thread_w)
-      # （D4）：分片独立 outputpath（w<k>/ 子目录）——Searcher 的
+      # v2.0.177（D4）：分片独立 outputpath（w<k>/ 子目录）——Searcher 的
       # Filtered/spectra 产物名固定（pFind-Filtered.spectra / pFind.spectra，
       # 不随 outputname），共用 outputpath 会互相覆盖只剩最后一个完成者
       out_w <- file.path(out_dir_auto, sprintf("w%d", w))
@@ -795,8 +1060,8 @@ unknown enzyme type: ", trimws(en_v[1]))
       close(con_w)
       cfg_files[w] <- cfg_w
     }
-    # ② 分离启动（ D1：shell() 对"带引号绝对路径＋自定义 exe"形态在
-    # 本地 100% 失败（NTM 实测：syntax is incorrect、日志都不生成）；system2
+    # ② 分离启动（v2.0.177 D1：shell() 对"带引号绝对路径＋自定义 exe"形态在
+    # 本机 100% 失败（NTM 实测：syntax is incorrect、日志都不生成）；system2
     # (wait=FALSE, stdout=, stderr=) 100% 成功。无法逐 worker 取退出码——完成
     # 判据交给探活清零＋产物在场，失败细节看各 worker 日志）
     pfind_bin <- dirname(pfind_exe)
@@ -818,7 +1083,7 @@ unknown enzyme type: ", trimws(en_v[1]))
     t0_p <- Sys.time(); q_prev <- -1L; waited_p <- 0L
     repeat {
       Sys.sleep(30); waited_p <- waited_p + 30L
-      q_now <- length(list.files(out_dir_auto, pattern = "\\.qry\\.res$", recursive = TRUE))   # （D7）：分片在 w<k>/ 子目录
+      q_now <- length(list.files(out_dir_auto, pattern = "\\.qry\\.res$", recursive = TRUE))   # v2.0.177（D7）：分片在 w<k>/ 子目录
       if (q_now != q_prev) {
         cat(sprintf("[pFind 并行进度] qry.res %d 个（workers=%d，已用 %.0fs）\n",
                     q_now, length(cfg_files), waited_p))
@@ -830,18 +1095,19 @@ unknown enzyme type: ", trimws(en_v[1]))
           silent = TRUE)
         q_prev <- q_now
       }
+      watchdog_check("pFind 并行搜库", waited_p)
       if (!pfind_alive()) break
       if (waited_p > 12L * 3600L)
         stop("pFind 并行搜库超过 12h 未结束：", paste(cfg_files, collapse = "\n"))
     }
-    # （D5+D6，科学正确性）：合并段重写——只收**未过滤** .spectra 拼成
+    # v2.0.177（D5+D6，科学正确性）：合并段重写——只收**未过滤** .spectra 拼成
     # 固定名 pFind.spectra；**分片各自的 -Filtered 一律丢弃**（Searcher 每分片
     # 独立做 1% FDR，分母=分片文件数，拼接会静默丢 3/4 鉴定：NTM 实测
     # 2,021→503）；全局 FDR 由既有的 pfind_res_postprocess（读 pFind.spectra
     # ＋qry.res、诱饵救援、写回 pFind-Filtered.spectra）一次完成。qry.res 从
     # w<k>/ 子目录移到 result 根（后处理非递归 glob）。产物名固定（Searcher
     # 的输出名不随 outputname——T0 实测 outputname=t0_A 仍写固定名）。
-    #  (D5+D6, scientific correctness): the merge now collects only the
+    # v2.0.177 (D5+D6, scientific correctness): the merge now collects only the
     # UNFILTERED .spectra into the fixed-name pFind.spectra and DISCARDS each
     # shard's -Filtered (every shard ran its own 1% FDR against a shard-local
     # denominator; concatenating them silently dropped 3/4 of the IDs: 2,021 ->
@@ -859,11 +1125,8 @@ unknown enzyme type: ", trimws(en_v[1]))
       stop("pFind auto search failed (parallel): 分片未过滤产物不全 ",
            length(sp_files), "/", length(groups), " —— 检查各 worker 日志 ",
            paste0(log_base, "_auto_", outputname, "_w*.log"))
-    heads <- lapply(sp_files, readLines, n = 1, warn = FALSE)
-    bodies <- lapply(sp_files, function(p) readLines(p, warn = FALSE)[-1])
     sp_merged <- file.path(out_dir_auto, "pFind.spectra")
-    writeLines(c(heads[[1]], unlist(bodies, use.names = FALSE)),
-               sp_merged, useBytes = TRUE)
+    concat_tsv_with_header(sp_files, sp_merged)
     # qry.res 收根（后处理非递归 glob；重名不可能——各分片 outputname 带 _w<k>）
     # collect shard qry.res into the result root (postprocess globs non-recursively)
     n_moved <- 0L
@@ -885,7 +1148,7 @@ unknown enzyme type: ", trimws(en_v[1]))
     # Invoke pFind: run from its bin folder (correct ini relative-path resolution), aborting on failure
     cat("运行 pFind：", pfind_exe, cfg_run, "（逐 raw 搜库：", length(mgfs), " 个 mgf 文件，线程 ", thread_n, "）\n")
     cat("running pFind: ", pfind_exe, cfg_run, " (per-raw search: ", length(mgfs), " mgf files, ", thread_n, " threads)\n")
-    #：pFind 孤儿实例防撞车（探活已上提至并行分支前）——上轮运行被外杀
+    # v1.0：pFind 孤儿实例防撞车（探活已上提至并行分支前）——上轮运行被外杀
     # 后 Searcher 孤儿续跑；同工程重再启会被顶掉秒退误报失败。检测到活实例
     # 就等待＋复用：结束后有 .spectra 直接用；无产物才真正启动（pFind 按已
     # 完成 .qry.res 分块续跑）。
@@ -907,14 +1170,14 @@ unknown enzyme type: ", trimws(en_v[1]))
       cat("[pFind] 结果已存在（含既有实例刚完成），跳过搜库：", out_dir_auto, "\n")
       cat("[pFind] result already present (incl. just finished by the live instance), skipping the search: ", out_dir_auto, "\n")
     } else {
-      # 阻塞 system2 改 shell(wait=FALSE)
+      # v2.0.176（NTM 意见 P2-2/P2-3）：阻塞 system2 改 shell(wait=FALSE)
       # 分离启动＋30s 轮询——原实现三小时零输出、无法区分慢跑与卡死（NTM
       # 实测 restrict ~181min 全程盲区）；现每完成一个文件打 [k/N] 行并写
       # progress.json（与 ORFscape 事件流对齐），ETA 按已完成文件均摊外推。
       # 完成判据＝探活清零（launcher 先退而子进程续跑的孤儿形态天然覆盖）；
       # 失败判据交给最终产物断言（无 .spectra 即 stop）。分离启动取不到退出
       # 码——日志照旧落 <outputname>.log。
-      #  (NTM opinion P2-2/P2-3): the blocking system2 becomes a
+      # v2.0.176 (NTM opinion P2-2/P2-3): the blocking system2 becomes a
       # detached shell(wait=FALSE) launch plus a 30-second poll - the old call
       # printed nothing for hours (restrict ~181 min fully blind in the NTM
       # measurement); now every finished file prints a [k/N] line and updates
@@ -927,7 +1190,7 @@ unknown enzyme type: ", trimws(en_v[1]))
       on.exit(setwd(old_wd), add = TRUE)
       setwd(dirname(pfind_exe))
       log_s <- file.path(out_dir_auto, paste0(outputname, ".log"))
-      # （D1）：shell() 形态在本地对带引号绝对路径＋自定义 exe 100%
+      # v2.0.177（D1）：shell() 形态在本机对带引号绝对路径＋自定义 exe 100%
       # 失败（NTM 实测）；system2(wait=FALSE, stdout=, stderr=) 等价且可靠
       system2(pfind_exe, args = shQuote(cfg_run), wait = FALSE,
               stdout = log_s, stderr = log_s)
@@ -952,11 +1215,12 @@ unknown enzyme type: ", trimws(en_v[1]))
             silent = TRUE)
           qry_prev <- qry_now
         }
+        watchdog_check("pFind 单实例搜库", waited_s)
         if (!pfind_alive()) break
         if (waited_s > 12L * 3600L)
           stop("pFind 搜库超过 12h 未结束：", cfg_run, "\n日志 log: ", log_s)
       }
-      #  P2-3：每文件计时表（分片均衡与慢文件定位依据）
+      # v2.0.176 P2-3：每文件计时表（分片均衡与慢文件定位依据）
       try({
         qi <- file.info(list.files(out_dir_auto, pattern = "\\.qry\\.res$",
                                    full.names = TRUE))
@@ -982,9 +1246,9 @@ unknown enzyme type: ", trimws(en_v[1]))
   # to lie inside the set, so they need no treatment.
   if (tolower(outputname) == "pfind_open") {
     compat_file <- file.path(code_dir, "pUniFind_compat_mods.txt")
-    # 复用检测过滤结果随搜库结果一起复用，已完成过滤的
+    # 复用检测（2026-09-19 优化）：过滤结果随搜库结果一起复用，已完成过滤的
     # 项目打标记，重跑时跳过重过滤（原实现每次重跑都重新扫整份 pFind.spectra）
-    # reuse detection the filtered output is reused together
+    # reuse detection (opt 2026-09-19): the filtered output is reused together
     # with the search result; a marker is written after filtering and later runs
     # skip re-filtering (the old code re-scanned the whole pFind.spectra on every
     # rerun)
@@ -1015,13 +1279,13 @@ unknown enzyme type: ", trimws(en_v[1]))
   # exited 0 but produced nothing, so the strategy is never silently dropped
   cand <- list.files(out_dir_auto, pattern = "\\.spectra$", full.names = TRUE)
   flt <- cand[grepl("Filtered", basename(cand))]
-  # 零结果断言——实测事故：上游目录改名后
+  # v2.0.176（NTM 意见 P2-1）：零结果断言——实弹事故：上游目录改名后
   # msmspath1 仍指旧路径，18 个任务 1 秒"跑完"、0 PSM、日志仅"回搜新层
   # 命中 PSM 0"，流程静默继续。①首两行判空（O(1) 读，覆盖复用/单机/并行
   # 全路径）——只有表头即 stop，附 cfg 与首个输入路径线索；②产物 <200MB
   # 时全量数行，数据行少于 MGF 数（每文件连一条 PSM 都没有）打显著告警
   # （合法小批不至于触发：18 文件至少应有几十条）。
-  #  (NTM opinion P2-1): the zero-result assertion - live incident:
+  # v2.0.176 (NTM opinion P2-1): the zero-result assertion - live incident:
   # after an upstream rename, msmspath1 still pointed at the old directory,
   # all 18 tasks "finished" in one second with 0 PSM and the run continued
   # silently. (1) An O(1) two-line read catches a header-only file on every
@@ -1087,26 +1351,88 @@ for (src in list(cfg2, base_cfg)) {
   if (!is.null(src$auto_search) && length(src$auto_search) > 0 &&
       tail(src$auto_search, 1) == "1") auto_on <- TRUE
 }
-  # 第二步起不再输出任何 mgf：逐 raw 纯文件已由第一步在 unlabeled/ 下产出（按标题 raw 前缀重切），
+# v2.0.178（E3b，工作站生产窗口测评）：引擎键多源联动陷阱——auto_search=0
+# 不等于臂关（臂另有 pfind_* 三键＋模板自动生成；exe 键删除仍可能照跑）、
+# 用户需要同时核对 step1/step2 两处。修复＝配置一键体检：启动时打印引擎
+# 相关键的总表（键=值@来源文件＋生效判定），auto_search=0 时对一切引擎键
+# 打"已忽略"行，把"哪些键在场、谁说了算"一次讲清。
+# v2.0.178 (E3b, workstation production-window review): the engine keys form
+# a multi-source web - auto_search=0 does not imply the arms are off (the
+# pfind_* arm switches and template auto-generation act independently, and a
+# deleted exe key can still run), and users must audit two files at once.
+# Fix = a startup config health table: every engine-related key prints as
+# key=value@source plus an effective verdict, and auto_search=0 stamps
+# "IGNORED" on all engine keys so the precedence is unambiguous.
+{
+  src_files <- c(step1 = base_path, step2 = cfg2_path)
+  eng_keys <- c("auto_search", "pfind_exe", "pfind_open", "pfind_restrict",
+                "pfind_standard", "pfind_workers", "pfind_thread",
+                "restrict_maxmod", "pfind_cfg_open", "pfind_cfg_restrict",
+                "pfind_cfg_standard", "use_punifind", "punifind_exe",
+                "punifind_rescore", "punifind_denovo", "punifind_python",
+                "pfind_reader_workers", "denovo_lookback")
+  cat("[配置体检] 引擎相关键总表（键=值@来源）\n")
+  cat("[config health] engine-related key table (key=value@source)\n")
+  found_any <- FALSE
+  for (k in eng_keys) {
+    hits <- character(0)
+    for (sn in names(src_files)) {
+      src <- if (identical(sn, "step1")) base_cfg else cfg2
+      v <- src[[k]]
+      if (!is.null(v) && length(v) > 0 && !is.na(v[1]) && nzchar(trimws(v[1])))
+        hits <- c(hits, sprintf("%s@%s", trimws(v[1]), basename(src_files[[sn]])))
+    }
+    if (length(hits) > 0) {
+      found_any <- TRUE
+      ign <- if (!auto_on && !identical(k, "auto_search")) "  [已忽略 ignored: auto_search!=1]" else ""
+      cat("  ", k, " = ", paste(hits, collapse = " | "), ign, "\n", sep = "")
+    }
+  }
+  if (!found_any) cat("  （无引擎键在场 none present）\n")
+  if (!auto_on)
+    cat("[配置体检] auto_search!=1：以上全部引擎键已被忽略（显式 search_file 仍正常参与）\n[config health] auto_search!=1: all engine keys above are IGNORED (explicit search_file entries still run)\n")
+}
+  # v2.0.184（挂账：open 大库内存保护）：FASTA >100MB 且 pfind_workers>1 时
+# 打告警建议 workers=1——open 搜库对大库（如 14 万蛋白×4 实例）每 worker
+# 全量载库，并行可致 commit 打满（NTM 实战前科）。不强制（用户可自行权衡）。
+# v2.0.184 (backlog: open-search large-library guard): a FASTA >100MB with
+# pfind_workers>1 warns suggesting workers=1 - open search loads the full
+# library per worker and parallelism can exhaust commit (NTM live-fire
+# precedent). Not forced (the user weighs the trade-off).
+{
+  fa_sz <- if (nzchar(fasta_path) && file.exists(fasta_path))
+    file.info(fasta_path)$size / 1024^2 else 0
+  pw_guard <- tail(c(1L, {
+    v <- c(if (!is.null(base_cfg$pfind_workers)) base_cfg$pfind_workers else NULL)
+    v <- v[!is.na(v) & v != ""]
+    if (length(v)) suppressWarnings(as.integer(v[1])) else 1L
+  }), 1)
+  if (fa_sz > 100 && pw_guard > 1L) {
+    cat(sprintf("[open 大库][WARN] FASTA %.0f MB 且 pfind_workers=%d——open 搜库每 worker 全量载库，并行可能内存不足；建议 pfind_workers=1 或减小 FASTA\n", fa_sz, pw_guard))
+    cat(sprintf("[open large-library][WARN] FASTA %.0f MB with pfind_workers=%d - open search loads the full library per worker; consider pfind_workers=1 or a smaller FASTA\n", fa_sz, pw_guard))
+  }
+}
+
+# 第二步起不再输出任何 mgf：逐 raw 纯文件已由第一步在 unlabeled/ 下产出（按标题 raw 前缀重切），
   # 本步只读不写；pUniFind GUI 的 mgf 目录直接选用 unlabeled/
   # From step 2 on no mgf is ever written: the pure per-raw files were produced by
   # step 1 under unlabeled/ (re-split by title raw prefix); this step only reads
   # them, and the pUniFind GUI uses unlabeled/ directly as its mgf folder
   # 自动搜库分支：用户未提供搜库结果、开启自动搜库且 pFind 可用时执行
-  # （修正：自动搜库的 b/c 与用户提供的外部引擎条目是并列策略，
+  # （2026-09-13 修正：自动搜库的 b/c 与用户提供的外部引擎条目是并列策略，
   # 用户提供了 search_file 时同样要跑——此前互斥导致 b/c 缺位）
   # Auto-search branch: runs when auto search is on and pFind is available
-  # (fix: the auto b/c are parallel strategies alongside the
+  # (2026-09-13 fix: the auto b/c are parallel strategies alongside the
   # user-provided engine files and must run even when search_file is given -
   # the old mutual exclusion silently dropped b/c)
   auto_files <- character(0)
   auto_types <- character(0)
-  # Find 臂拆分可配置——pfind_open /
+  # v2.0.149（用户口径 2026-10-17）：pFind 臂拆分可配置——pfind_open /
   # pfind_restrict / pfind_standard 三键（config_step1 优先，值 0/1；默认
   # 1/1/0＝与既有双臂行为一致）。standard＝常规参数限定式搜库（全特异酶切＋
   # 闭合质量＋Carbamidomethyl[C] 固定；Oxidation[M]、Acetyl[AnyN-term] 可变），与 b/c 并列竞争。
   # rescore 的前提＝open-pFind 结果存在（本轮 open 臂或既有结果，见下方守卫）。
-  #: the pFind arms are separately switchable via pfind_open /
+  # v2.0.149: the pFind arms are separately switchable via pfind_open /
   # pfind_restrict / pfind_standard (step1-first, 0/1; defaults 1/1/0 =
   # unchanged). standard = a conventional closed search competing alongside
   # b/c. rescore requires open results (this run's open arm or existing ones).
@@ -1138,7 +1464,7 @@ for (src in list(cfg2, base_cfg)) {
   # Loop over the open/restrict templates and collect the .spectra produced by the auto
   # search; a missing template (convention folder or config key) is auto-generated from
   # the built-in copy (no stop point for manual filling)
-  # qry.res 读取段默认顺序（实测比 6 路 PSOCK 快
+  # v1.0（工作站反馈#19）：qry.res 读取段默认顺序（实测比 6 路 PSOCK 快
   # 约 2.5 倍且省内存）；config_step1 的 pfind_reader_workers >=1 时按该值并行。
   rdr_w <- cfg_get_preferred(base_cfg, cfg2, "pfind_reader_workers", "")$value
   rdr_w <- if (length(rdr_w) > 0 && nzchar(trimws(as.character(rdr_w[1]))))
@@ -1146,7 +1472,7 @@ for (src in list(cfg2, base_cfg)) {
   if (is.na(rdr_w) || rdr_w < 1L) { rdr_par <- FALSE; rdr_n <- NULL }
   else { rdr_par <- TRUE; rdr_n <- rdr_w }
 
-  # ---- v1.0 两队列调度器----
+  # ---- v1.0 两队列调度器（2026-10-02，工作站设计稿＋开发侧评审四修复）----
   # 实现＝两条物理串行道：master 前台跑 CPU 道（open→open-pp→restrict→
   # restrict-pp→引擎），GPU 管家子进程独占 GPU 道（denovo→[等 open-pp 标记]
   # →rescore）。道间并行等价于提案的补位轨迹：denovo 完即转 rescore（GPU 无
@@ -1175,9 +1501,9 @@ for (src in list(cfg2, base_cfg)) {
   # fix for its argument-splitting tasklist bug)
   source_utf8(file.path(code_dir, "two_queue_steward.R"))
   if (tq_on) {
-    #：rescore 前提守卫——punifind_rescore=1 但 open 臂关闭且无既有
+    # v2.0.149：rescore 前提守卫——punifind_rescore=1 但 open 臂关闭且无既有
     # open 结果时，经环境变量告知管家跳过 rescore（denovo 照常），免 12h 空等
-    #: rescore precondition guard - when rescore=1 but the open arm
+    # v2.0.149: rescore precondition guard - when rescore=1 but the open arm
     # is off with no existing open results, tell the steward to skip rescore
     # (denovo unaffected) via an env var instead of a 12h empty wait
     tq_rescore_want <- any(vapply(list(base_cfg, cfg2), function(s)
@@ -1194,12 +1520,17 @@ for (src in list(cfg2, base_cfg)) {
     tq_launch_steward(cfg2, cfg2_path, code_dir)
   }
 
-  # ---- v1.0 DAG 双通道流水线------------------
+  # ---- v1.0 DAG 双通道流水线（2026-10-01，用户裁定）------------------
+  # （deprecated：默认关闭、网页不写此键；两队列调度器 two_queue_scheduler
+  # 为现行方案。仅为手改 config 设 dag_pipeline=1 的旧项目保留。）
   # 队列 1（CPU，前台）：open-pFind → restrict-pFind → 引擎槽
   # 队列 2（GPU，后台）：denovo（T=0 立即启动，零依赖）→ rescore（等 open 完
   #   成后且 denovo 释放 GPU 后执行）
   # dag_pipeline=1 时启用；默认 0=现行顺序（零行为变化）。
-  # ---- v1.0 DAG dual-lane pipeline ---------
+  # ---- v1.0 DAG dual-lane pipeline (user decision 2026-10-01) ---------
+  # (deprecated: off by default, never web-written; the two-queue scheduler
+  # is the current design. Kept only for legacy projects that hand-set
+  # dag_pipeline=1 in config.)
   # Lane 1 (CPU, foreground): open-pFind -> restrict-pFind -> engine slots
   # Lane 2 (GPU, background):  denovo (starts at T=0, zero dependency)
   #   -> rescore (waits for open results + denovo GPU release)
@@ -1210,7 +1541,6 @@ for (src in list(cfg2, base_cfg)) {
         identical(trimws(as.character(src_dag$dag_pipeline[1])), "1")) dag_on <- TRUE
   }
   denovo_bg_pid <- NULL
-  denovo_bg_log <- NULL
 
   # DAG 前置：从 config 直接读取 pUniFind 设置（不依赖后续定义的变量）
   # DAG pre-read: pull pUniFind settings directly from config (no dependency on later-defined vars)
@@ -1245,8 +1575,8 @@ for (src in list(cfg2, base_cfg)) {
 
   if (!tq_on && dag_on && denovo_on_dag && nzchar(puni_exe_dag)) {
     # 检查 denovo 是否已有缓存产物
-    # （two_queue_scheduler=1 时由 GPU 管家接管，本块跳过）
-    # (: superseded by the GPU steward when two_queue_scheduler=1)
+    # （v1.0：two_queue_scheduler=1 时由 GPU 管家接管，本块跳过）
+    # (v1.0: superseded by the GPU steward when two_queue_scheduler=1)
     dproj_dag <- file.path(cfg2$config_dir, "pUniFind_denovo")
     csvs_dag <- list.files(file.path(dproj_dag, "pUniFind_result"),
                            pattern = "\\.csv$", full.names = TRUE)
@@ -1264,23 +1594,23 @@ for (src in list(cfg2, base_cfg)) {
         cat("[DAG denovo] 移出 ", length(stray_dag), " 个 *_check.mgf\n", sep = "")
       }
 
-      # 生成后台启动脚本。v1.0 修订（实测四轮定位）：
+      # 生成后台启动脚本。v1.0 fix 5＋fix 6（实弹四轮定位）：
       # (1) 脚本内不能出现中文字符量——code_dir 含"正式流程"，无 BOM 的
       #     UTF-8 字节被子进程 R 按本地码页误读 → setwd 失败退出。改为脚本
       #     零 setwd：工作目录由启动器 -WorkingDirectory 指定，getwd() 取。
-      # (2) 修订**不能加 BOM**——本地 Rscript 不
+      # (2) fix 6（2026-10-02 DAG 实弹）：**不能加 BOM**——本机 Rscript 不
       #     跳过脚本首的 UTF-8 BOM（unexpected input in "\ufeff"），加了
       #     必崩。非 ASCII 路径字面量的兜底改为 \uXXXX/\UXXXXXXXX 转义
       #     （R 解析期还原、与文件编码无关），未来项目路径含中文也安全。
       # (3) 启动前清 LC_CTYPE/LC_ALL/LANG——Git Bash 会话的 LC_CTYPE=
       #     C.UTF-8 会被继承，Windows R 设置失败回落 C locale，中文注释
       #     的 source() 直接 invalid input。
-      # generate the background launch script. v1.0 修订 + 修订 (four
+      # generate the background launch script. v1.0 fix 5 + fix 6 (four
       # rounds of live debugging): (1) no non-ASCII literals inside the
       # script — the code_dir contains Chinese and a BOM-less UTF-8 literal
       # mojibakes in the child R. Zero setwd instead: the working dir comes
       # from the launcher's -WorkingDirectory and getwd() recovers it.
-      # (2) 修订 do NOT add a BOM — Rscript here
+      # (2) fix 6 (live DAG test 2026-10-02): do NOT add a BOM — Rscript here
       # does not skip a leading UTF-8 BOM ("unexpected input in ..."), the
       # BOM itself crashes the child. The fallback for non-ASCII path
       # literals is \uXXXX/\UXXXXXXXX escaping (restored at R parse time,
@@ -1311,18 +1641,18 @@ for (src in list(cfg2, base_cfg)) {
                 pf_cp_dag)
       ), dag_script, useBytes = TRUE)
 
-      # v1.0 修订：启动前必须先建目录——重定向目标目录不存在时
-      # cmd/PowerShell 都会立即失败（实测：PID=0 + "The system cannot
+      # v1.0 fix 4：启动前必须先建目录——重定向目标目录不存在时
+      # cmd/PowerShell 都会立即失败（实弹：PID=0 + "The system cannot
       # find the path specified"，denovo 从未启动）。pf_run 在子进程内
       # 才建目录，来不及。
-      # v1.0 修订: create the target dir BEFORE launching — a missing
+      # v1.0 fix 4: create the target dir BEFORE launching — a missing
       # redirect dir makes cmd/PowerShell fail instantly (live evidence:
       # PID=0 + "The system cannot find the path specified"). pf_run only
       # creates dirs inside the child, which is too late.
       dir.create(dproj_dag, recursive = TRUE, showWarnings = FALSE)
-      # v1.0 修订：路径含中文字符（isoPSV正式流程），cmd.exe .bat 无法处理。
+      # v1.0 fix 3：路径含中文字符（isoPSV正式流程），cmd.exe .bat 无法处理。
       # 改用 PowerShell Start-Process（原生 Unicode 路径支持），取真实 PID。
-      # v1.0 修订: path contains Chinese chars (isoPSV正式流程) which
+      # v1.0 fix 3: path contains Chinese chars (isoPSV正式流程) which
       # cmd.exe .bat cannot handle. Use PowerShell Start-Process (native
       # Unicode path support) and capture the real child PID.
       rscript_full <- file.path(R.home("bin"), "Rscript")
@@ -1355,10 +1685,10 @@ for (src in list(cfg2, base_cfg)) {
     }
   }
 
-  #：pFind 三臂循环（open / restrict / standard），臂开关见上方
+  # v2.0.149：pFind 三臂循环（open / restrict / standard），臂开关见上方
   # pf_arms（默认 1/1/0）；目录模板缺失或 config_step2 缺键时按臂名从内置
   # 模板自动生成（无需停点手填）
-  #: three-arm pFind loop; see pf_arms above (defaults 1/1/0); a
+  # v2.0.149: three-arm pFind loop; see pf_arms above (defaults 1/1/0); a
   # missing template (convention folder or config key) is auto-generated from
   # the built-in copy per arm
   for (arm in c("open", "restrict", "standard")) {
@@ -1379,11 +1709,11 @@ for (src in list(cfg2, base_cfg)) {
     cat("==== [Auto search] pFind ", tag, " ====\n")
     sp_auto <- run_pfind_auto(tpl)
     if (identical(arm, "open")) open_available <- TRUE
-    # pFind 结果后处理未过滤 pFind.spectra 全量替换
+    # pFind 结果后处理（用户口径 2026-09-16）：未过滤 pFind.spectra 全量替换
     # Filtered 参与竞争；其中 decoy 行用 qry.res 中最高分非 decoy 候选救援；
     # 处理结果写回 pFind-Filtered.spectra（官方原版备份 .origin），后续合并、
     # 理论谱图生成与竞争打分自动消费新表
-    # pFind post-processing the unfiltered
+    # pFind post-processing (user ruling 2026-09-16): the unfiltered
     # pFind.spectra replaces Filtered for the competition; decoy rows are
     # rescued with the best non-decoy candidate from qry.res; the result is
     # written back as pFind-Filtered.spectra (official copy backed up as
@@ -1395,7 +1725,7 @@ for (src in list(cfg2, base_cfg)) {
       cat("[pFind 后处理] 指纹一致，复用既有后处理产物（跳过约 3h 重算）：", pp_dir, "\n")
       cat("[pFind postprocess] fingerprint match, reusing output (skips ~3h): ", pp_dir, "\n")
     } else {
-      # 复用判据＋失败醒目标记。失败不再静默
+      # v1.0（工作站反馈#18/#21）：复用判据＋失败醒目标记。失败不再静默
       # "跳过"——写 .pfind_postprocess_failed 并醒目提示口径降级（合并继续用
       # 未救援的 pFind-Filtered.spectra）。
       pp_ok <- tryCatch({
@@ -1420,7 +1750,7 @@ for (src in list(cfg2, base_cfg)) {
     # v1.0 两队列：open 搜库＋后处理完成后写标记，GPU 管家据此解锁 rescore
     # （评审修复③：rescore 前置含后处理；标记幂等，off 模式不产生）
     # v1.0 two-queue: after the open search + post-processing complete, drop
-    # the marker that unlocks the steward's rescore phase (review 修订; the
+    # the marker that unlocks the steward's rescore phase (review fix 3; the
     # marker is idempotent and never written when the scheduler is off)
     if (tq_on && identical(tag, "open"))
       writeLines(format(Sys.time()),
@@ -1459,10 +1789,10 @@ for (src in list(cfg2, base_cfg)) {
     cat("==== [DAG pipeline] CPU lane done, waiting for GPU lane (denovo PID=", denovo_bg_pid, ") ====\n", sep = "")
     dag_elapsed <- 0
     repeat {
-      #：system2("tasklist", c("/FI","PID eq N")) 把 "PID eq N" 按空格
+      # v1.0：system2("tasklist", c("/FI","PID eq N")) 把 "PID eq N" 按空格
       # 拆成多参 → tasklist 报 Invalid argument 'eq' 恒判死（此前被 denovo 早死
-      # 掩盖，two_queue 实测暴露）。改用 tq_pid_alive 整条命令探测。
-      #: system2("tasklist", c("/FI", "PID eq N")) splits the filter at
+      # 掩盖，two_queue 实弹暴露）。改用 tq_pid_alive 整条命令探测。
+      # v1.0: system2("tasklist", c("/FI", "PID eq N")) splits the filter at
       # spaces and tasklist always errors out (masked until now by denovo dying
       # early; exposed by the two-queue live tests). Probe via tq_pid_alive.
       if (!tq_pid_alive(denovo_bg_pid)) break
@@ -1514,39 +1844,27 @@ for (src in list(cfg2, base_cfg)) {
   # Read the per-item pUniFind run modes (any config may provide them): punifind_exe
   # is the installed punifind folder; punifind_rescore / punifind_denovo take three
   # values: 0=off, 1=auto, 2=manual; auto mode (=1) requires punifind_exe
-  # 键优先级config_step1（base_cfg）
-  # 优先于 config_step2（cfg2）——此前 exe/python"先命中即 break"（cfg2 赢）、
-  # 模式键"后读覆盖"（step1 赢），两配置共存时来源不对称；统一 step1→step2
-  # 并打印生效值与来源。
-  # key precedence (queue item 2, deepseek P3-2): config_step1 wins
-  # over config_step2 - previously the exe/python keys took the first hit (cfg2
-  # won) while the mode keys were overwritten by the later read (step1 won), an
-  # asymmetric source when both configs are present; unified to step1->step2
-  # with the effective value and its source printed.
-  cfg_get <- function(key, default = NULL, validate = NULL) {
-    r <- cfg_get_preferred(base_cfg, cfg2, key, default, validate)
-    if (nzchar(r$source)) {
-      cat("[pUniFind 配置] ", key, " = ", as.character(r$value),
-          "（来源：", r$source, "）\n", sep = "")
-    }
-    r$value
-  }
+  # （pUniFind 键读取用文件头统一 cfg_get 的 verbose=TRUE 形态——step1 优先、
+  # 打印生效值与来源；原双定义之一已并入，见文件头。）
   puni_exe_raw <- cfg_get("punifind_exe", default = "",
-                          validate = function(m) nzchar(trimws(as.character(m))))
+                          validate = function(m) nzchar(trimws(as.character(m))),
+                          verbose = TRUE)
   puni_exe <- if (nzchar(puni_exe_raw)) normalizePath(puni_exe_raw, winslash = "/") else ""
   puni_rescore_mode <- cfg_get("punifind_rescore", default = "0",
-                               validate = function(m) as.character(m) %in% c("0", "1", "2"))
+                               validate = function(m) as.character(m) %in% c("0", "1", "2"),
+                               verbose = TRUE)
   puni_denovo_mode  <- cfg_get("punifind_denovo", default = "0",
-                               validate = function(m) as.character(m) %in% c("0", "1", "2"))
+                               validate = function(m) as.character(m) %in% c("0", "1", "2"),
+                               verbose = TRUE)
   auto_rescore   <- puni_rescore_mode == "1"
   manual_rescore <- puni_rescore_mode == "2"
   auto_denovo    <- puni_denovo_mode == "1"
   manual_denovo  <- puni_denovo_mode == "2"
-  # （设计约定）：rescore 的前提＝open-pFind 存在——本轮 open 臂跑成
+  # v2.0.149（用户口径）：rescore 的前提＝open-pFind 存在——本轮 open 臂跑成
   # 或已有 open 结果；pfind_open=0 且无既有结果时自动 rescore 跳过（两队列
   # 管家已在启动点经 ISOPSV_TQ_RESCORE_OFF 同步跳过；手动模式 2 不受影响，
   # GUI 产物发现段自会处理缺失）
-  #: rescore requires open-pFind results (this run's open arm or
+  # v2.0.149: rescore requires open-pFind results (this run's open arm or
   # existing ones); with pfind_open=0 and nothing cached, auto rescore is
   # skipped (the two-queue steward was told at launch via
   # ISOPSV_TQ_RESCORE_OFF; manual mode 2 is unaffected)
@@ -1560,29 +1878,31 @@ for (src in list(cfg2, base_cfg)) {
     stop("punifind_rescore / punifind_denovo 设为 1（自动运行）时必须填写 punifind_exe（pUniFind 安装的 punifind 目录）\n",
          "auto mode (=1) for punifind_rescore / punifind_denovo requires punifind_exe (the installed pUniFind punifind folder)")
   }
-  # rescore 打分 pkl→fdr0.01 .spectra 的转换器官方 CLI 只产出
+  # rescore 打分 pkl→fdr0.01 .spectra 的转换器（2026-09-06）：官方 CLI 只产出
   # 打分 pkl，转换脚本随客户端分发在 code 目录；python 由 punifind_python 配置
   # （需装有 torch/numpy，如 D:/Bioinformatics/torch_cpu_venv/Scripts/python.exe），
   # 未配置时退回 GUI 导出待办口径
-  # the rescore pkl -> fdr0.01 .spectra converter the official CLI
+  # the rescore pkl -> fdr0.01 .spectra converter (2026-09-06): the official CLI
   # writes only score pkls; the shipped converter script lives in the code dir;
   # python is named by punifind_python (torch/numpy required), and when unset the
   # GUI-export to-do fallback is kept
   puni_py <- ""
   puni_py_raw <- cfg_get("punifind_python", default = "",
-                         validate = function(m) nzchar(trimws(as.character(m))))
+                         validate = function(m) nzchar(trimws(as.character(m))),
+                         verbose = TRUE)
   if (nzchar(puni_py_raw)) puni_py <- normalizePath(puni_py_raw, winslash = "/")
   converter_py <- file.path(code_dir, "punifind_rescore_convert.py")
-  # v1.0加载离线适配模块并解析
+  # v1.0（2026-09-26，deepseek GPU 适配模块配套）：加载离线适配模块并解析
   # 数据加载/CPU 进程数（config_step1 键 punifind_num_workers / punifind_num_proc
   # 优先，环境变量 PUNIFIND_NUM_WORKERS / PUNIFIND_NUM_PROC 兜底，默认 8）
   source_utf8(file.path(code_dir, "punifind_gpu_compat.R"))
   pf_nw_env <- trimws(Sys.getenv("PUNIFIND_NUM_WORKERS", unset = ""))
   pf_nw_cfg <- cfg_get("punifind_num_workers", default = pf_nw_env,
-                       validate = function(m) nzchar(trimws(as.character(m))))
+                       validate = function(m) nzchar(trimws(as.character(m))),
+                       verbose = TRUE)
   pf_nw <- suppressWarnings(as.integer(pf_nw_cfg))
   if (is.na(pf_nw) || pf_nw < 0) {
-    # v1.0未显式配置时，
+    # v1.0（2026-10-01，用户需求：全自动平台判定）：未显式配置时，
     # Windows 默认 0（dataloader 多进程在 Windows spawn 模式下 pickle 报错
     # cannot pickle 'Environment' object），非 Windows 默认 8。
     if (.Platform$OS.type == "windows") {
@@ -1595,21 +1915,22 @@ for (src in list(cfg2, base_cfg)) {
   }
   pf_np_env <- trimws(Sys.getenv("PUNIFIND_NUM_PROC", unset = ""))
   pf_np_cfg <- cfg_get("punifind_num_proc", default = pf_np_env,
-                       validate = function(m) nzchar(trimws(as.character(m))))
+                       validate = function(m) nzchar(trimws(as.character(m))),
+                       verbose = TRUE)
   pf_np <- suppressWarnings(as.integer(pf_np_cfg))
   if (is.na(pf_np) || pf_np < 1) pf_np <- 8L
-  # v1.0GPU 供给瓶颈三旋钮——推理批大小
+  # v1.0（2026-09-30，工作站 A①③/D）：GPU 供给瓶颈三旋钮——推理批大小
   # （punifind_batch_size，默认 64，可试 128–256）、片级并行路数
   # （punifind_chunk_parallel，默认 1＝顺序；16 GB 卡建议 2–3）、合并后可选
   # 清理片内数据（punifind_chunk_cleanup，1＝清理，保留 done 标记与合并产物）
   pf_bs <- suppressWarnings(as.integer(cfg_get("punifind_batch_size", default = "64",
-      validate = function(m) nzchar(trimws(as.character(m))))))
+      validate = function(m) nzchar(trimws(as.character(m))), verbose = TRUE)))
   if (is.na(pf_bs) || pf_bs < 1) pf_bs <- 64L
   pf_cp <- suppressWarnings(as.integer(cfg_get("punifind_chunk_parallel", default = "1",
-      validate = function(m) nzchar(trimws(as.character(m))))))
+      validate = function(m) nzchar(trimws(as.character(m))), verbose = TRUE)))
   if (is.na(pf_cp) || pf_cp < 1) pf_cp <- 1L
   pf_cu <- identical(trimws(cfg_get("punifind_chunk_cleanup", default = "0",
-      validate = function(m) nzchar(trimws(as.character(m))))), "1")
+      validate = function(m) nzchar(trimws(as.character(m))), verbose = TRUE)), "1")
   # pUniFind 项目准备分支：仅启用 pUniFind 时执行（denovo 与 rescore 两个项目）
   # pUniFind project preparation branch: runs only when pUniFind is enabled (denovo +
   # rescore); no mgf is copied here - step 1 already wrote the pure per-raw files under
@@ -1651,8 +1972,8 @@ for (src in list(cfg2, base_cfg)) {
       # auto rescore: when enabled with an install path and no existing output, the
       # official CLI is run by the software (the output lands back in result)
       if (!got4 && auto_rescore && nzchar(puni_exe) && !tq_on) {
-        #：two_queue_scheduler=1 时 rescore 归 GPU 管家，master 不重试
-        #: with the two-queue scheduler on, rescore belongs to the GPU
+        # v1.0：two_queue_scheduler=1 时 rescore 归 GPU 管家，master 不重试
+        # v1.0: with the two-queue scheduler on, rescore belongs to the GPU
         # steward; the master never retries it in the foreground
         # 时间线模块横幅（网页时间线按此解析）：pUniFind 单独成行，附墙钟开始/结束
         # timeline module banners (parsed by the web timeline): pUniFind gets its
@@ -1660,7 +1981,7 @@ for (src in list(cfg2, base_cfg)) {
         cat("\n==== [总程序 / Master] pUniFind 自动 rescore 开始 @ ", format(Sys.time(), "%H:%M:%S"), " ====\n", sep = "")
         cat("==== [Master] pUniFind auto rescore start @ ", format(Sys.time(), "%H:%M:%S"), " ====\n", sep = "")
         ok4 <- tryCatch({
-          # v1.0改走 GPU 适配模块（数据目录前置 + flag 面探测
+          # v1.0（2026-09-26）：改走 GPU 适配模块（数据目录前置 + flag 面探测
           # + python 直调路线 + 官方开关环境变量 + qry.res 序号压实）；旧
           # run_punifind_cli 保留为回退实现
           pf_run("rescore", puni_exe, file.path(proj, "result"),
@@ -1671,8 +1992,7 @@ for (src in list(cfg2, base_cfg)) {
           TRUE
         }, error = function(e) {
           msg <- conditionMessage(e)
-          mm <- regmatches(msg, regexpr("exit [0-9]+", msg))
-          code <- if (length(mm) > 0) sub("exit ", "", mm) else "1"
+          code <- extract_exit_code(msg)
           cat("[总程序 / Master] pUniFind 自动 rescore 失败 (exit ", code, ")\n", sep = "")
           cat("[Master] pUniFind auto rescore failed (exit ", code, ")\n", sep = "")
           cat("pUniFind 自动 rescore 错误信息：", msg, "\n")
@@ -1684,7 +2004,7 @@ for (src in list(cfg2, base_cfg)) {
           cat("==== [Master] pUniFind auto rescore done @ ", format(Sys.time(), "%H:%M:%S"), " ====\n", sep = "")
           pt_mark("pUniFind 自动 rescore", "pUniFind auto rescore")
         } else {
-          # v1.0rescore 失败时不再
+          # v1.0（2026-10-01，用户需求：全自动版本判定）：rescore 失败时不再
           # 停点等待手动干预。检测到老构建特征（AssertionError / 参数不兼容 /
           # Windows 多进程 pickle 错误）后自动跳过 rescore 并继续执行 denovo，
           # 以 3 引擎（pFind open + restrict + pUniFind denovo）完成合并。
@@ -1714,17 +2034,16 @@ for (src in list(cfg2, base_cfg)) {
     # 自动 denovo：启用开关且有安装路径时由软件调官方 CLI 完成
     # auto denovo: when enabled with an install path, the official CLI is run by the software
     got5 <- FALSE
-    # 产物自动发现（先查后跑）：pUniFind_result 里已有 csv 时直接登记为策略 5，
-    # 跳过重复运行（与 pFind 搜库复用同口径）
-    # auto-discover the output first: an existing csv under pUniFind_result is
-    # registered as strategy 5 and the run is skipped (same reuse rule as pFind)
-    csvs <- list.files(file.path(dproj, "pUniFind_result"), pattern = "\\.csv$",
-                       full.names = TRUE)
-    if (length(csvs) > 0) {
-      # P2-1优先登记收尾产物（_5_filtered/_5_merged），仅当不存在
+    # 登记一个 denovo 产物 csv（v2.0.179 抽取：自动发现段与自动运行后再发现段
+    # 原为两份逐字拷贝）。返回转换后的 .spectra 路径。
+    # Register one denovo output csv (v2.0.179: the auto-discover pass and the
+    # re-discover pass were verbatim duplicates). Returns the converted
+    # .spectra path.
+    register_denovo_csv <- function(csvs, dproj) {
+      # P2-1（2026-09-26）：优先登记收尾产物（_5_filtered/_5_merged），仅当不存在
       # 时退回流式 *_5_0.csv 并双语提示
       # final_csvs：收尾产物（推理+过滤结束才出现）；chosen_csv：本次登记的文件。
-      # P2-1确定性优先 _5_merged（pUniFind 工作流的规范输出，
+      # P2-1（2026-09-26）：确定性优先 _5_merged（pUniFind 工作流的规范输出，
       # 其 e2e golden 即比对 merged；filtered 是 percolator/FDR 过滤件，与
       # isoPSV 自身的 FDR 流程叠加语义不清）——merged 缺失才退回 filtered，
       # 再缺失才退回流式 *_5_0.csv。
@@ -1739,14 +2058,22 @@ for (src in list(cfg2, base_cfg)) {
         }
       cat("[pUniFind denovo] 登记产物：", basename(chosen_csv), "（",
           file.info(chosen_csv)$size, " 字节）\n", sep = "")
-      auto_files <- c(auto_files, denovo_csv_to_spectra(chosen_csv,
-                                                       file.path(dproj, "pUniFind_result")))
+      denovo_csv_to_spectra(chosen_csv, file.path(dproj, "pUniFind_result"))
+    }
+    # 产物自动发现（先查后跑）：pUniFind_result 里已有 csv 时直接登记为策略 5，
+    # 跳过重复运行（与 pFind 搜库复用同口径）
+    # auto-discover the output first: an existing csv under pUniFind_result is
+    # registered as strategy 5 and the run is skipped (same reuse rule as pFind)
+    csvs <- list.files(file.path(dproj, "pUniFind_result"), pattern = "\\.csv$",
+                       full.names = TRUE)
+    if (length(csvs) > 0) {
+      auto_files <- c(auto_files, register_denovo_csv(csvs, dproj))
       auto_types <- c(auto_types, "punifind_denovo")
       got5 <- TRUE
     }
     if (!got5 && auto_denovo && nzchar(puni_exe) && !tq_on) {
-      #：two_queue_scheduler=1 时 denovo 归 GPU 管家，master 不重试
-      #: with the two-queue scheduler on, denovo belongs to the GPU
+      # v1.0：two_queue_scheduler=1 时 denovo 归 GPU 管家，master 不重试
+      # v1.0: with the two-queue scheduler on, denovo belongs to the GPU
       # steward; the master never retries it in the foreground
       # 时间线模块横幅（网页时间线按此解析）：pUniFind 单独成行，附墙钟开始/结束
       # timeline module banners (parsed by the web timeline): pUniFind gets its
@@ -1754,9 +2081,9 @@ for (src in list(cfg2, base_cfg)) {
       cat("\n==== [总程序 / Master] pUniFind 自动 denovo 开始 @ ", format(Sys.time(), "%H:%M:%S"), " ====\n", sep = "")
       cat("==== [Master] pUniFind auto denovo start @ ", format(Sys.time(), "%H:%M:%S"), " ====\n", sep = "")
       ok5 <- tryCatch({
-        # v1.0同 rescore，改走 GPU 适配模块（python 直调路线
+        # v1.0（2026-09-26）：同 rescore，改走 GPU 适配模块（python 直调路线
         # 需 puni_py，否则回退 exe 启动器——新构建下 exe 路线会重组 argv 失败）
-        # 全量检测 FAIL 修复
+        # 全量检测 FAIL 修复（2026-09-26，deepseek v1.0 全量检测报告 C5）：
         # unlabeled 目录在步骤 2 期间会混入 pFind 写的 *_check.mgf（无
         # RTINSECONDS），pUniFind denovo 逐个读目录内每个 MGF → KeyError:
         # 'rtinseconds'。调用前移入 _stray 子目录（同卷移动瞬时；下游各
@@ -1764,7 +2091,7 @@ for (src in list(cfg2, base_cfg)) {
         unlab_dir <- file.path(cfg2$config_dir, "unlabeled")
         stray_mgfs <- list.files(unlab_dir, pattern = "_check\\.mgf$", full.names = TRUE)
         if (length(stray_mgfs) > 0) {
-          # 实测修复_stray 建在 unlabeled/
+          # 实弹修复（2026-09-26，deepseek v1.0 报告）：_stray 建在 unlabeled/
           # 之内会被 denovo 加载器当文件打开（PermissionError）——移到
           # config_dir 下（unlabeled 之外）
           stray_dir <- file.path(cfg2$config_dir, "_stray_mgf")
@@ -1781,8 +2108,7 @@ for (src in list(cfg2, base_cfg)) {
         TRUE
       }, error = function(e) {
         msg <- conditionMessage(e)
-        mm <- regmatches(msg, regexpr("exit [0-9]+", msg))
-        code <- if (length(mm) > 0) sub("exit ", "", mm) else "1"
+        code <- extract_exit_code(msg)
         cat("[总程序 / Master] pUniFind 自动 denovo 失败 (exit ", code, ")\n", sep = "")
         cat("[Master] pUniFind auto denovo failed (exit ", code, ")\n", sep = "")
         cat("pUniFind 自动 denovo 错误信息：", msg, "\n")
@@ -1800,26 +2126,7 @@ for (src in list(cfg2, base_cfg)) {
     csvs <- list.files(file.path(dproj, "pUniFind_result"), pattern = "\\.csv$",
                        full.names = TRUE)
     if (length(csvs) > 0 && !got5) {
-      # P2-1优先登记收尾产物（_5_filtered/_5_merged），仅当不存在
-      # 时退回流式 *_5_0.csv 并双语提示
-      # final_csvs：收尾产物（推理+过滤结束才出现）；chosen_csv：本次登记的文件。
-      # P2-1确定性优先 _5_merged（pUniFind 工作流的规范输出，
-      # 其 e2e golden 即比对 merged；filtered 是 percolator/FDR 过滤件，与
-      # isoPSV 自身的 FDR 流程叠加语义不清）——merged 缺失才退回 filtered，
-      # 再缺失才退回流式 *_5_0.csv。
-      final_csvs <- csvs[grepl("_5_(filtered|merged)\\.csv$", basename(csvs))]
-      merged_csvs <- final_csvs[grepl("_5_merged\\.csv$", basename(final_csvs))]
-      filtered_csvs <- final_csvs[grepl("_5_filtered\\.csv$", basename(final_csvs))]
-      chosen_csv <- if (length(merged_csvs) > 0) tail(merged_csvs, 1)
-        else if (length(filtered_csvs) > 0) tail(filtered_csvs, 1)
-        else {
-          cat("[pUniFind denovo] 未发现收尾产物（_5_filtered/_5_merged），退回流式 *_5_0.csv；若 denovo 仍在运行，请等收尾后重跑本步\n")
-          tail(csvs, 1)
-        }
-      cat("[pUniFind denovo] 登记产物：", basename(chosen_csv), "（",
-          file.info(chosen_csv)$size, " 字节）\n", sep = "")
-      auto_files <- c(auto_files, denovo_csv_to_spectra(chosen_csv,
-                                                       file.path(dproj, "pUniFind_result")))
+      auto_files <- c(auto_files, register_denovo_csv(csvs, dproj))
       auto_types <- c(auto_types, "punifind_denovo")
       got5 <- TRUE
     }
@@ -1858,7 +2165,7 @@ for (src in list(cfg2, base_cfg)) {
       cat("  完成后直接重跑总程序：软件自动登记为策略 4/5 并五策略合并（pFind 搜库自动复用）。\n")
       cat("  Then simply rerun the master program: the files are auto-registered as strategies 4/5 and the five-strategy merge runs (pFind results are reused).\n")
     }
-    #  the stop point only gates MANUAL to-dos (mode=2
+    # v2.0.140 (2026-10-13): the stop point only gates MANUAL to-dos (mode=2
     # without output); an AUTO-mode failure flows on into the merge and is
     # retried on the next run.
     stop4 <- need4 && manual_rescore
@@ -1879,15 +2186,15 @@ for (src in list(cfg2, base_cfg)) {
   }
 }
 # 自动搜库产物（b/c）与用户提供的外部引擎条目是并列策略：两者都必须进合并
-# （修复：此前用户提供 search_file 时自动搜库的 b/c 被丢弃，
+# （2026-09-13 修复：此前用户提供 search_file 时自动搜库的 b/c 被丢弃，
 # 竞争判定少了 pFind 开放/限定两路证据）
 # the auto-searched outputs (b/c) and the user-provided engine files are
-# parallel strategies: BOTH must enter the merge (fix: previously
+# parallel strategies: BOTH must enter the merge (2026-09-13 fix: previously
 # the auto b/c were dropped whenever the user supplied any search_file, so the
 # competition lost the pFind open/restrict evidence)
 
-# ---- 外部引擎自动运行isoPSV 调用引擎软件自动执行 ----
-# ---- external-engine auto-run isoPSV invokes the
+# ---- 外部引擎自动运行（用户口径 2026-09-17）：isoPSV 调用引擎软件自动执行 ----
+# ---- external-engine auto-run (user ruling 2026-09-17): isoPSV invokes the
 # ---- engine software itself -------------------------------------------------
 # 键：<engine>_exe（可执行文件/jar 路径）、<engine>_params（参数模板路径）、
 # <engine>_mode（0 手动 / 1 自动）。自动模式：逐 unlabeled MGF 重编号→运行
@@ -1902,35 +2209,29 @@ for (src in list(cfg2, base_cfg)) {
 # take MGFs directly; sage goes through msconvert to mzML; msfragger_boost
 # (FragPipe headless workflow) and maxquant (mqpar.xml) run when params are
 # provided, otherwise a bilingual to-do is printed.
-cfg_get <- function(key, default = NULL) {
-  #  engine keys read step1-first (same rule as the
-  # pUniFind block); the cfg2-only read silently ignored step1 keys.
-  r <- cfg_get_preferred(base_cfg, cfg2, key, default)
-  r$value
-}
-# Python 解释器探测python → py -3 启动器 → python3 回退；
-# 返回 list(cmd, pre) 或 NULL。F-6公共化至 compat.R，与
+# （v2.0.140 起 engine 键同样 step1 优先；v2.0.179 与 pUniFind 块合并为文件头
+# 的统一 cfg_get——本段调用点默认静默，语义不变。）
+# (Since v2.0.140 engine keys are also step1-first; v2.0.179 merged this with
+# the pUniFind block into the unified cfg_get at the file head - the call
+# sites here stay silent by default, semantics unchanged.)
+# Python 解释器探测（P1-4，2026-09-25）：python → py -3 启动器 → python3 回退；
+# 返回 list(cmd, pre) 或 NULL。F-6（2026-09-26）公共化至 compat.R，与
 # sysinfo_probe.R 共用同一实现。
 engine_auto_run <- function(engine, exe, params_tpl, mode, mgfs, work_dir,
-                            fasta_path, mgf_dir, code_dir, mgf_name = NULL,
+                            fasta_path, code_dir,
                             enzyme = "trypsin", en_explicit = TRUE,
                             label_mass = NULL, cand_scope = "filtered") {
   mode <- if (length(mode) == 0) "0" else mode
-  # v1.0无标记通道模式（unlabeled_channel=0）下把 NeuCode
+  # v1.0（2026-09-28）：无标记通道模式（unlabeled_channel=0）下把 NeuCode
   # 类标记修饰注入引擎参数；解析失败（质量 NA）时不注入（模板即真相）
   if (!is.null(label_mass) && (nrow(label_mass) == 0 || anyNA(label_mass$mass)))
     label_mass <- NULL
-  # v1.0en_explicit=FALSE 时"模板即真相"
+  # v1.0（2026-09-26，审查 P1-1/P1-2/P1-3）：en_explicit=FALSE 时"模板即真相"
   # ——不改写任何引擎模板，en 仅用于日志/侧车；en_explicit=TRUE 时未知酶报错，
   # 不支持的酶×引擎组合显式跳过该槽位（不再静默按模板胰蛋白酶搜库、结果也不
   # 进入竞争合并）。
   if (en_explicit) {
-    w <- character(0)
-    en <- withCallingHandlers(enzyme_resolve(enzyme),
-                              warning = function(ww) {
-                                w <<- c(w, conditionMessage(ww)); invokeRestart("muffleWarning")
-                              })
-    if (length(w) > 0) stop("未知酶切类型：", enzyme, "\nunknown enzyme type: ", enzyme)
+    en <- enzyme_resolve_strict(enzyme)
   } else en <- "template"
   if (mode != "1") return(character(0))
   if (length(exe) == 0 || !nzchar(exe) || !file.exists(exe))
@@ -1945,18 +2246,18 @@ engine_auto_run <- function(engine, exe, params_tpl, mode, mgfs, work_dir,
   }
   out_spec <- file.path(work_dir, paste0(engine, "_auto.spectra"))
   newest_mgf <- if (length(mgfs) > 0) max(file.mtime(mgfs)) else 0
-  # P2-2复用前比对参数侧车（enzyme 变化则强制重跑）
+  # P2-2（2026-09-26）：复用前比对参数侧车（enzyme 变化则强制重跑）
   rp_file <- file.path(work_dir, paste0(engine, "_auto.run_params"))
-  # B-3/G-2侧车加 fasta 与模板指纹——换库或"模板即真相"模式下
+  # B-3/G-2（2026-09-26）：侧车加 fasta 与模板指纹——换库或"模板即真相"模式下
   # 手改模板酶行都强制重跑（旧侧车只比 enzyme，换 FASTA 静默复用旧结果）
   tpl_stat2 <- file.info(params_tpl)
   rp_want <- c(paste0("enzyme=", en),
                paste0("fasta=", fasta_path),
                paste0("tpl=", format(tpl_stat2$mtime, "%Y-%m-%d %H:%M:%OS3"), "|", tpl_stat2$size),
-               # 候选口径入侧车——从 filtered 切 top5
+               # v1.0（工作站反馈#14）：候选口径入侧车——从 filtered 切 top5
                # 必须重搜，复用旧口径产物＝静默吞掉全候选开关
                paste0("cand_scope=", cand_scope))
-  #：标记注入变化须强制重跑（旧侧车只比 enzyme/fasta/模板）
+  # v1.0：标记注入变化须强制重跑（旧侧车只比 enzyme/fasta/模板）
   if (!is.null(label_mass))
     rp_want <- c(rp_want, paste0("label=", paste(sprintf("%s|%s|%.6f",
                 label_mass$name, label_mass$residue, label_mass$mass),
@@ -1973,7 +2274,7 @@ engine_auto_run <- function(engine, exe, params_tpl, mode, mgfs, work_dir,
     cat("[", engine, " auto] parameter change detected (enzyme sidecar mismatch), rerunning\n")
   }
   dir.create(work_dir, recursive = TRUE, showWarnings = FALSE)
-  #：sage 配置参数 CLI/json 路径形式按构建自适应（beta.2 只收
+  # v2.0.146：sage 配置参数 CLI/json 路径形式按构建自适应（beta.2 只收
   # file:///、部分构建对 file:/// 报 os error 123）——一次性探测，结果经
   # 闭包带入 run_one_raw 的 sage 分支
   sage_url_mode <- "url"
@@ -1981,8 +2282,8 @@ engine_auto_run <- function(engine, exe, params_tpl, mode, mgfs, work_dir,
   # MaxQuant 单次全 raw 运行（一次读全部 raw，不走逐 MGF 循环）
   # MaxQuant single all-raw run (reads every raw at once, not the per-MGF loop)
   if (engine == "maxquant") {
-    #：兼容网页壳子的 search_file_raw 键（旧键 raw_folder 仍优先）
-    #: also accept the web-shell's search_file_raw key
+    # v1.0：兼容网页壳子的 search_file_raw 键（旧键 raw_folder 仍优先）
+    # v1.0: also accept the web-shell's search_file_raw key
     raw_dir <- cfg_get("raw_folder", "")
     raws <- if (nzchar(raw_dir)) sort(list.files(raw_dir, pattern = "\\.raw$",
                                                  full.names = TRUE)) else character(0)
@@ -2041,10 +2342,10 @@ engine_auto_run <- function(engine, exe, params_tpl, mode, mgfs, work_dir,
     rep_blk("\\{RAWS\\}", raw_lines)
     rep_blk("\\{EXP\\}", exp_lines)
     rep_blk("\\{FRAC\\}", frac_lines)
-    # v1.0酶切类型改写 mqpar 的 <enzymes> 块第一个 <string>
+    # v1.0（2026-09-26）：酶切类型改写 mqpar 的 <enzymes> 块第一个 <string>
     # （模板为 Trypsin/P；none/MaxQuant 不支持的酶保持模板并提示）
-    # v1.0酶切类型改写 mqpar 的 <enzymes> 块第一个 <string>。
-    #：锚定 <enzymes> 块（E-3 消除未锚定全局 grep）；仅 en_explicit 时
+    # v1.0（2026-09-26）：酶切类型改写 mqpar 的 <enzymes> 块第一个 <string>。
+    # v1.0：锚定 <enzymes> 块（E-3 消除未锚定全局 grep）；仅 en_explicit 时
     # 改写（键缺失 = 模板即真相），none 已在入口跳过。
     if (en_explicit) {
       mq_name <- switch(en, trypsin = "Trypsin",
@@ -2074,7 +2375,15 @@ engine_auto_run <- function(engine, exe, params_tpl, mode, mgfs, work_dir,
     # 目录（实测 2.8.1.0），msms.txt 按该位置取
     msms <- file.path(dirname(raws[1]), "combined", "txt", "msms.txt")
     if (!file.exists(msms)) {
-      cat("[maxquant 自动] 无 msms.txt（exit ", st, "）\n", sep = "")
+      # v2.0.184（E7）：MQ 静默降级改醒目 WARN——旧 return(character(0)) 只是
+      # 槽位缺席合并，用户不易察觉 MQ 结果缺失；WARN 打完仍继续（不阻断），
+      # 由用户决定是否补跑。
+      # v2.0.184 (E7): MQ silent degradation now warns loudly - the old
+      # return(character(0)) just left the slot absent from the merge; the
+      # WARN fires then continues (never blocks), leaving the rerun decision
+      # to the user.
+      cat("[maxquant 自动][WARN] 无 msms.txt（exit ", st, "）——MaxQuant 槽位将缺席合并，结果不完整\n", sep = "")
+      cat("[maxquant auto][WARN] no msms.txt (exit ", st, ") - the MaxQuant slot will be ABSENT from the merge; results incomplete\n", sep = "")
       log_fail_tail(logf, "maxquant 自动", 8L)
       return(character(0))
     }
@@ -2089,14 +2398,14 @@ engine_auto_run <- function(engine, exe, params_tpl, mode, mgfs, work_dir,
       writeLines(rp_want, rp_file, useBytes = TRUE)   # P2-2 参数侧车（enzyme+fasta+模板）
       return(out_i)
     }
-    cat("[maxquant 自动] 适配器转换失败（exit ", st2, "）\n", sep = "")
+    cat("[maxquant 自动][WARN] 适配器转换失败（exit ", st2, "）——MaxQuant 槽位将缺席合并\n", sep = "")
+    cat("[maxquant auto][WARN] adapter conversion failed (exit ", st2, ") - the MaxQuant slot will be ABSENT from the merge\n", sep = "")
     log_fail_tail(logf, "maxquant 自动", 8L)
     return(character(0))
   }
-  parts <- character(0)
-  # N-2-Xmx 只在需要时探测一次（旧实现放在逐 MGF 循环内，
+  # N-2（2026-09-25）：-Xmx 只在需要时探测一次（旧实现放在逐 MGF 循环内，
   # 每个文件触发一次慢速 systeminfo）；提出循环并缓存于本函数作用域。
-  # N-2 probe -Xmx once, lazily (the old code sat inside the
+  # N-2 (2026-09-25): probe -Xmx once, lazily (the old code sat inside the
   # per-MGF loop, triggering the slow systeminfo once per file); hoisted here.
   xmx_cached <- NULL
   msfragger_xmx <- function() {
@@ -2110,17 +2419,17 @@ engine_auto_run <- function(engine, exe, params_tpl, mode, mgfs, work_dir,
     xmx_cached <<- xmx
     xmx
   }
-  # F-7Python 探测同样提出循环（原在逐 MGF 循环内，每文件
+  # F-7（2026-09-26）：Python 探测同样提出循环（原在逐 MGF 循环内，每文件
   # Sys.which ×3）；函数定义已公共化至 compat.R（F-6），此处只调用一次。
-  #：先看 config_step1 的 python_exe 显式键（用户 Python 不在 PATH
+  # v1.0：先看 config_step1 的 python_exe 显式键（用户 Python 不在 PATH
   # 时填完整路径），再回退环境目录探测。
-  # 此处原经 cfg2-only 的 cfg_get 读取，与"step1
+  # v1.0（工作站反馈#16）：此处原经 cfg2-only 的 cfg_get 读取，与"step1
   # 优先"口径不符；改 cfg_get_preferred，模板占位符（含 <>）视为空。
   py_hint <- cfg_get_preferred(base_cfg, cfg2, "python_exe", "")$value
   py_hint <- as.character(py_hint)[1]
   if (is.na(py_hint) || grepl("[<>]", py_hint)) py_hint <- ""
   pyenv <- py_detect(py_hint)
-  # ---- P4逐 raw/mgf 单独搜库 + 并行搜库 ----
+  # ---- P4（2026-09-27 用户口径）：逐 raw/mgf 单独搜库 + 并行搜库 ----
   # 循环体抽为闭包；<engine>_workers>1 时经 PSOCK 并行执行，产物按 raw 序收集；
   # 并行时各引擎的线程与内存按 worker 数摊薄（num_threads 与 -Xmx 在分支内缩放）。
   ew0 <- suppressWarnings(as.integer(tail(c(cfg_get(paste0(engine, "_workers"), "1"), "1"), 1)))
@@ -2131,7 +2440,7 @@ engine_auto_run <- function(engine, exe, params_tpl, mode, mgfs, work_dir,
     stem <- sub("\\.mgf$", "", basename(mgf))
     rmgf <- file.path(work_dir, paste0(stem, "_renum.mgf"))
     mapf <- file.path(work_dir, paste0(stem, "_renum_map.tsv"))
-    # P1-4Python 探测 + 返回码强制检查（旧写法硬用 "python"
+    # P1-4（2026-09-25）：Python 探测 + 返回码强制检查（旧写法硬用 "python"
     # 且忽略失败，下游拿到的是不存在的重编号 MGF）
     if (is.null(pyenv)) {
       stop("renumber_mgf.py 需要 Python（python / py -3 / python3 均未检出）；",
@@ -2147,10 +2456,10 @@ engine_auto_run <- function(engine, exe, params_tpl, mode, mgfs, work_dir,
                        stdout = file.path(work_dir, paste0(stem, "_renum.log")),
                        stderr = file.path(work_dir, paste0(stem, "_renum.log")))
     if (stp != 0 || !file.exists(rmgf)) {
-      #：把 _renum.log 尾部回贴主日志与错误消息——此前只报 exit
+      # v2.0.144：把 _renum.log 尾部回贴主日志与错误消息——此前只报 exit
       # code，真因（如坏 Python 的 initfsencoding）躺在分文件里，排查多绕
       # 一圈（外部测试机实测教训）。
-      #: echo the tail of _renum.log into the main log and the error
+      # v2.0.144: echo the tail of _renum.log into the main log and the error
       # message - previously only the exit code was reported and the real
       # cause (e.g. a broken Python's initfsencoding) sat in the per-file log.
       renum_log <- file.path(work_dir, paste0(stem, "_renum.log"))
@@ -2171,20 +2480,20 @@ engine_auto_run <- function(engine, exe, params_tpl, mode, mgfs, work_dir,
       pl <- readLines(params_tpl, warn = FALSE)
       i_db <- grep("^database_name", pl)
       if (length(i_db) == 1) pl[i_db] <- paste0("database_name = ", fasta_path)
-      # v1.0全候选模式（ISOPSV_CAND_ALL=1）下把
+      # v1.0（2026-09-28 用户口径）：全候选模式（ISOPSV_CAND_ALL=1）下把
       # 引擎输出深度改写为每谱前 5（output_report_topN），否则引擎自身只吐
       # 每谱 1 个候选、top5 合并池无从膨胀
       if (identical(Sys.getenv("ISOPSV_CAND_ALL"), "1")) {
         i_top <- grep("^output_report_topN", pl)
         if (length(i_top) == 1) pl[i_top] <- "output_report_topN = 5"
       }
-      #：标记修饰注入（编号续接模板已有 variable_mod_NN，避免撞车）
-      #：engine="msfragger"——端部标记折算 [^ / ]$ / n<c>前缀语法
+      # v1.0：标记修饰注入（编号续接模板已有 variable_mod_NN，避免撞车）
+      # v1.0：engine="msfragger"——端部标记折算 [^ / ]$ / n<c>前缀语法
       if (!is.null(label_mass))
         pl <- label_mod_lines(pl, label_mass, "^variable_mod_[0-9]",
                               "variable_mod_%02d = %.6f %s 3", engine = "msfragger")
-      # v1.0酶切类型改写 MSFragger 酶 1 四行（none → nonspecific）；
-      #：仅 en_explicit 时改写（键缺失 = 模板即真相）
+      # v1.0（2026-09-26）：酶切类型改写 MSFragger 酶 1 四行（none → nonspecific）；
+      # v1.0：仅 en_explicit 时改写（键缺失 = 模板即真相）
       if (en_explicit) {
         d <- enzyme_def(en)
         set_line <- function(key, val) {
@@ -2196,21 +2505,21 @@ engine_auto_run <- function(engine, exe, params_tpl, mode, mgfs, work_dir,
         set_line("search_enzyme_nocut_1", d$nocut)
         set_line("search_enzyme_sense_1", d$sense)
       }
-      # P4并行时 num_threads 按 worker 数摊薄
+      # P4（2026-09-27）：并行时 num_threads 按 worker 数摊薄
       if (ew0 > 1L)
         pl <- gsub("num_threads = [0-9]+",
                    paste0("num_threads = ", thr_per_w), pl)
       writeLines(pl, prm, useBytes = TRUE)
-      # P1-5-Xmx 可配置（msfragger_xmx），留空按可用物理内存
+      # P1-5（2026-09-25）：-Xmx 可配置（msfragger_xmx），留空按可用物理内存
       # 60% 自适应、封顶 15G；N-2：探测结果缓存，只跑一次
       xmx <- msfragger_xmx()
-      # P4并行时 -Xmx 按 worker 数摊薄（最低 2G）
+      # P4（2026-09-27）：并行时 -Xmx 按 worker 数摊薄（最低 2G）
       if (ew0 > 1L) {
         xm <- suppressWarnings(as.numeric(sub("[gG]$", "", as.character(xmx))))
         if (is.finite(xm)) xmx <- paste0(max(2, floor(xm / ew0)), "G")
       }
-      # 本地化+口径修正MSFragger 只读 mzML，此前把 MGF 直接
-      # 喂给 java -jar 属错误口径（该分支从未实测验证）——先转 mzML 再调用；
+      # 本地化+口径修正（2026-09-26）：MSFragger 只读 mzML，此前把 MGF 直接
+      # 喂给 java -jar 属错误口径（该分支从未实弹验证）——先转 mzML 再调用；
       # msconvert 配置了就用它，否则用内置纯 R 转换器 mgf_to_mzml
       mzml_msf <- file.path(work_dir, paste0(stem, "_renum_pw.mzML"))
       msconv <- cfg_get("msconvert_exe", "")
@@ -2218,20 +2527,20 @@ engine_auto_run <- function(engine, exe, params_tpl, mode, mgfs, work_dir,
         iso_system2(msconv, c(rmgf, "-o", work_dir, "--outfile", basename(mzml_msf)),
                     stdout = logf, stderr = logf)
       } else {
-        #：共享缓存（0.19 MB/s 的纯 R 转换，跨引擎不重复转）
+        # v1.0：共享缓存（0.19 MB/s 的纯 R 转换，跨引擎不重复转）
         mgf_to_mzml_cached(rmgf, mzml_msf)
         cat("[msfragger 自动] 内置 R 转换 MGF→mzML（未配置 msconvert，走共享缓存）\n")
       }
       st <- iso_system2("java", c(paste0("-Xmx", xmx), "-jar", exe, prm, mzml_msf),
                         stdout = logf, stderr = logf)
       cat("[msfragger 自动] -Xmx", xmx, "（物理内存自适应，可经 msfragger_xmx 覆盖）\n", sep = "")
-      # P1-2MSFragger 按输入文件名命名
+      # P1-2（2026-09-26，工作站 v1.0 复测）：MSFragger 按输入文件名命名
       # 产物（输入 <stem>_renum_pw.mzML ⇒ <stem>_renum_pw.tsv / .pepXML）；
       # 旧回退由 rmgf 推出同名等于没有。取 <stem>_renum_pw.tsv，缺失时在
       # work_dir 下取最新 *_renum_pw.tsv / *.pepXML
       res <- file.path(work_dir, paste0(stem, "_renum_pw.tsv"))
       if (!file.exists(res)) {
-        # P4并行模式下 work_dir 共享，回退 glob 必须锚定 stem
+        # P4（2026-09-27）：并行模式下 work_dir 共享，回退 glob 必须锚定 stem
         # （否则会捡到其他 raw 并发写出的同名产物）
         cand <- list.files(work_dir,
                            pattern = paste0("^", stem, "_renum_pw\\.(tsv|pepXML|pep\\.xml)$"),
@@ -2239,19 +2548,19 @@ engine_auto_run <- function(engine, exe, params_tpl, mode, mgfs, work_dir,
         res <- if (length(cand) > 0) cand[which.max(file.mtime(cand))] else ""
       }
     } else if (engine == "comet") {
-      # 实测修复模板 database_name 为
+      # 实弹修复（2026-09-26，deepseek v1.0 报告）：模板 database_name 为
       # 占位符 __FASTAPATH__，自动分支必须注入项目 FASTA（此前不注入，读到
       # 占位符/残留路径导致 18/18 失败）
       pl0 <- readLines(params_tpl, warn = FALSE)
       i_db0 <- grep("^database_name", pl0)
       if (length(i_db0) == 1) pl0[i_db0] <- paste0("database_name = ", fasta_path)
-      # v1.0全候选模式下每谱输出前 5
+      # v1.0（2026-09-28 用户口径）：全候选模式下每谱输出前 5
       if (identical(Sys.getenv("ISOPSV_CAND_ALL"), "1")) {
         i_ol <- grep("^num_output_lines", pl0)
         if (length(i_ol) == 1) pl0[i_ol] <- "num_output_lines = 5"
       }
-      #：标记修饰注入（编号续接模板已有 variable_modNN）
-      #：engine="comet"——端部标记折算裸 n/c（任意残基端）
+      # v1.0：标记修饰注入（编号续接模板已有 variable_modNN）
+      # v1.0：engine="comet"——端部标记折算裸 n/c（任意残基端）
       if (!is.null(label_mass))
         pl0 <- label_mod_lines(pl0, label_mass, "^variable_mod[0-9]",
                                "variable_mod%02d = %.6f %s 0 3 -1 0 0 0.0",
@@ -2259,7 +2568,7 @@ engine_auto_run <- function(engine, exe, params_tpl, mode, mgfs, work_dir,
       prm0 <- file.path(work_dir, paste0(stem, "_comet.params"))
       writeLines(pl0, prm0, useBytes = TRUE)
       params_use <- prm0
-      # v1.0/v1.0酶切类型按 Comet 参数文件自身的
+      # v1.0/v1.0（2026-09-26）：酶切类型按 Comet 参数文件自身的
       # COMET_ENZYME_INFO 表按名取编号（E-2 硬编码消除：用户改酶表/换 Comet
       # 版本都不会错配）；表内没有的酶（LysargiNase/GluC）按同格式追加编号。
       # none → 0（Cut_everywhere）。仅 en_explicit 时改写（键缺失 = 模板即真相）。
@@ -2287,13 +2596,13 @@ engine_auto_run <- function(engine, exe, params_tpl, mode, mgfs, work_dir,
     } else if (engine == "sage") {
       mzml <- file.path(work_dir, paste0(stem, "_renum_pw.mzML"))
       msconv <- cfg_get("msconvert_exe", "")
-      # 本地化msconvert 配置了就用它；否则用内置纯 R
+      # 本地化（2026-09-26）：msconvert 配置了就用它；否则用内置纯 R
       # MGF→mzML 转换器（管线输入本就是 MGF，不再硬依赖 ProteoWizard）
       if (nzchar(msconv) && file.exists(msconv)) {
         iso_system2(msconv, c(rmgf, "-o", work_dir, "--outfile", basename(mzml)),
                     stdout = logf, stderr = logf)
       } else {
-        #：共享缓存（与 msfragger 槽共用同一转换产物）
+        # v1.0：共享缓存（与 msfragger 槽共用同一转换产物）
         mgf_to_mzml_cached(rmgf, mzml)
         cat("[sage 自动] 内置 R 转换 MGF→mzML（未配置 msconvert，走共享缓存）\n")
       }
@@ -2302,7 +2611,7 @@ engine_auto_run <- function(engine, exe, params_tpl, mode, mgfs, work_dir,
       # sage 0.15 的 object_store 不识别 Windows 盘符路径（小写/大写均报
       # "Unable to recognise URL"，实测 file:/// URL 形式可正确解析为
       # Windows 路径）；json 内路径与 json 文件本身都转 file:/// 形式。
-      #：不同构建行为相反（外部测试机 file:/// 报 os error 123），
+      # v2.0.146：不同构建行为相反（Mch_TL 机 file:/// 报 os error 123），
       # 形式由 engine_auto_run 入口的 sage_probe_arg_form 探测结果决定。
       # sage's object_store rejects bare drive-letter paths; the URL form is
       # resolved to a Windows path on v0.15.0-beta.2. Since other builds flip
@@ -2320,7 +2629,7 @@ engine_auto_run <- function(engine, exe, params_tpl, mode, mgfs, work_dir,
       jt <- gsub("\\{[A-Za-z_]*MZML\\}", mzml, jt)
       jt <- gsub("\\{[A-Za-z_]*FASTA\\}", fa_url, jt)
       jt <- gsub("\\{[A-Za-z_]*OUT\\}", file_url(out_dir), jt)
-      #：标记修饰按残基聚合并入 variable_mods JSON 对象
+      # v1.0：标记修饰按残基聚合并入 variable_mods JSON 对象
       if (!is.null(label_mass)) {
         if (any(grepl('"variable_mods"', jt, fixed = TRUE))) {
           jt <- sub('"variable_mods"\\s*:\\s*\\{',
@@ -2330,8 +2639,8 @@ engine_auto_run <- function(engine, exe, params_tpl, mode, mgfs, work_dir,
           cat("[sage 自动] 模板无 variable_mods 键，标记修饰注入跳过\n")
         }
       }
-      # v1.0酶切类型改写 Sage json 的 cleave_at/c_terminal/
-      # restrict（restrict 即 P 位阻断集）；：仅 en_explicit 时改写
+      # v1.0（2026-09-26）：酶切类型改写 Sage json 的 cleave_at/c_terminal/
+      # restrict（restrict 即 P 位阻断集）；v1.0：仅 en_explicit 时改写
       # （键缺失 = 模板即真相），none 已在入口跳过
       if (en_explicit) {
         d <- enzyme_def(en)
@@ -2342,7 +2651,7 @@ engine_auto_run <- function(engine, exe, params_tpl, mode, mgfs, work_dir,
         cat("[sage 自动] enzyme → ", en, "\n", sep = "")
       }
       writeLines(jt, js, useBytes = TRUE)
-      # v1.0sage 大库 OOM 防护。
+      # v1.0（2026-10-01，Macaca 报告#1）：sage 大库 OOM 防护。
       # Macaca 实测 72K 蛋白库单笔 28.78 GiB 分配失败；小库 1.6 s 通过。
       # sage_max_db_entries 旋钮：>0 时检查 fasta 条目数，超限则跳过 sage 槽
       # 并打印警告（不终止管线）；0＝不检查（默认）。
@@ -2363,7 +2672,7 @@ engine_auto_run <- function(engine, exe, params_tpl, mode, mgfs, work_dir,
       }
       res <- file.path(work_dir, paste0(stem, "_sage.tsv"))
       if (!file.exists(res)) {
-        # P4并行模式下回退 glob 锚定本 raw 的 sage_<stem> 子目录
+        # P4（2026-09-27）：并行模式下回退 glob 锚定本 raw 的 sage_<stem> 子目录
         # （否则会捡到其他 raw 并发写出的 results.sage.tsv）
         rr <- list.files(file.path(work_dir, paste0("sage_", stem)),
                          pattern = "results\\.sage\\.tsv$",
@@ -2371,15 +2680,15 @@ engine_auto_run <- function(engine, exe, params_tpl, mode, mgfs, work_dir,
         res <- if (length(rr) > 0) rr[order(file.mtime(rr), decreasing = TRUE)[1]] else ""
       }
     } else if (engine == "metamorpheus") {
-      # MetaMorpheus 直读重编号 MGF——
-      # 此前经 msconvert 转 mzML 后本地 1.1.9 的读取层对 msconvert 输出
+      # v2.0.143（2026-10-14 实弹教训）：MetaMorpheus 直读重编号 MGF——
+      # 此前经 msconvert 转 mzML 后本机 1.1.9 的读取层对 msconvert 输出
       # 读不出任何峰（ScanExperimentalPeaks=0、全谱 Score=0、0 PSM；同一
       # mzML 在 Sage 正常）。MM 官方支持 .mgf 直搜，改 MGF 后实测正常
       # （峰数 148/Score 9.1/正确带标记序列）。另修：标记修饰写自定义
       # 修饰文件（CF 组成式：负计数+同位素括号记法）并注入
       # ListOfModsVariable（同残基多标记互斥，不能进 fixed）+ MaxMods=4；
       # LysargiNase 经 proteases_custom.tsv（|K,|R）注册后可用。
-      #  MetaMorpheus reads the renumbered MGF directly
+      # v2.0.143 (2026-10-14): MetaMorpheus reads the renumbered MGF directly
       # (msconvert-mzML yielded zero peaks in this 1.1.9 install while the
       # same file searched fine in Sage). Labels are registered via a custom
       # mods file (CF formulas) and injected into ListOfModsVariable +
@@ -2491,14 +2800,14 @@ engine_auto_run <- function(engine, exe, params_tpl, mode, mgfs, work_dir,
       res <- if (length(res) > 0) res[order(file.mtime(res), decreasing = TRUE)[1]] else ""
     } else stop("未知引擎自动类型：", engine)
     if (!nzchar(res) || !file.exists(res)) {
-      # P1-2日志区分"引擎失败"与"产物未发现"（此前 18/18
+      # P1-2（2026-09-26）：日志区分"引擎失败"与"产物未发现"（此前 18/18
       # exit 0 但找错文件名也打成"无结果"，误导排查方向）
       if (isTRUE(st != 0)) {
         cat("[", engine, " 自动] ", stem, " 引擎失败（exit ", st, "）\n", sep = "")
       } else {
         cat("[", engine, " 自动] ", stem, " 引擎 exit 0 但产物未发现（结果文件不在预期位置，日志：", logf, "）\n", sep = "")
       }
-      #：侧日志尾部回贴主日志——配错/崩因不再只留在 exit code 后面
+      # v2.0.145：侧日志尾部回贴主日志——配错/崩因不再只留在 exit code 后面
       log_fail_tail(logf, paste0(engine, " 自动"), 8L)
       return("")
     }
@@ -2519,7 +2828,7 @@ engine_auto_run <- function(engine, exe, params_tpl, mode, mgfs, work_dir,
                   stdout = logf, stderr = logf)
     }
     if (st2 == 0 && file.exists(out_i)) {
-      # P3适配器可能只写表头（results 无有效行）
+      # P3（2026-09-26，工作站反馈）：适配器可能只写表头（results 无有效行）
       # ——仅表头的产物不并入合并，日志指明跳过
       nl <- length(readLines(out_i, n = 2, warn = FALSE))
       if (nl < 2L) {
@@ -2527,13 +2836,13 @@ engine_auto_run <- function(engine, exe, params_tpl, mode, mgfs, work_dir,
         return("")
       } else return(out_i)
     } else {
-      #：适配器失败此前静默落入"无任何转换产物"，补显式消息＋日志回贴
+      # v2.0.145：适配器失败此前静默落入"无任何转换产物"，补显式消息＋日志回贴
       cat("[", engine, " 自动] ", stem, " 适配器转换失败（exit ", st2, "）\n", sep = "")
       log_fail_tail(logf, paste0(engine, " 自动"), 8L)
       return("")
     }
   }
-  # ---- P4<engine>_workers（config_step2 键，默认 1=旧行为）>1 时
+  # ---- P4（2026-09-27）：<engine>_workers（config_step2 键，默认 1=旧行为）>1 时
   # 逐 raw 并行执行；线程与内存由各引擎分支按 worker 数摊薄（xmx/thread 已在
   # 闭包外按 ew 预缩放？——此处只负责并行调度，各分支的线程改写后续版本再摊薄）
   ew <- suppressWarnings(as.integer(tail(c(cfg_get(paste0(engine, "_workers"), "1"), "1"), 1)))
@@ -2555,48 +2864,36 @@ engine_auto_run <- function(engine, exe, params_tpl, mode, mgfs, work_dir,
     return(character(0))
   }
   # 拼接（首件带头，其余去头追加）
-  heads <- lapply(parts, readLines, n = 1, warn = FALSE)
-  bodies <- lapply(parts, function(p) readLines(p, warn = FALSE)[-1])
-  lines <- c(heads[[1]], unlist(bodies, use.names = FALSE))
-  writeLines(lines, out_spec, useBytes = TRUE)
+  concat_tsv_with_header(parts, out_spec)
   writeLines(rp_want, rp_file, useBytes = TRUE)   # P2-2 参数侧车（enzyme+fasta+模板）
   cat("[", engine, " 自动] 完成：", out_spec, "\n")
   cat("[", engine, " auto] done: ", out_spec, "\n")
   out_spec
 }
 mgf_auto_dir <- file.path(cfg2$config_dir, "unlabeled")
-mgfs_auto <- sort(list.files(mgf_auto_dir, pattern = "\\.mgf$", full.names = TRUE))
-mgfs_auto <- mgfs_auto[basename(mgfs_auto) != "unlabeled.mgf" &
-                    !grepl("_check\\.mgf$", basename(mgfs_auto))]   # P1-1
-# v1.0酶切类型（config_step1 键 enzyme）；：键缺失时
+mgfs_auto <- list_pure_raw_mgfs(mgf_auto_dir)   # P1-1（2026-09-26）排除规则见 helper
+# v1.0（2026-09-26）：酶切类型（config_step1 键 enzyme）；v1.0：键缺失时
 # 不改写任何引擎模板（模板即真相），en_explicit=FALSE 传入 engine_auto_run
 en_v <- base_cfg$enzyme
 en_auto_explicit <- !is.null(en_v) && length(en_v) > 0 && nzchar(trimws(en_v[1]))
 if (en_auto_explicit) {
-  w_en2 <- character(0)
-  en_auto <- withCallingHandlers(enzyme_resolve(en_v[1]),
-                                 warning = function(ww) {
-                                   w_en2 <<- c(w_en2, conditionMessage(ww)); invokeRestart("muffleWarning")
-                                 })
-  if (length(w_en2) > 0)
-    stop("未知酶切类型：", trimws(en_v[1]), "
-unknown enzyme type: ", trimws(en_v[1]))
+  en_auto <- enzyme_resolve_strict(en_v[1])
 } else en_auto <- "trypsin"
-# v1.0无标记通道模式（unlabeled_channel=0）下，把 NeuCode
+# v1.0（2026-09-28）：无标记通道模式（unlabeled_channel=0）下，把 NeuCode
 # 类标记修饰解析成 (name,residue,mass) 注入外部引擎自动搜库参数
 ul_ch_auto <- if (!is.null(base_cfg$unlabeled_channel) && length(base_cfg$unlabeled_channel) > 0)
   tail(base_cfg$unlabeled_channel, 1) else "1"
 label_mass_auto <- if (!identical(ul_ch_auto, "1"))
   label_mod_masses(parse_label_spec(base_cfg$label_type)$mods) else NULL
 
-#：外部 de novo 引擎（Casanovo / PrimeNovo）自动运行——与搜库引擎
+# v2.0.162：外部 de novo 引擎（Casanovo / PrimeNovo）自动运行——与搜库引擎
 # 不同，无 fasta/酶切/参数模板概念：exe＝引擎可执行体或安装文件夹
 # （casanovo：casanovo.exe 或其环境文件夹，自动找 Scripts/casanovo.exe；
 # primenovo：repo 根目录，实际命令为 python -m PrimeNovo.PrimeNovo，python
 # 取 primenovo_python 键、缺省 python），params＝模型 ckpt 路径
 # （casanovo 可空＝默认模型会联网下载，建议填本地 .ckpt）。逐 MGF 运行后经
 # search_adapter_denovo.R 转成三列 .spectra；指纹侧车（exe/ckpt/mgf 数）复用。
-#: auto-run for the external de novo engines - no fasta/enzyme/
+# v2.0.162: auto-run for the external de novo engines - no fasta/enzyme/
 # template notion: exe = executable or install folder (casanovo: casanovo.exe
 # or its env folder, Scripts\casanovo.exe auto-found; primenovo: the repo
 # root, invoked as python -m PrimeNovo.PrimeNovo with primenovo_python,
@@ -2651,9 +2948,9 @@ denovo_engine_auto_run <- function(engine, exe, ckpt, mode, mgfs, work_dir,
     repo_dir <- exe
     py_exe_dn <- python_exe
     repo_dn <- ""
-    #：ssh 形态时 exe 即远端 repo 根（~/pi-PrimeNovo）——本地目录
+    # v2.0.163：ssh 形态时 exe 即远端 repo 根（~/pi-PrimeNovo）——本地目录
     # 校验跳过；本地形态仍要求 repo 目录存在
-    #: with the ssh form exe IS the remote repo root - the local
+    # v2.0.163: with the ssh form exe IS the remote repo root - the local
     # directory check is skipped; the local form still requires the repo dir
     if (!startsWith(paste0(py_exe_dn, ""), "ssh:") &&
         !dir.exists(file.path(repo_dir, "PrimeNovo"))) {
@@ -2689,10 +2986,10 @@ denovo_engine_auto_run <- function(engine, exe, ckpt, mode, mgfs, work_dir,
       st <- suppressWarnings(system2(run_cmd, args, stdout = log_f, stderr = log_f))
       raw <- file.path(work_dir, paste0(stem, ".mztab"))
     } else {
-      #：primenovo_python 以 ssh:user@host 形态时走 SSH 驱动桥
+      # v2.0.163：primenovo_python 以 ssh:user@host 形态时走 SSH 驱动桥
       # （PrimeNovo 部署在 Linux 主机/VM；MGF 推远端→远端跑→tsv 拉回，
       # 公钥免密；本地 python 路线不变）。驱动＝predictors/primenovo_ssh_driver.py
-      #: an ssh:user@host primenovo_python takes the SSH driver bridge
+      # v2.0.163: an ssh:user@host primenovo_python takes the SSH driver bridge
       # (PrimeNovo on a Linux host/VM; MGF pushed, run remotely, tsv pulled
       # back via pubkey auth; the local-python route is unchanged).
       if (startsWith(paste0(py_exe_dn, ""), "ssh:")) {
@@ -2760,7 +3057,7 @@ denovo_engine_auto_run <- function(engine, exe, ckpt, mode, mgfs, work_dir,
   # 合并各 MGF 的三列表为一个策略件 / combine per-MGF tables into one strategy file
   comb <- do.call(rbind, lapply(conv_files, function(f)
     read.delim(f, stringsAsFactors = FALSE, check.names = FALSE, na.strings = character(0))))
-  comb <- comb[!duplicated(comb$File_Name),, drop = FALSE]
+  comb <- comb[!duplicated(comb$File_Name), , drop = FALSE]
   write.table(comb, out_spec, sep = "\t", row.names = FALSE, quote = FALSE)
   writeLines(rp_want, rp_file, useBytes = TRUE)
   cat("[", engine, " 自动] 完成：", nrow(comb), " 谱（失败 MGF ", n_fail,
@@ -2771,7 +3068,7 @@ denovo_engine_auto_run <- function(engine, exe, ckpt, mode, mgfs, work_dir,
 }
 for (eng in c("msfragger", "comet", "sage", "metamorpheus", "msfragger_boost", "maxquant",
               "casanovo", "primenovo")) {
-  #：引擎 exe 生效值与来源入日志（外部测试机 实测：sage_exe 指向
+  # v2.0.145：引擎 exe 生效值与来源入日志（Mch_TL 实测：sage_exe 指向
   # MaxQuantCmd.exe 时，旧日志只有逐文件"引擎失败（exit 1）"、配错不可见）
   r_e <- cfg_get_preferred(base_cfg, cfg2, paste0(eng, "_exe"), "")
   exe_v <- r_e$value
@@ -2781,8 +3078,8 @@ for (eng in c("msfragger", "comet", "sage", "metamorpheus", "msfragger_boost", "
   cat("[", eng, " 自动] ", eng, "_exe = ", exe_v,
       if (nzchar(r_e$source)) paste0("（来源：", r_e$source, "）") else "",
       " / mode = ", mod_v, "\n", sep = "")
-  #：de novo 外部引擎走专用路线（无模板概念），转换后并入合并
-  #: de novo engines take the dedicated route (no template notion)
+  # v2.0.162：de novo 外部引擎走专用路线（无模板概念），转换后并入合并
+  # v2.0.162: de novo engines take the dedicated route (no template notion)
   if (eng %in% c("casanovo", "primenovo")) {
     wd_dn <- file.path(cfg2$config_dir, paste0(eng, "_auto"))
     py_pn <- cfg_get("primenovo_python", "")
@@ -2794,7 +3091,7 @@ for (eng in c("msfragger", "comet", "sage", "metamorpheus", "msfragger_boost", "
     }
     next
   }
-  # 网页版只填 <engine>_exe 时按内置模板回退
+  # 网页版只填 <engine>_exe 时按内置模板回退（2026-09-24 网页自动填充配套）
   # fall back to the bundled template when the web only filled <engine>_exe
   if (!nzchar(prm_v)) {
     tpl_map <- c(msfragger = "engine_templates/msfragger_con.params",
@@ -2810,7 +3107,7 @@ for (eng in c("msfragger", "comet", "sage", "metamorpheus", "msfragger_boost", "
   wd <- file.path(cfg2$config_dir, paste0(eng, "_auto"))
   if (eng %in% c("msfragger", "comet", "sage", "metamorpheus", "maxquant")) {
     sp <- engine_auto_run(eng, exe_v, prm_v, mod_v, mgfs_auto, wd,
-                          fasta_path, mgf_auto_dir, code_dir,
+                          fasta_path, code_dir,
                           enzyme = en_auto, en_explicit = en_auto_explicit,
                           label_mass = label_mass_auto, cand_scope = cand_scope)
     if (length(sp) > 0) {
@@ -2833,13 +3130,13 @@ for (eng in c("msfragger", "comet", "sage", "metamorpheus", "msfragger_boost", "
   }
 }
 
-# ---- 0. 诱饵库去除先清洗，再校正/合并 ----------------
-# ---- 0. decoy removal clean first, then revise/merge --
-# P0-1合并块原在外部引擎自动运行循环之前，引擎循环
+# ---- 0. 诱饵库去除（用户 2026-09-05 规格）：先清洗，再校正/合并 ----------------
+# ---- 0. decoy removal (user 2026-09-05 spec): clean first, then revise/merge --
+# P0-1（2026-09-26，GLM 审查）：合并块原在外部引擎自动运行循环之前，引擎循环
 # 末尾才把 <engine>_auto.spectra 追加进 auto_files——此后无任何合并语句，六个
 # 外部引擎的自动搜库产物被完整计算后静默丢弃（v1.0 的多引擎自动运行端到端
 # 实际无效）。合并块移到引擎循环之后统一收口。
-# P0-1 the merge block used to sit BEFORE the
+# P0-1 (2026-09-26, GLM review): the merge block used to sit BEFORE the
 # external-engine auto-run loop, whose tail appends <engine>_auto.spectra to
 # auto_files - with no merge afterwards, the six external engines' auto-search
 # outputs were computed and then silently dropped (the v1.0 multi-engine
@@ -2851,6 +3148,55 @@ if (length(auto_files) > 0) {
   keep <- !duplicated(comb_f)
   search_files <- comb_f[keep]
   search_types <- comb_t[keep]
+  # v2.0.178（E2b，工作站生产窗口测评×3 复现）：auto 臂与显式 search_file
+  # **同类型**并存时 strategy_slots 报"策略类型重复"整轮崩停；修复代价要求
+  # 用户同时清 step1 臂开关和 step2 模板键两处。修法＝同类型去重：显式
+  # search_file 优先，auto 臂让位并双语告警（自动产物仍留在 result 目录可
+  # 手动切换）；不同类型正常并存。
+  # v2.0.178 (E2b, workstation production-window review, reproduced 3x):
+  # an auto arm and an explicit search_file of the SAME type together hit
+  # strategy_slots' duplicate-type error and killed the whole run; recovery
+  # demanded clearing both the step-1 arm switches AND the step-2 template
+  # keys. Fix = same-type dedup: the explicit search_file wins, the auto arm
+  # yields with a bilingual warning (the auto products stay on disk for a
+  # manual switch); different types coexist as before.
+  dup_type <- duplicated(comb_t) | duplicated(comb_t, fromLast = TRUE)
+  if (any(dup_type)) {
+    drop_mask <- rep(FALSE, length(comb_f))
+    for (dt in unique(comb_t[dup_type])) {
+      is_auto <- which(comb_t == dt & comb_f %in% auto_files)
+      is_expl <- which(comb_t == dt & !comb_f %in% auto_files)
+      if (length(is_auto) > 0 && length(is_expl) > 0) {
+        cat("[策略去重] 类型 ", dt, "：显式 search_file 优先，自动臂让位（",
+            paste(comb_f[is_auto], collapse = " ; "),
+            "）——自动产物仍在盘，改用请从 search_file 移除该显式行\n", sep = "")
+        cat("[strategy dedup] type ", dt, ": the explicit search_file wins,",
+            " the auto arm yields (products kept on disk); remove the explicit",
+            " row from search_file to use them\n", sep = "")
+        drop_mask[is_auto] <- TRUE
+      }
+    }
+    # v2.0.178a（全量测试抓到的自伤回归）：仅在实际丢弃时才重赋值——
+    # L1918 在无用户 search_file 时已把 auto 产物赋入 search_files，收口
+    # c(search_files, auto_files) 每条 auto 出现两次；旧路径去重（keep）
+    # 恰好掩盖该双源，而本块无条件重赋值会把路径去重成果丢掉（纯 auto
+    # 重复时 is_expl 为空、drop_mask 全 FALSE 仍覆写）→ 177 全过的回归
+    # 在 178 崩。有显式对撞时 drop_mask 必有 TRUE，重赋值只在那时发生。
+    # v2.0.178a (self-inflicted regression caught by full testing): reassign
+    # ONLY when something is actually dropped - line 1918 already assigns the
+    # auto products into search_files when the user gave none, so the
+    # closeout's c(search_files, auto_files) lists every auto product twice;
+    # the old path-dedup (keep) masked that double source, and this block's
+    # unconditional reassignment threw the path-dedup away (pure-auto
+    # duplicates leave is_expl empty and drop_mask all-FALSE, yet still
+    # overwrote) - a regression that PASSED on 177 and broke on 178. With a
+    # real explicit-vs-auto collision drop_mask has TRUEs, and the
+    # reassignment happens only then.
+    if (any(drop_mask)) {
+      search_files <- comb_f[!drop_mask]
+      search_types <- comb_t[!drop_mask]
+    }
+  }
 }
 # 对策略 1（原始 pFind 结果）与全部补充搜库结果逐行清洗：
 #   Proteins 全为 REV_ 诱饵的行整行删除；正库与诱饵库并存的行仅保留正库蛋白
@@ -2878,7 +3224,7 @@ for (sf in search_files) {
   tag <- sub("\\.[^.]*$", "", paste0(sf_dir, "_", basename(sf)))
   clean_jobs[[length(clean_jobs) + 1L]] <- list(src = sf, tag = tag)
 }
-# （性能第二轮）：fasta 此前每个 punifind 清洗件读一遍、SAP 预处理再读
+# v1.0（性能第二轮）：fasta 此前每个 punifind 清洗件读一遍、SAP 预处理再读
 # 一遍——循环前读一次，两份变换分别复用（fa_chk = 去诱饵+toupper；
 # sap_fasta = 原始 + I→L/N→GG，均与旧口径逐字节一致）
 fasta_raw <- read_fasta(fasta_path)
@@ -2909,7 +3255,7 @@ for (j in seq_along(clean_jobs)) {
       need <- c("File_Name", "Sequence", "Proteins")
       if (all(need %in% colnames(qd))) annot <- qd[, need, drop = FALSE]
     }
-    fa_chk <- fasta_fwd_toupper   #：复用循环前读入（不再每文件读一遍）
+    fa_chk <- fasta_fwd_toupper   # v1.0：复用循环前读入（不再每文件读一遍）
   }
   r <- clean_decoy_spectra(src, csr_dir, tag, annot = annot, fa = fa_chk)
   cleaned[[j]] <- r
@@ -2983,11 +3329,11 @@ sap_path <- file.path(out_dir, "SAP_spectra_index.txt")
 write.table(sap_df, sap_path, sep = "\t", row.names = FALSE,
             col.names = TRUE, quote = FALSE)
 cat("SAP index rows:", nrow(sap_df), "->", sap_path, "\n")
-# SAP 单独记录索引同时留档一份到
+# SAP 单独记录（用户 2026-09-05 规格）：索引同时留档一份到
 # Competitive_search_result/——行内保留原始序列＋"pos,XXX->YYY[site]" 修饰与
 # revised_peptide/ref_protein 映射，可把任何下游 SAP 替换序列还原回原始形式；
 # pDeep2 的 peptide.txt 只用替换后序列，理论谱预测不受 SAP 记录影响
-# Separate SAP record the index is also archived in
+# Separate SAP record (user 2026-09-05 spec): the index is also archived in
 # Competitive_search_result/ - each row keeps the original sequence + the
 # "pos,XXX->YYY[site]" modification together with the revised_peptide /
 # ref_protein mapping, so any downstream substituted SAP sequence can be
@@ -3006,13 +3352,13 @@ pt_mark("自动提取 SAP 清单", "extract SAP index")
 # letter naturally; denovo slots (punifind_denovo) get the database look-back
 # at merge time.
 slot_letters <- strategy_slots(search_types)
-#：casanovo/primenovo 与 pUniFind denovo 同为 denovo 槽（库回帖）
-#: casanovo/primenovo join punifind_denovo as look-back slots
+# v2.0.162：casanovo/primenovo 与 pUniFind denovo 同为 denovo 槽（库回帖）
+# v2.0.162: casanovo/primenovo join punifind_denovo as look-back slots
 denovo_slots <- slot_letters[search_types %in%
   c("punifind_denovo", "casanovo", "primenovo")]
-# denovo 回帖模式keep＝仅保留能回帖的（默认）；
+# denovo 回帖模式（用户口径 2026-09-16）：keep＝仅保留能回帖的（默认）；
 # all＝放开全部（no_match 的 denovo 序列带标记参与竞争，SAP 类变异可进仲裁）
-# denovo look-back mode keep = only matching survive
+# denovo look-back mode (user ruling 2026-09-16): keep = only matching survive
 # (default); all = release everything (no-match denovo sequences compete with
 # a DB_match=no_match flag, so SAP-type variants can enter the arbitration)
 denovo_lb_mode <- "keep"
@@ -3022,13 +3368,13 @@ for (src in list(cfg2, base_cfg)) {
     denovo_lb_mode <- tail(src$denovo_lookback, 1)
   }
 }
-# （无标记通道=0）：peptide.txt 剥除标记修饰后再给 pDeep2
+# v1.0（无标记通道=0）：peptide.txt 剥除标记修饰后再给 pDeep2
 ul_ch2 <- if (!is.null(base_cfg$unlabeled_channel) && length(base_cfg$unlabeled_channel) > 0)
   tail(base_cfg$unlabeled_channel, 1) else "1"
 strip_labels2 <- if (!identical(ul_ch2, "1")) parse_label_spec(base_cfg$label_type)$mods else NULL
-#：候选长度阈值（config_step1 键 min_pep_len，缺省 7）传给合并表
+# v2.0.139：候选长度阈值（config_step1 键 min_pep_len，缺省 7）传给合并表
 # ——短肽候选（denovo/psm_file 来源不受 pFind len_lower 约束）置空出竞争
-#: pass the candidate length gate (config_step1 key min_pep_len,
+# v2.0.139: pass the candidate length gate (config_step1 key min_pep_len,
 # default 7) into the merge - short candidates (denovo/psm_file sources are
 # not covered by pFind's len_lower) are blanked out of the competition
 min_pep_len2 <- 7L
@@ -3045,7 +3391,7 @@ res <- merge_search_results(psm_file, revised_files, out_dir,
                             strip_labels = strip_labels2,
                             min_pep_len = min_pep_len2)
 pt_mark("多策略合并与 peptide.txt", "multi-strategy merge + peptide.txt")
-# 策略清单指纹侧车步骤 2 跳过判据从"peptide.txt
+# 策略清单指纹侧车（2026-09-26 功能排队①）：步骤 2 跳过判据从"peptide.txt
 # 存在"升级为"策略集合一致"——新增/删改策略后重跑步骤 2（引擎结果经参数
 # 指纹复用，仅重算合并）。user_run 用同一 strategy_identity_lines 比对。
 writeLines(strategy_identity_lines(cfg2),

@@ -57,13 +57,15 @@ isoPSV/
 │   │                                run (PDF_ON=1 gate; only the confident
 │   │                                original-wrong spectra; per-raw split files)
 │   ├── spectrum_pdf_export_A.R      automatic unlabeled-side PDF export (stage-A judgment)
-│   ├── single_spectrum_export.R     single-spectrum exporter (library version)
-│   ├── single_spectrum_export_standalone.R
-│   │                                single-spectrum exporter, fully self-contained single file
-│   │                                (embedded mass table, choose.files dialogs, base R only)
 │   ├── ReadMGF_script.R             core library (MGF parsing / scoring / merge / look-back /
 │   │                                decoy removal / result-folder resolution)
 │   └── pFind_templates/             pFind search templates
+├── tools/                            manual utilities (moved out of code/ in v2.0.179):
+│                                    single_spectrum_export.R (library) /
+│                                    single_spectrum_export_standalone.R (self-contained,
+│                                    embedded mass table, base R only), plus
+│                                    search_adapter_pnovo.R, sysinfo_probe.R,
+│                                    patch_predict_cols.R
 ├── tests/                            unit tests (run from tests/ - expect all PASS)
 ├── isoPSV.exe                       one-click web-shell launcher (double-click; prefers the
 │                                    bundled portable runtimes, falls back to PATH)
@@ -230,8 +232,8 @@ Rscript code/user_run.R          (CONFIG env var points to config_step1.txt)
   copied from another computer (pick the folder, Load): reports, spectra and
   PDF cards are then read from that folder only - no rerun needed. Clear
   switches back to this machine's current run.
-- Single spectra: code/single_spectrum_export.R (library) or the standalone
-  single_spectrum_export_standalone.R (self-contained, portable) - choose
+- Single spectra: tools/single_spectrum_export.R (library) or the standalone
+  tools/single_spectrum_export_standalone.R (self-contained, portable) - choose
   pFind-Filtered.spectra and the MGF files in the dialogs; outputs one
   scan<number>.pdf (16:9) + 300-dpi PNG per spectrum, split per MGF into
   subfolders named by the MGF stem.
@@ -291,13 +293,14 @@ isoPSV/
 │   ├── spectrum_pdf_export.R        运行结束自动导出标记侧 PDF
 │   │                                （PDF_ON=1 门控；仅可信的原始判错谱图；按 raw 拆分）
 │   ├── spectrum_pdf_export_A.R      自动导出无标记侧 PDF（阶段 A 判定）
-│   ├── single_spectrum_export.R     单谱导出器（库版本）
-│   ├── single_spectrum_export_standalone.R
-│   │                                单谱导出器，完全自包含单文件
-│   │                                （内嵌质量表、choose.files 对话框、仅基础 R）
 │   ├── ReadMGF_script.R             核心库（MGF 解析/打分/合并/回帖/去诱饵/
 │   │                                结果目录解析）
 │   └── pFind_templates/             pFind 搜库模板
+├── tools/                           手动工具（v2.0.179 自 code/ 迁出）：
+│                                    single_spectrum_export.R（库版）／
+│                                    single_spectrum_export_standalone.R（自包含、
+│                                    内嵌质量表、仅基础 R），另含 search_adapter_pnovo.R、
+│                                    sysinfo_probe.R、patch_predict_cols.R
 ├── tests/                           单元测试（在 tests/ 内运行——应全部 PASS）
 ├── isoPSV.exe                       一键网页壳启动器（双击；优先自带绿色运行时，
 │                                    回退 PATH）
@@ -359,7 +362,7 @@ Rscript code/user_run.R          （CONFIG 环境变量指向 config_step1.txt�
   `env -u LANG -u LC_ALL -u LC_CTYPE`；user_run.R 有内建 normalizePath
   兜底，但其他工具仍可能受影响。
 
-## 引擎环境前提（工作站实测归纳）
+## 引擎环境前提（工作站实弹归纳）
 
 - **MetaMorpheus**：需 **.NET 10 运行时**（`winget install
   Microsoft.DotNet.Runtime.10`）且须**官方完整命令行包**（含 `Data/`、
@@ -422,8 +425,8 @@ Rscript code/user_run.R          （CONFIG 环境变量指向 config_step1.txt�
   逐谱索引 `spectrum_pdf_index.tsv`（File_Name → 类目/文件/页码）落在
   1.unlabeled_result/ 与 2.labeled_result/ 的 PDF 旁。
 - 结果浏览：网页结果页可整夹加载从别的电脑拷来的项目文件夹（选目录→Load）：
-  报告、谱图与 PDF 卡片只读该文件夹——无需重跑。Clear 切回本地当前结果。
-- 单谱导出：code/single_spectrum_export.R（库版）或独立的
-  single_spectrum_export_standalone.R（自包含、可移植）——在对话框里选
+  报告、谱图与 PDF 卡片只读该文件夹——无需重跑。Clear 切回本机当前结果。
+- 单谱导出：tools/single_spectrum_export.R（库版）或独立的
+  tools/single_spectrum_export_standalone.R（自包含、可移植）——在对话框里选
   pFind-Filtered.spectra 与 MGF 文件；每谱输出一个 scan<编号>.pdf（16:9）＋
   300-dpi PNG，按 MGF 词干分子文件夹存放。

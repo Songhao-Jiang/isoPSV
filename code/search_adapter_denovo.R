@@ -1,12 +1,12 @@
 # =============================================================================
-# search_adapter_denovo.R —— Casanovo / PrimeNovo de novo 结果转换件
+# search_adapter_denovo.R —— Casanovo / PrimeNovo de novo 结果转换件（v2.0.162）
 #
 # 两个外部 de novo 引擎（用户自添加槽，默认无行）：
-#   casanovo：casanovo.exe sequence <mgf> -m <ckpt> -d <dir> -o <stem> -f
+#   casanovo  ：casanovo.exe sequence <mgf> -m <ckpt> -d <dir> -o <stem> -f
 #               → mzTab（PSM 段）；spectra_ref=ms_run[1]:index=N 需按 MGF
 #               谱序回映射标题；modifications 列为 mzTab 风格
 #               "14-Deamidated (N):UNIMOD:7"（null＝无修饰）
-#   primenovo：python -m PrimeNovo.PrimeNovo --mode=denovo --peak_path=<mgf>
+#   primenovo ：python -m PrimeNovo.PrimeNovo --mode=denovo --peak_path=<mgf>
 #               --model=<ckpt>（repo 根目录运行）→ denovo.tsv
 #               列＝label（＝MGF TITLE，直接可用）/prediction（ProForma）/
 #               charge/score
@@ -14,7 +14,7 @@
 # 本件把两类输出统一转成与 denovo_csv_to_spectra 相同的三列 .spectra
 # （File_Name / Sequence / Modification），供合并层按 punifind_denovo 同
 # 口径消费（denovo 槽、数据库回帖）。未知名/质量位移修饰剥除并计数（与
-#  AlphaPeptDeep 映射层同纪律）。
+# v2.0.161 AlphaPeptDeep 映射层同纪律）。
 #
 # 用法：
 #   Rscript search_adapter_denovo.R --convert casanovo  --in <mztab> --mgf <mgf> --out <spectra>
@@ -189,7 +189,7 @@ casanovo_mztab_to_spectra <- function(mztab, mgf, out_path) {
     out <- rbind(out, data.frame(File_Name = titles[ti], Sequence = sq,
                                  Modification = md, stringsAsFactors = FALSE))
   }
-  out <- out[!duplicated(out$File_Name),, drop = FALSE]
+  out <- out[!duplicated(out$File_Name), , drop = FALSE]
   write.table(out, out_path, sep = "\t", row.names = FALSE, quote = FALSE)
   cat("[casanovo] 转换 ", nrow(out), " 谱（mzTab ", length(psm), " 行；索引基 +",
       base_off - 1L, "；修饰未知剥除 ", n_unk, "）-> ", out_path, "\n", sep = "")
@@ -219,7 +219,7 @@ primenovo_tsv_to_spectra <- function(tsv, out_path) {
                                  Sequence = pf$seq, Modification = pf$mod,
                                  stringsAsFactors = FALSE))
   }
-  out <- out[!duplicated(out$File_Name),, drop = FALSE]
+  out <- out[!duplicated(out$File_Name), , drop = FALSE]
   write.table(out, out_path, sep = "\t", row.names = FALSE, quote = FALSE)
   cat("[primenovo] 转换 ", nrow(out), " 谱（修饰未知剥除 ", n_unk, "）-> ", out_path, "\n", sep = "")
   if (length(unk_names))

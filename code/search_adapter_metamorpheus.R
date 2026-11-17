@@ -5,10 +5,10 @@
 # map.tsv（可选）：重编号映射（new_scan→original_title），MetaMorpheus 搜的是重编号
 # mzML，其 Scan Number 为顺序编号——有映射时 File_Name 还原为 pFind 原始标题
 # （与 MSFragger/Sage/Comet 适配器同口径）。
-# 补 compat.R source（resolve_adapter_input 在 compat.R
+# v2.0.141（2026-10-14）：补 compat.R source（resolve_adapter_input 在 compat.R
 # 定义，此前未加载——第九轮 TL "could not find function resolve_adapter_input"
 # 的直接根因；comet/sage 等 7 个适配器均有此探测块，唯独本文件漏装）。
-#  source compat.R - resolve_adapter_input lives there
+# v2.0.141 (2026-10-14): source compat.R - resolve_adapter_input lives there
 # but was never loaded (the direct root cause of round-9 TL's "could not find
 # function resolve_adapter_input"; the 7 sibling adapters all carry this probe
 # block, only this file was missing it).
@@ -44,12 +44,12 @@ seqs <- d[["Base Sequence"]]
 # Modification: parse Full Sequence for mod positions relative to Base.
 # 位点＝修饰 token 前已消费的 Base 残基数（1 起，前缀计数法）——旧实现的
 # 累计逻辑在连续 token 时会错位（33 肽写出 29/64 位点致 pDeep2 越界崩溃，
-# 修复）。
+# 2026-09-13 修复）。
 extract_mods <- function(full, base) {
   if (is.na(full) || !nzchar(full)) return("")
   if (!grepl("\\[", full)) return("")
   # perl=TRUE：R 4.5.1 UCRT 的 TRE 引擎对 "[^\]]" 否定转义类匹配失败
-  # （实测 FALSE），PCRE 正常——此处必须用 perl
+  # （实测 FALSE），PCRE 正常——此处必须用 perl（2026-09-13 修复）
   tok_pos <- gregexpr("\\[[^\\]]+\\]", full, perl = TRUE)[[1]]
   tokens <- regmatches(full, gregexpr("\\[[^\\]]+\\]", full, perl = TRUE))[[1]]
   if (length(tokens) == 0) return("")
