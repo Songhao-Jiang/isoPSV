@@ -1619,6 +1619,160 @@ if (exists("stb_out", inherits = FALSE) && label_type != "unlabeled" &&
 
 }  # v2.0.154: closes the non-pure wrapper (predict_file stop point + stage A/B)
 
+# ---- v2.0.186：新肽分级保留（novel_retention.tsv）----------------------------
+# ---- v2.0.186: graduated novel-peptide retention (novel_retention.tsv) ----
+# 设计：Agent/isoPSV_新肽分级保留设计_20261118_v2.md
+# 四级（宽松→严格）：S1=嵌合；S2=无强竞争已注释；S3=predict>阈值；S4=打分全场第一
+# 从 master_table.tsv 读取（labeled/unlabeled 两路径通用后处理步骤）
+# 配置键：novel_retention（0=关 默认）、novel_retention_predict_min、novel_retention_min_stage
+{
+  nr_on <- "0"
+  for (src in list(cfg1, cfg3)) {
+    v <- src$novel_retention
+    if (!is.null(v) && length(v) > 0 && v[1] %in% c("0", "1")) nr_on <- v[1]
+  }
+  if (identical(nr_on, "1")) {
+    nr_pmin <- 0.7
+    for (src in list(cfg1, cfg3)) {
+      v <- suppressWarnings(as.numeric(src$novel_retention_predict_min))
+      if (!is.null(v) && length(v) > 0 && !is.na(v[1]) && v[1] > 0 && v[1] <= 1)
+        nr_pmin <- v[1]
+    }
+    nr_min_stage <- 1L
+    for (src in list(cfg1, cfg3)) {
+      v <- suppressWarnings(as.integer(src$novel_retention_min_stage))
+      if (!is.null(v) && length(v) > 0 && !is.na(v[1]) && v[1] %in% 1:4)
+        nr_min_stage <- v[1]
+    }
+    # 读 master_table（优先 labeled，回退 unlabeled）
+    mt_f <- file.path(result_dir, "2.labeled_result", "master_table.tsv")
+    nr_out_dir <- "2.labeled_result"
+    if (!file.exists(mt_f)) {
+      mt_f <- file.path(result_dir, "1.unlabeled_result", "master_table.tsv")
+      nr_out_dir <- "1.unlabeled_result"
+    }
+    if (file.exists(mt_f)) {
+      cat(sprintf("[新肽保留] novel_retention=1：predict_min=%.2f，min_stage=S%d\n", nr_pmin, nr_min_stage))
+      cat(sprintf("[novel retention] novel_retention=1: predict_min=%.2f, min_stage=S%d\n", nr_pmin, nr_min_stage))
+      nrm <- read.delim(mt_f, sep = "\t", stringsAsFactors = FALSE,
+                        check.names = FALSE, na.strings = character(0), quote = "")
+      fasta_nr <- resolve_cfg_paths(cfg1, "fasta")[1]
+      if (nzchar(fasta_nr) && file.exists(fasta_nr)) {
+        fa_ln <- readLines(fasta_nr, warn = FALSE)
+        fa_acc <- trimws(gsub("\r", "", sub("^>([^ \t]+).*", "\\1", fa_ln[grepl("^>", fa_ln)])))
+        fa_set <- fa_acc[!startsWith(fa_acc, "REV_")]
+      } else fa_set <- character(0)
+      # cand1 的蛋白是否在注释 FASTA
+      c1_prot <- if ("cand1_protein" %in% names(nrm)) as.character(nrm$cand1_protein) else rep("", nrow(nrm))
+      c1_annot <- rep(TRUE, nrow(nrm))
+      if (length(fa_set) > 0) c1_annot <- c1_prot %in% fa_set | !nzchar(c1_prot)
+      # 找有新肽候选的行（cand2+ 序列非空且 ≠ cand1）
+      has_novel <- rep(FALSE, nrow(nrm))
+      for (k in 2:5) {
+        sq_col <- paste0("cand", k, "_sequence")
+        c1_sq <- if ("cand1_sequence" %in% names(nrm)) as.character(nrm$cand1_sequence) else rep("", nrow(nrm))
+        if (sq_col %in% names(nrm)) {
+          sq <- as.character(nrm[[sq_col]])
+          has_novel <- has_novel | (nzchar(sq) & sq != c1_sq)
+        }
+      }
+      nr_rows <- list()
+      for (i in which(has_novel)) {
+        # 取最高打分的新肽候选（cand2+ 中 score 最大者）
+        best_k <- NA_integer_; best_sc <- -Inf
+        c1_sq <- as.character(nrm$cand1_sequence[i])
+        for (k in 2:5) {
+          sq_col <- paste0("cand", k, "_sequence")
+          sc_col <- paste0("cand", k, "_score")
+          if (!sq_col %in% names(nrm)) next
+          sq <- as.character(nrm[[sq_col]][i])
+          if (is.na(sq) || !nzchar(sq)) next
+          if (!is.na(c1_sq) && identical(sq, c1_sq)) next
+          sc <- suppressWarnings(as.numeric(if (sc_col %in% names(nrm)) nrm[[sc_col]][i] else ""))
+          if (!is.na(sc) && sc > best_sc) { best_sc <- sc; best_k <- k }
+        }
+        if (is.na(best_k)) next
+        k <- best_k
+        n_sq <- as.character(nrm[[paste0("cand", k, "_sequence")]][i])
+        n_mod <- as.character(nrm[[paste0("cand", k, "_modification")]][i])
+        n_score <- suppressWarnings(as.numeric(if (paste0("cand", k, "_score") %in% names(nrm))
+          nrm[[paste0("cand", k, "_score")]][i] else ""))
+        n_pcos <- suppressWarnings(as.numeric(if (paste0("cand", k, "_predict") %in% names(nrm))
+          nrm[[paste0("cand", k, "_predict")]][i] else ""))
+        # 胜者
+        win_seq <- if ("corrected_sequence" %in% names(nrm)) as.character(nrm$corrected_sequence[i]) else c1_sq
+        win_is_novel <- !identical(win_seq, c1_sq) && !c1_annot[i]
+        # S1: 嵌合——从 chim_lane 或 diff_type 推断
+        s1 <- FALSE
+        if ("diff_type" %in% names(nrm)) {
+          dt <- as.character(nrm$diff_type[i])
+          s1 <- dt %in% c("chimera_same_charge", "chimera_different_charge")
+        }
+        if (!s1 && "chim_and_original_wrong" %in% names(nrm))
+          s1 <- identical(as.character(nrm$chim_and_original_wrong[i]), "TRUE")
+        # S2: 全部已注释候选的 specific_ratio < 0.5
+        s2 <- TRUE
+        for (k2 in 2:5) {
+          if (k2 == k) next
+          sr_col <- paste0("cand", k2, "_specific_ratio_vs_cand1")
+          if (!sr_col %in% names(nrm)) next
+          sr <- suppressWarnings(as.numeric(nrm[[sr_col]][i]))
+          if (!is.na(sr) && sr >= 0.5) { s2 <- FALSE; break }
+        }
+        # S3: predict cosine > 阈值
+        s3 <- !is.na(n_pcos) && n_pcos > nr_pmin
+        # S4: 新肽打分 > cand1（已注释代表）
+        c1_sc <- suppressWarnings(as.numeric(if ("cand1_score" %in% names(nrm))
+          nrm$cand1_score[i] else ""))
+        s4 <- !is.na(n_score) && !is.na(c1_sc) && n_score > c1_sc
+        # 最高级别
+        stages_met <- character(0)
+        if (s1) stages_met <- c(stages_met, "S1")
+        if (s2) stages_met <- c(stages_met, "S2")
+        if (s3) stages_met <- c(stages_met, "S3")
+        if (s4) stages_met <- c(stages_met, "S4")
+        highest <- if (s4) "S4" else if (s3) "S3" else if (s2) "S2" else if (s1) "S1" else ""
+        h_num <- suppressWarnings(as.integer(sub("S", "", highest)))
+        if (is.na(h_num) || h_num < nr_min_stage) next
+        nr_rows[[length(nr_rows) + 1L]] <- data.frame(
+          File_Name = as.character(nrm$File_Name[i]),
+          novel_sequence = n_sq, novel_modification = n_mod,
+          novel_score = if (is.na(n_score)) "" else sprintf("%.6f", n_score),
+          novel_predict_cosine = if (is.na(n_pcos)) "" else sprintf("%.4f", n_pcos),
+          winner_sequence = win_seq, winner_is_novel = win_is_novel,
+          S1_chimeric = s1, S2_no_strong_competitor = s2,
+          S3_predict = s3, S4_top_score = s4,
+          highest_stage = highest,
+          all_stages_met = paste(stages_met, collapse = ","),
+          stringsAsFactors = FALSE)
+      }
+      nr_out <- file.path(result_dir, nr_out_dir, "novel_retention.tsv")
+      if (length(nr_rows) > 0) {
+        nr_df <- do.call(rbind, nr_rows)
+        write.table(nr_out ? nr_df : NULL, nr_out, sep = "\t", row.names = FALSE,
+                    col.names = TRUE, quote = FALSE, fileEncoding = "UTF-8")
+        cat(sprintf("[新肽保留] novel_retention.tsv：%d 行（S4=%d S3=%d S2=%d S1=%d）→ %s\n",
+                    nrow(nr_df),
+                    sum(nr_df$S4_top_score),
+                    sum(nr_df$S3_predict & !nr_df$S4_top_score),
+                    sum(nr_df$S2_no_strong_competitor & !nr_df$S3_predict & !nr_df$S4_top_score),
+                    sum(nr_df$S1_chimeric & !nr_df$S2_no_strong_competitor & !nr_df$S3_predict & !nr_df$S4_top_score),
+                    nr_out))
+        cat(sprintf("[novel retention] novel_retention.tsv: %d rows (S4=%d S3=%d S2=%d S1=%d) -> %s\n",
+                    nrow(nr_df),
+                    sum(nr_df$S4_top_score),
+                    sum(nr_df$S3_predict & !nr_df$S4_top_score),
+                    sum(nr_df$S2_no_strong_competitor & !nr_df$S3_predict & !nr_df$S4_top_score),
+                    sum(nr_df$S1_chimeric & !nr_df$S2_no_strong_competitor & !nr_df$S3_predict & !nr_df$S4_top_score),
+                    nr_out))
+      } else {
+        cat("[新肽保留] 无满足条件的新肽候选\n")
+        cat("[novel retention] no qualifying novel-peptide candidates\n")
+      }
+    }
+  }
+}
+
 # ---- SAP 索引留档到最终结果文件夹（用户 2026-09-05 规格：SAP 单独记录、
 # 不影响理论谱预测、结果可还原）----
 # 第二步已在 merge/ 与 Competitive_search_result/ 写出 SAP_spectra_index.txt

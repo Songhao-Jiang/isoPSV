@@ -1456,6 +1456,12 @@ cat(sprintf("[master table] master_table.tsv: %d rows x %d columns (conflict %d;
             nrow(mt), ncol(mt), sum(conflict_row), sum(!conflict_row),
             ifelse(labeled_run, "labeled: paired columns filled", "unlabeled: labeled columns blank")))
 
+# v2.0.186：新肽分级保留已移至 user_run.R 后处理步骤（labeled/unlabeled 两路径通用，
+# 从 master_table.tsv 读取；本文件不再包含 novel retention 代码）。
+# v2.0.186: the graduated novel-peptide retention moved to a user_run.R
+# post-processing step (shared by both paths, reading master_table.tsv;
+# no novel-retention code lives in this file anymore).
+
 # ---- 判校正行的成对标记证据统计（用户口径 2026-09-10：出总表须同时给出）----
 # 校正后保留序列＝cand1；统计其谱图有成对标记对应体（paired_state）及余弦>0.7 的数量，
 # 按合并五类（混合谱/序列替换/修饰改变/SAP/N 端非特异）分列，写入同名 summary 文件。

@@ -942,7 +942,23 @@ run_pfind_auto <- function(cfg_tpl) {
     # liveness due to the filter itself). Pathological case = our own
     # processes' command lines invisible and misread as finished -> the
     # downstream zero-result assertion stops loudly, never silently.
-    Sys.setenv(ISOPSV_PROBE = normalizePath(out_dir_auto, winslash = "\\"))
+    # v2.0.185（D9 P0 回归修复）：探活路径从 out_dir_auto（result 目录）改为
+    # dirname(dirname(cfg_tpl))（项目根）——Searcher.exe 的命令行含 cfg 文件
+    # 路径（param/auto_*.cfg），不含 result 输出路径；用 result 目录做
+    # CIM 匹配永远计 0，导致探活把自己判成"已结束"、跳出等待、断言产物不
+    # 全而整轮崩停（工作站实弹 0/4 分片）。项目根是 cfg 路径与 result 路径
+    # 的公共前缀，任何经本项目启动的 Searcher 命令行都含它。
+    # v2.0.185 (D9, P0 regression fix): the probe path moves from out_dir_auto
+    # (the result directory) to dirname(dirname(cfg_tpl)) (the project root) -
+    # Searcher.exe's command line carries the CFG file path (param/auto_*.cfg),
+    # never the result output path; matching on the result directory always
+    # counted 0, making the liveness probe read THIS project as finished,
+    # break the wait loop and die on the product assertion (the workstation's
+    # live-fire 0/4 shards). The project root is the common prefix of both
+    # the cfg and result paths, so every Searcher launched by this project
+    # carries it in its command line.
+    Sys.setenv(ISOPSV_PROBE = normalizePath(dirname(dirname(cfg_tpl)),
+                                            winslash = "\\"))
     # v2.0.183（P1-5/G1）：模式键 pfind_orphan_scope（auto=默认/project/global）
     # ——global＝旧全局口径；project＝只认 CIM 本项目匹配、查询失败按"已结束"
     # 处理并醒目告警（多项目共机宁可误报不空等 12h）；auto＝CIM 优先、失败
@@ -1096,7 +1112,23 @@ run_pfind_auto <- function(cfg_tpl) {
         q_prev <- q_now
       }
       watchdog_check("pFind 并行搜库", waited_p)
-      if (!pfind_alive()) break
+      # v2.0.185（D9 纵深防御）：探活 FALSE 但分片产物未齐时继续等（打 WARN
+      # 不跳出）——探活路径错配/CIM 静默失败等场景下不自我判死；只当产物
+      # 真齐了或硬超时才退出循环。
+      # v2.0.185 (D9, defense in depth): a FALSE liveness with incomplete
+      # shard products keeps waiting (WARN, no break) - a probe path
+      # mismatch or silent CIM failure must not self-terminate; the loop
+      # only exits when products are genuinely complete or the hard
+      # timeout hits.
+      if (!pfind_alive()) {
+        sp_chk <- sum(file.exists(file.path(out_dir_auto,
+          sprintf("w%d", seq_along(groups)), "pFind.spectra")))
+        if (sp_chk >= length(groups)) break
+        cat(sprintf("[pFind 并行][WARN] 探活=FALSE 但分片产物 %d/%d 未齐，继续等待（%d 秒）\n",
+                    sp_chk, length(groups), waited_p))
+        cat(sprintf("[pFind parallel][WARN] liveness=FALSE but shard products %d/%d incomplete; still waiting (%d s)\n",
+                    sp_chk, length(groups), waited_p))
+      }
       if (waited_p > 12L * 3600L)
         stop("pFind 并行搜库超过 12h 未结束：", paste(cfg_files, collapse = "\n"))
     }
@@ -1216,7 +1248,18 @@ run_pfind_auto <- function(cfg_tpl) {
           qry_prev <- qry_now
         }
         watchdog_check("pFind 单实例搜库", waited_s)
-        if (!pfind_alive()) break
+        # v2.0.185（D9 纵深防御）：同并行分支——探活 FALSE 但 qry.res 未齐
+        # 时继续等，不自我判死。
+        # v2.0.185 (D9, defense in depth): same as the parallel branch - a
+        # FALSE liveness with incomplete qry.res keeps waiting.
+        if (!pfind_alive()) {
+          q_chk <- length(list.files(out_dir_auto, pattern = "\\.qry\\.res$"))
+          if (q_chk >= length(mgfs)) break
+          cat(sprintf("[pFind 单实例][WARN] 探活=FALSE 但 qry.res %d/%d 未齐，继续等待（%d 秒）\n",
+                      q_chk, length(mgfs), waited_s))
+          cat(sprintf("[pFind single][WARN] liveness=FALSE but qry.res %d/%d incomplete; still waiting (%d s)\n",
+                      q_chk, length(mgfs), waited_s))
+        }
         if (waited_s > 12L * 3600L)
           stop("pFind 搜库超过 12h 未结束：", cfg_run, "\n日志 log: ", log_s)
       }
