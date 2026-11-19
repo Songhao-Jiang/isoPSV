@@ -272,6 +272,66 @@ load_unlabeled_mgfs <- function(files, cl, chunk_size = 500) {
   }
   list(titles = titles, data = data, charge = charge)
 }
+#' 快速枚举 MGF 文件集合中的谱图标题（只读 TITLE 行，分块扫描，不解析谱）。
+#' Fast title enumeration over a set of MGF files (TITLE lines only, chunked).
+#'
+#' v2.0.187：第三步覆盖检查与第一步谱题名留档共用。分块 readLines 避免大 MGF
+#' 一次性进内存；CRLF 行尾去除。
+#' v2.0.187: shared by the step-3 coverage check and the step-1 title record.
+#' Chunked readLines keeps large MGFs out of memory; CRLF tails are stripped.
+#'
+#' @param files
+#'   字符向量，MGF 文件路径。
+#'   Character vector of MGF file paths.
+#' @return
+#'   字符向量，去重后的谱题名。
+#'   Character vector of unique spectrum titles.
+#' @keywords internal
+mgf_title_set <- function(files) {
+  out <- character(0)
+  for (f in files) {
+    if (!file.exists(f)) next
+    con <- file(f, open = "rb")
+    repeat {
+      ln <- tryCatch(readLines(con, n = 200000L, warn = FALSE),
+                     error = function(e) character(0))
+      if (length(ln) == 0L) break
+      ln <- ln[startsWith(ln, "TITLE=")]
+      if (length(ln)) out <- c(out, substring(ln, 7L))
+    }
+    try(close(con), silent = TRUE)
+  }
+  out <- sub("[\r\n]+$", "", out)
+  unique(out[nzchar(out)])
+}
+#' 第一步输入签名（psm_file 内容 md5 + 大小）——完成标记的新鲜度校验。
+#' Step-1 input signature (psm_file md5 + size) for marker freshness checking.
+#'
+#' v2.0.187：psm_file 换成本（增量送检）后第一步缓存必须重建；旧版只认标记
+#' 文件是否存在，缓存与新 psm_file 长期错配（H99 现场 95% 谱无判读）。
+#' v2.0.187: replacing psm_file (increment rounds) must invalidate the step-1
+#' cache; the old marker check only tested existence, leaving the cache and the
+#' new psm_file out of sync (H99 live case: 95% of spectra got no verdict).
+#'
+#' @param psm_file
+#'   字符串，原始 psm_file 路径（转换前的用户输入）。
+#'   Character string, the original psm_file path (before any adapter conversion).
+#' @return
+#'   字符向量，可直接并入 step1_done.txt 的键值行。
+#'   Character vector of key/value lines ready for step1_done.txt.
+#' @keywords internal
+step1_input_signature <- function(psm_file) {
+  md5 <- ""
+  sz <- 0
+  if (length(psm_file) && nzchar(psm_file) && file.exists(psm_file)) {
+    md5 <- unname(tools::md5sum(psm_file))
+    if (is.na(md5)) md5 <- ""
+    sz <- file.size(psm_file)
+    if (is.na(sz)) sz <- 0
+  }
+  c(paste0("psm_md5: ", md5),
+    paste0("psm_size: ", sprintf("%.0f", as.numeric(sz))))
+}
 #' worker 端整读一个 MGF 文件并取其中一份。
 #' Worker-side whole-file read taking one equal part.
 #'
@@ -6550,6 +6610,19 @@ stageA_evaluate <- function(merged_file, unlabeled_mgf_files,
   ul_charge <- ul$charge
   ul_title_idx <- setNames(seq_along(ul_data), ul$titles)   # named vector = O(1) lookup
   cat("unlabeled spectra loaded:", length(ul_data), "\n")
+  # v2.0.187：未命中谱留痕。merged 里的谱若不在已加载的 unlabeled MGF 中，旧版
+  # 在 worker 内 is.na(li) 静默 next（无日志、无产物，下游只看到空判读）。此处
+  # 主进程先算清单，结束时与 worker 回报的"无候选"谱合并写出
+  # stageA_unmatched_spectra.tsv；有缺口时打 WARN。
+  # v2.0.187: trace the spectra that never reach stage A. A merged spectrum
+  # missing from the loaded unlabeled MGFs used to vanish inside the worker
+  # (is.na(li) -> next; no log, no product; downstream saw empty verdicts).
+  # The master process now collects the list up front, merges it with the
+  # worker-reported no-candidate spectra, and writes
+  # stageA_unmatched_spectra.tsv, WARNing when the list is non-empty.
+  fn_all <- as.character(dat$File_Name)
+  li_all <- unname(ul_title_idx[fn_all])
+  unmatched_ul <- unique(fn_all[is.na(li_all)])
   mark("加载无标记谱图", "load unlabeled spectra")
 
   # ---- 构建逐块 payload（块行＋该块谱图/predict 条目；以 parLapply payload 发送而非全部导出给每个 worker）----
@@ -6607,6 +6680,7 @@ stageA_evaluate <- function(merged_file, unlabeled_mgf_files,
     if (length(mh_v) == 0) mh_v <- rep(NA_real_, nrow(dat))
     rep_rows <- vector("list", nrow(dat))
     det_rows <- vector("list", nrow(dat))
+    no_cand <- character(0)   # v2.0.187：无候选谱清单（回报主进程落盘）
     for (j in seq_len(nrow(dat))) {
       li <- pp$li[j]
       if (is.na(li)) next
@@ -6641,7 +6715,10 @@ stageA_evaluate <- function(merged_file, unlabeled_mgf_files,
         cand[[length(cand) + 1]] <- list(idx = idx, seq = sq, mod = md,
                                         sp = NULL, predict_cosine = NA_real_, sspec = "")  # 缺失记 NA 不填 0（sp=NULL 候选保持 NA）
       }
-      if (length(cand) == 0) next
+      if (length(cand) == 0) {
+        no_cand <- c(no_cand, as.character(dat$File_Name[j]))
+        next
+      }
       # 等价归一后相同的（序列, 修饰）候选合并（如 0/1,Carbamidomethyl[AnyN-term] 与 1,Carbamidomethyl[H] 及 I/L 序列变体是同一个候选）
       # merge candidates that are the same (sequence, modification) after
       # equivalence normalization (e.g. 0/1,Carbamidomethyl[AnyN-term] and
@@ -6856,7 +6933,8 @@ stageA_evaluate <- function(merged_file, unlabeled_mgf_files,
       det_rows[[j]] <- do.call(rbind, dts)
     }
     list(report = if (length(rep_rows) > 0) do.call(rbind, rep_rows[!vapply(rep_rows, is.null, logical(1))]) else NULL,
-         detail = if (length(det_rows) > 0) do.call(rbind, det_rows[!vapply(det_rows, is.null, logical(1))]) else NULL)
+         detail = if (length(det_rows) > 0) do.call(rbind, det_rows[!vapply(det_rows, is.null, logical(1))]) else NULL,
+         no_cand = if (length(no_cand) > 0) unique(no_cand) else character(0))
   }
   # worker 在 workers 的全局环境中评估，小共享对象（aa、aa_tab、seq_cols、mod_cols、
   # supp_slots）已导出
@@ -6902,6 +6980,29 @@ stageA_evaluate <- function(merged_file, unlabeled_mgf_files,
 
   report <- do.call(rbind, lapply(res, function(x) x$report))
   detail <- do.call(rbind, lapply(res, function(x) x$detail))
+  # v2.0.187：未参与阶段 A 的谱统一落盘（两类原因各记一行）＋WARN。旧版这两类
+  # 都是静默丢弃，下游只能看到"没有判读"，无法区分"谱不合格"与"谱没进来"。
+  # v2.0.187: every spectrum that never reached stage A is written out with its
+  # reason (two classes), plus a WARN. Both used to be silent, so downstream
+  # could not tell "bad spectrum" from "spectrum never loaded".
+  no_cand_all <- unique(unlist(lapply(res, function(x) x$no_cand)))
+  if (is.null(no_cand_all)) no_cand_all <- character(0)
+  no_cand_all <- setdiff(no_cand_all, unmatched_ul)
+  um <- data.frame(
+    File_Name = c(unmatched_ul, no_cand_all),
+    reason = c(rep("not_in_unlabeled_mgf", length(unmatched_ul)),
+               rep("no_candidate", length(no_cand_all))),
+    stringsAsFactors = FALSE)
+  write.table(um, file.path(out_dir, "stageA_unmatched_spectra.tsv"), sep = "\t",
+              row.names = FALSE, quote = FALSE)
+  if (nrow(um) > 0L) {
+    cat(sprintf("[WARN] 阶段 A 未参与谱 %d 张（不在已加载的 unlabeled MGF 中 %d 张 / 无候选 %d 张）；清单：%s\n",
+                nrow(um), length(unmatched_ul), length(no_cand_all),
+                file.path(out_dir, "stageA_unmatched_spectra.tsv")))
+    cat(sprintf("[WARN] %d spectra never reached stage A (%d absent from the loaded unlabeled MGFs, %d without any candidate); list: %s\n",
+                nrow(um), length(unmatched_ul), length(no_cand_all),
+                file.path(out_dir, "stageA_unmatched_spectra.tsv")))
+  }
   mark("汇总块结果", "assemble chunk results")
   if (!is.null(report)) {
     write.table(report, file.path(out_dir, "report_A.tsv"), sep = "\t",

@@ -670,10 +670,58 @@ if (pg_mode_u %in% c("1", "2")) {
     }
   }
 }
+# v2.0.187：完成标记不再"存在即跳过"——还要比对 psm_file 签名。psm_file 换成
+# 新一版（增量送检）后第一步缓存 unlabeled/ 必须重建，否则 Stage A 只能看到旧
+# 谱集（H99 现场：送 518 谱、只判 20 谱，其余在 Stage A 内静默跳过）。签名是
+# psm_file 的 md5+大小；旧格式标记（无签名）按"采纳当前状态"处理，补写签名后
+# 照旧跳过（不打断既有项目的续跑语义），缺口由第三步覆盖检查兜底。
+# v2.0.187: the marker no longer skips step 1 on existence alone - the psm_file
+# signature must match. Replacing psm_file (increment rounds) requires rebuilding
+# the unlabeled/ cache, otherwise stage A only sees the old spectra (H99 live
+# case: 518 submitted, 20 judged, the rest silently skipped inside stage A). The
+# signature is the psm_file md5+size; a legacy marker (no signature) ADOPTS the
+# current state (appends the signature, still skips) so existing projects resume
+# unchanged - the step-3 coverage check remains the backstop.
+step1_force <- FALSE
 if (file.exists(step1_done)) {
+  mk1 <- tryCatch(readLines(step1_done, warn = FALSE), error = function(e) character(0))
+  old_sig <- sub("^psm_md5: ", "", grep("^psm_md5: ", mk1, value = TRUE))
+  psm_u1 <- tryCatch(resolve_cfg_paths(cfg1, "psm_file")[1], error = function(e) "")
+  now_sig <- if (length(psm_u1) && nzchar(psm_u1) && file.exists(psm_u1))
+    step1_input_signature(psm_u1) else character(0)
+  now_md5 <- sub("^psm_md5: ", "", grep("^psm_md5: ", now_sig, value = TRUE))
+  if (length(old_sig) == 0L) {
+    # 旧格式标记：采纳当前输入并补写签名，保持"续跑不重跑"的既有语义
+    if (length(now_sig)) {
+      try(writeLines(c(mk1, now_sig), step1_done, useBytes = TRUE), silent = TRUE)
+      cat("[第一步] 旧格式完成标记：已补写输入签名（续跑不重跑）\n")
+      cat("[Step 1] legacy marker: input signature appended (resume, no rerun)\n")
+    }
+  } else if (length(now_md5) && !identical(now_md5, old_sig)) {
+    step1_force <- TRUE
+    cat("[第一步] psm_file 已变更（", substr(old_sig, 1, 12), " -> ",
+        substr(now_md5, 1, 12), "）：完成标记作废，将重新抽谱并重跑后续\n", sep = "")
+    cat("[Step 1] psm_file changed (", substr(old_sig, 1, 12), " -> ",
+        substr(now_md5, 1, 12),
+        "): the marker is stale - re-extracting spectra and rerunning downstream\n", sep = "")
+  }
+}
+if (file.exists(step1_done) && !step1_force) {
   cat("[跳过] 第一步：完成标记已存在 -> ", step1_done, "\n")
   cat("[Skip] step 1: step-1 marker exists -> ", step1_done, "\n")
 } else {
+  if (step1_force) {
+    # 强制重建：旧缓存（逐 raw MGF）与标记一起清掉——只覆盖同名文件会残留
+    # 已不存在 raw 的旧谱，且搜索层会把这些陈旧谱一并搜进竞争池
+    # forced rebuild: drop the old cache (per-raw MGFs) together with the
+    # marker - overwriting same-named files would leave spectra of vanished
+    # raws behind, and the search would pull those stale spectra in
+    old_mgfs <- list.files(file.path(cfg_dir, "unlabeled"), pattern = "\\.mgf$",
+                           full.names = TRUE)
+    if (length(old_mgfs)) unlink(old_mgfs)
+    unlink(file.path(cfg_dir, "unlabeled", "step1_spectra.tsv"))
+    unlink(step1_done)
+  }
   run_step("[用户第一步] 无标记谱图提取",
            "[User Step 1] unlabeled-spectrum extraction",
            file.path(script_dir, "unlabeled_extract.R"),
@@ -1447,6 +1495,52 @@ if (file.exists(pg_skipped_f)) {
         cat(sprintf("[流程门控] 分类表补记跳过行 %d（%s）\n", length(sk), skip_lab))
       }
     }
+  }
+}
+
+# v2.0.187：跳过谱总表——把"门控跳过（annotated/novel_skipped）"与"阶段 A 未
+# 参与（stageA_unmatched_spectra.tsv：不在 unlabeled/ 或无候选）合成一张两列
+# 表，下游用一张表即可解释"为什么有的谱没有判读"，不必各自拼装 master_table
+# 的空值推断。始终写出（无跳过时只有表头）。
+# v2.0.187: one table for every skipped spectrum - combining the gate-skipped
+# spectra (annotated/novel_skipped) with stage-A non-participants
+# (stageA_unmatched_spectra.tsv: absent from unlabeled/ or no candidate) so
+# downstream explains "no verdict" from a single file instead of inferring it
+# from empty master_table cells. Always written (header only when nothing was
+# skipped).
+{
+  unl_dir <- file.path(result_dir, "1.unlabeled_result")
+  sk_all <- data.frame(File_Name = character(0), reason = character(0),
+                       stringsAsFactors = FALSE)
+  if (file.exists(pg_skipped_f)) {
+    s1 <- readLines(pg_skipped_f, warn = FALSE)
+    s1 <- unique(s1[nzchar(s1)])
+    if (length(s1)) sk_all <- rbind(sk_all,
+      data.frame(File_Name = s1,
+                 reason = if (identical(pg_mode_u, "2")) "novel_skipped"
+                          else "annotated_skipped",
+                 stringsAsFactors = FALSE))
+  }
+  um_f <- file.path(unl_dir, "stageA_unmatched_spectra.tsv")
+  if (file.exists(um_f)) {
+    u1 <- tryCatch(read.delim(um_f, sep = "\t", stringsAsFactors = FALSE,
+                              check.names = FALSE, quote = ""),
+                   error = function(e) NULL)
+    if (!is.null(u1) && nrow(u1) > 0 && all(c("File_Name", "reason") %in% colnames(u1))) {
+      sk_all <- rbind(sk_all,
+        data.frame(File_Name = as.character(u1$File_Name),
+                   reason = as.character(u1$reason),
+                   stringsAsFactors = FALSE))
+    }
+  }
+  if (dir.exists(unl_dir)) {
+    write.table(sk_all, file.path(unl_dir, "skipped_spectra.tsv"), sep = "\t",
+                row.names = FALSE, quote = FALSE)
+    if (nrow(sk_all) > 0)
+      cat(sprintf("[跳过总表] 1.unlabeled_result/skipped_spectra.tsv：%d 行（%s）\n",
+                  nrow(sk_all),
+                  paste(names(table(sk_all$reason)), as.integer(table(sk_all$reason)),
+                        sep = "=", collapse = ", ")))
   }
 }
 

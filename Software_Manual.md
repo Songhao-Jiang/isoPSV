@@ -262,7 +262,11 @@ MGF 谱峰数值为完整十进制（不使用科学计数法，pFind 不识别 
 - `<raw>_HCDFT.mgf`：逐 raw 的无标记（轻标）谱图，pParse 标题命名
   `raw.scan.scan.charge.fraction.dta`；每谱块 BEGIN IONS/TITLE/CHARGE/RTINSECONDS/
   PEPMASS/峰列表（m/z 强度）。第二步起只读，不再改写。
-- `step1_done.txt`：第一步完成标记（总程序断点续跑依据）。
+- `step1_done.txt`：第一步完成标记（总程序断点续跑依据）。v2.0.187 起标记内
+  记录 psm_file 的 `psm_md5`／`psm_size` 与抽取谱数 `spectra`：换 psm_file
+  后标记自动作废，总程序清掉旧缓存并重新抽谱（增量送检的正确语义）；旧格式
+  标记（无签名）按现状采纳，既有项目续跑不受影响。
+- `step1_spectra.tsv`：本次实际抽取的谱题名清单（一行一条，审计留档）。
 
 ### 第二步·自动搜库（pFind_open\result、pFind_restrict\result）
 
@@ -305,6 +309,14 @@ MGF 谱峰数值为完整十进制（不使用科学计数法，pFind 不识别 
   （权重待成对标记部分完成后标定）。
 - `classification_A.tsv`：阶段 A 逐谱判定结论。
 - `scan_details_A.tsv`：每 scan 逐候选参数明细（阈值敏感性分析免重读谱图）。
+- `stageA_unmatched_spectra.tsv`（v2.0.187）：未参与阶段 A 的谱及原因——两列
+  `File_Name`／`reason`：`not_in_unlabeled_mgf`（合并表里有、但第一步缓存的
+  `unlabeled\` 里没有这张谱：psm_file 换过而未重建缓存时的典型形态）与
+  `no_candidate`（谱在、但候选集合为空）。无缺口时只有表头。出现
+  `not_in_unlabeled_mgf` 时第三步会先停并提示删除 `unlabeled\` 重跑第一步。
+- `skipped_spectra.tsv`（v2.0.187）：全部"没有判读"的谱与原因汇总（两列
+  `File_Name`／`reason`）：门控跳过（`annotated_skipped`／`novel_skipped`）
+  与阶段 A 未参与（上述两种）。查"某条肽为什么没有判读"先看这张表。
 - `summary_A.txt`：阶段 A 统计。
 
 ### 标记样本·阶段 B 与主表（result_*\2.labeled_result\）

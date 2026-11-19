@@ -211,6 +211,68 @@ if (!identical(ul_ch, "1")) {
       stageA_tag, "，修饰标记 ", length(stageA_mods), " 个）
 ", sep = "")
 }
+# v2.0.187：阶段 A 谱集覆盖检查（H99 现场定案）。阶段 A 只读 unlabeled/（第一步
+# 缓存）的谱；psm_file 换成本后若没重建该缓存，merged 里的谱在 Stage A 内被
+# is.na(li) 静默跳过——送进去 95% 的谱拿不到判读，且无任何提示。这里在评分前
+# 先比对"merged 应参与的谱"与"unlabeled/ 实际标题集"，有缺口即停并给出修复
+# 指引（删除 unlabeled/ 重跑第一步），绝不静默降级。
+# v2.0.187: stage-A spectrum coverage check (H99 live verdict). Stage A only
+# reads the spectra cached in unlabeled/ (a step-1 artifact); if psm_file was
+# replaced without rebuilding that cache, the merged spectra are silently
+# skipped inside stage A (is.na(li) -> next) - 95% of the submitted spectra got
+# no verdict on the H99 run, with no hint. Compare the spectra that MUST take
+# part against the actual titles in unlabeled/, stop with a repair pointer
+# (delete unlabeled/ and rerun step 1) instead of degrading silently.
+{
+  chk <- read.delim(merged_file, sep = "\t", stringsAsFactors = FALSE,
+                    check.names = FALSE, na.strings = character(0))
+  need <- unique(as.character(chk$File_Name))
+  # unlabeled_channel=1 时第一步只抽 Label 首字符为 1 的谱（与
+  # extract_unlabeled_per_mgf 的 substr(Label,1,1)=="1" 判据逐字对齐，避免
+  # 空 Label 行造成假缺口）；其余（0=全标记样品）第一步 keep_all 全抽
+  # with unlabeled_channel=1 step 1 extracts only spectra whose Label starts
+  # with 1 (mirroring extract_unlabeled_per_mgf's substr(Label,1,1)=="1"
+  # verbatim so empty-Label rows never fake a gap); otherwise (0, fully
+  # labelled) keep_all extracts everything
+  if (identical(ul_ch, "1") && "Label" %in% colnames(chk)) {
+    lab <- as.character(chk$Label)
+    qual <- !is.na(lab) & substr(lab, 1, 1) == "1"
+    need <- unique(as.character(chk$File_Name[qual]))
+  }
+  have <- mgf_title_set(unlabeled_files)
+  miss <- setdiff(need, have)
+  if (length(miss) > 0L) {
+    dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+    mf <- file.path(out_dir, "stageA_unmatched_spectra.tsv")
+    write.table(data.frame(File_Name = miss,
+                           reason = "not_in_unlabeled_mgf",
+                           stringsAsFactors = FALSE),
+                mf, sep = "\t", row.names = FALSE, quote = FALSE)
+    cat(sprintf("[检查失败] 阶段 A 谱集覆盖不足：应参与 %d 张，unlabeled/ 只提供 %d 张，缺 %d 张\n",
+                length(need), length(intersect(need, have)), length(miss)))
+    cat(sprintf("[CHECK FAILED] stage-A spectrum coverage: %d expected, %d available in unlabeled/, %d missing\n",
+                length(need), length(intersect(need, have)), length(miss)))
+    cat("  清单/list: ", mf, "\n", sep = "")
+    cat("  原因：unlabeled/ 是第一步按当时 psm_file 抽出的谱图缓存；psm_file 换成本后\n")
+    cat("        缓存未重建，Stage A 找不到这些谱（旧版静默跳过，无判读、无提示）。\n")
+    cat("  Cause: unlabeled/ is the step-1 spectrum cache built from the psm_file of\n")
+    cat("         that moment; after the psm_file changed the cache was not rebuilt,\n")
+    cat("         so stage A cannot find these spectra (the old build skipped them\n")
+    cat("         silently: no verdict, no hint).\n")
+    cat("  修复：删除该目录后重跑（第一步会按当前 psm_file 重新抽谱，第二步因 MGF\n")
+    cat("        变新自动重新搜库）：\n")
+    cat("  Fix: delete the directory and rerun (step 1 re-extracts from the current\n")
+    cat("       psm_file; step 2 re-searches because the MGFs are newer):\n")
+    cat("        ", file.path(cfg_dir, "unlabeled"), "\n", sep = "")
+    stop("stage-A spectrum coverage check failed: ", length(miss),
+         " spectra in the merged table are absent from unlabeled/ (see ",
+         mf, ")", call. = FALSE)
+  }
+  cat(sprintf("[流程检查] 阶段 A 谱集覆盖完整：%d / %d 张谱在 unlabeled/ 中\n",
+              length(need), length(need)))
+  cat(sprintf("[flow check] stage-A spectrum coverage complete: %d / %d\n",
+              length(need), length(need)))
+}
 res <- stageA_evaluate(merged_file, unlabeled_files, predict_file,
                        wA, thrA, out_dir, max_cores, worker_cores = worker_cores,
                        label_tag = stageA_tag, label_mods = stageA_mods,

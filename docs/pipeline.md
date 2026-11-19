@@ -114,6 +114,19 @@ Rscript code/user_run.R          (CONFIG env var points to config_step1.txt)
   result_* folders and rerunning creates a fresh timestamped one. A stale
   config_step3.txt (pointing into a removed result folder) is rebuilt
   automatically.
+- Step-1 cache and psm_file changes (v2.0.187): step 1 writes the unlabeled
+  spectra into `unlabeled\` once and records the psm_file md5+size in
+  `unlabeled\step1_done.txt` (plus the extracted title list in
+  `unlabeled\step1_spectra.tsv`). Replacing `psm_file` (an increment round that
+  submits only new peptides) invalidates the marker: the old cache is cleared
+  and the spectra are re-extracted, and step 2 re-searches because the MGFs are
+  newer. Step 3 refuses to score when the merged table holds spectra absent
+  from `unlabeled\` - it writes `stageA_unmatched_spectra.tsv` and stops with
+  the repair pointer instead of silently dropping them. `1.unlabeled_result\
+  skipped_spectra.tsv` lists every spectrum that got no verdict, with the
+  reason (`annotated_skipped` / `novel_skipped` / `not_in_unlabeled_mgf` /
+  `no_candidate`). Legacy markers (no signature) are adopted as-is so existing
+  projects keep resuming.
 - Strategy typing: the optional parallel key `search_file_type` in
   config_step2.txt names the strategy type of each search_file entry (see the
   slot table above); when omitted, the file/folder naming rules infer it.
@@ -339,6 +352,15 @@ Rscript code/user_run.R          （CONFIG 环境变量指向 config_step1.txt�
   （阶段 B、主表、PDF）。已有 result_* 目录时复用最新一个（断点续跑）；删除
   全部 result_* 再跑会新建时间戳目录。指向已删目录的过期 config_step3.txt
   会自动重建。
+- 第一步缓存与 psm_file 变更（v2.0.187）：第一步把无标记谱写入 `unlabeled\`，
+  并在 `unlabeled\step1_done.txt` 记下 psm_file 的 md5+大小（另在
+  `unlabeled\step1_spectra.tsv` 留抽取题名清单）。换 `psm_file`（增量送检
+  只送新肽）会使标记失效：旧缓存清掉、重新抽谱，第二步因 MGF 变新自动重搜。
+  第三步在评分前核对——合并表里的谱必须都出现在 `unlabeled\`，缺一张即写
+  `stageA_unmatched_spectra.tsv` 并停下给出修复指引，绝不静默丢弃。
+  `1.unlabeled_result\skipped_spectra.tsv` 汇总全部没有判读的谱及原因
+  （`annotated_skipped` / `novel_skipped` / `not_in_unlabeled_mgf` /
+  `no_candidate`）。旧格式标记（无签名）按现状采纳，既有项目续跑不受影响。
 - 策略类型：config_step2.txt 的可选并行键 `search_file_type` 逐条指明
   search_file 的策略类型（见上表）；缺省时按文件/文件夹命名规则推断。固定
   类型重复为错误；可反复用 "other" 填充 p..z 通用槽位。

@@ -52,6 +52,11 @@ if (identical(cs1, "top5")) {
 # 解析 psm_file 与 MGF 列表；常规搜库结果缺失时立即报错
 # Resolve the psm_file and the MGF list; stop immediately if the regular search result is missing
 psm_file <- resolve_cfg_paths(cfg, "psm_file")[1]
+# v2.0.187：签名锚点取"用户原始输入"（psm_prepare_input 可能把 XML 等转成临时
+# 表，转换产物每次不同，不能进签名）
+# v2.0.187: the signature anchors on the USER's original input (psm_prepare_input
+# may convert XML and friends into a temp table that differs every run)
+psm_sig_src <- psm_file
 # v2.0.136（用户口径 2026-10-11 晚）：全场景谱图入口检测（detect_spectra.R）
 # 文件夹/文件列表 × raw/mgf/混合 × MaxQuant raw 警告＋自动传递
 source(file.path(getwd(), "detect_spectra.R"))
@@ -178,11 +183,24 @@ cat("逐 raw 纯无标记 MGF：", length(per_raw_files), " 个文件\n")
 cat("per-raw pure unlabeled MGFs: ", length(per_raw_files), " files\n")
 pt_mark("逐 raw 重切", "per-raw re-split")
 
-# 写第一步完成标记（总程序以它作为跳过检查：存在即跳过第一步）
-# write the step-1 completion marker (the master program skips step 1 when it exists)
+# v2.0.187：落盘本次实际抽取的谱题名清单（排障与覆盖核对用；第三步以 MGF 现场
+# 标题为准，本文件只作审计留档）
+# v2.0.187: record the titles actually extracted this round (audit trail; step 3
+# checks the live MGF titles, this file is for diagnosis)
+tit1 <- mgf_title_set(per_raw_files)
+writeLines(tit1, file.path(cfg$config_dir, "unlabeled", "step1_spectra.tsv"),
+           useBytes = TRUE)
+cat("抽取谱题名留档：unlabeled/step1_spectra.tsv（", length(tit1), " 条）\n", sep = "")
+cat("extracted titles recorded: unlabeled/step1_spectra.tsv (", length(tit1), ")\n", sep = "")
+
+# 写第一步完成标记（总程序以它作为跳过检查：存在且 psm_file 签名一致才跳过）
+# write the step-1 completion marker (the master program skips step 1 only when
+# it exists AND the psm_file signature matches)
 writeLines(c("isoPSV step 1 done",
              paste0("files: ", length(per_raw_files)),
-             paste0("at: ", Sys.time())),
+             paste0("at: ", Sys.time()),
+             step1_input_signature(psm_sig_src),
+             paste0("spectra: ", length(tit1))),
            file.path(cfg$config_dir, "unlabeled", "step1_done.txt"))
 cat("完成标记：unlabeled/step1_done.txt\n")
 cat("completion marker: unlabeled/step1_done.txt\n")
